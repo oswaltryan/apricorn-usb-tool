@@ -210,8 +210,10 @@ def find_apricorn_device():
             elif 'ASMedia' in item.usbController:
                 item.usbController = 'ASMedia'
             return item
-
-if __name__ == '__main__':
+def main():
     drives = list_usb_drives()
     for d in drives:
         print(d)
+
+if __name__ == '__main__':
+    main()

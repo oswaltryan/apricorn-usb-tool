@@ -12,6 +12,7 @@ from .windows_usb import (
     UsbTreeError,
     ExtractionError,
     WinUsbDeviceInfo,
+    main,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "UsbTreeError",
     "ExtractionError",
     "WinUsbDeviceInfo",
+    "main",
 ]
