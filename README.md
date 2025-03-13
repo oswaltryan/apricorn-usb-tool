@@ -15,3 +15,7 @@ pip install --no-index --find-links=wheels -r requirements.txt
 # 4. Install as a module for global access
 
 pip install . 
+
+# 5 Invoke anywhere 
+
+usb
