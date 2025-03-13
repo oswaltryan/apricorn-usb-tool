@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 from pprint import pprint
 import win32com.client
+from importlib.resources import path
 
 ## Get drive size
 def bytes_to_gb(bytes_value):
@@ -52,8 +53,8 @@ def list_usb_drives():
 # --- The remainder of the file contains functions for usbview-cli integration and Apricorn device detection ---
 
 # Define the path to the usbview-cli executable
-EXE = r"C:\Users\itadmin\Desktop\cv_suite_testing\usbview-cli-0.1.0\usbview-cli.exe"
-
+with path("windows_usb.utils", "USBDeview.exe") as exe_path:
+    EXE = str(exe_path)
 class UsbTreeError(Exception):
     """ Custom exception for USB tree errors """
     def __init__(self, msg):

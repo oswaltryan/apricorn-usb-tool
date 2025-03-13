@@ -1,7 +1,7 @@
 import os
 from setuptools import setup, find_packages
 
-
+# Read README for long description if available.
 long_description = ''
 if os.path.exists('README.md'):
     with open('README.md', encoding='utf-8') as f:
@@ -21,6 +21,11 @@ setup(
     install_requires=[
         'pywin32==309',  # Dependency locked to pywin32 version 309
     ],
+    # Include the executable in the package.
+    package_data={
+        'windows_usb': ['utils/usbdeview.exe'],
+    },
+    include_package_data=True,
     entry_points={
         'console_scripts': [
             # Creates a globally available CLI command 'usb'
