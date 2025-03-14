@@ -1,25 +1,22 @@
-"""
-Python wrapper for usbview-cli console application.
-"""
-
-import xml.etree.ElementTree as XMLTree
+import libusb as usb
+import ctypes as ct
 from dataclasses import dataclass
-from typing import Sequence
-from pathlib import Path
 import subprocess
 from pprint import pprint
 import win32com.client
-from importlib.resources import path
 
-## Get drive size
+# Configure libusb to use the included libusb-1.0.dll
+usb.config(LIBUSB=None)
+
+# --- WMI + Utility Code for Listing USB Drives ---
 def bytes_to_gb(bytes_value):
+    """Convert bytes to gigabytes."""
     return bytes_value / (1024 ** 3)
 
 def find_closest(target, options):
-    # Return the element in 'options' with the smallest absolute difference from target
+    """Find the closest value in 'options' to 'target'."""
     return min(options, key=lambda x: abs(x - target))
 
-# Example list of values in GB
 closest_values = [16, 30, 60, 120, 240, 480, 1000, 2000]
 
 locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
@@ -34,7 +31,6 @@ def list_usb_drives():
     usb_drives = service.ExecQuery(query)
     drives_info = []
     for drive in usb_drives:
-        # Check if 'Size' attribute exists
         if getattr(drive, "Size", None) is None:
             continue
         try:
@@ -50,23 +46,14 @@ def list_usb_drives():
         })
     return drives_info
 
-# --- The remainder of the file contains functions for usbview-cli integration and Apricorn device detection ---
-
-# Define the path to the usbview-cli executable
-with path("windows_usb.utils", "USBDeview.exe") as exe_path:
-    EXE = str(exe_path)
+# --- USB Device Information Using libusb ---
 class UsbTreeError(Exception):
-    """ Custom exception for USB tree errors """
-    def __init__(self, msg):
-        self.msg = msg
-
-class ExtractionError(Exception):
-    """ Exception raised when extraction of device info fails """
+    """Custom exception for USB tree errors."""
     pass
 
 @dataclass
 class WinUsbDeviceInfo:
-    """ Dataclass representing a USB device information structure """
+    """Dataclass representing a USB device information structure."""
     idProduct: str
     idVendor: str
     bcdDevice: str
@@ -77,144 +64,178 @@ class WinUsbDeviceInfo:
     device_id: str
     vendor: str
     usb_protocol: str
-    usbController: str = ""  # Stores controller name
-    SCSIDevice: str = ""     # Stores UASP status (True/False as string)
-    driveSize: str = ""      # Stores the device volume size (rounded)
+    usbController: str = ""
+    SCSIDevice: str = ""
+    driveSize: str = ""
 
-def list_devices_info(vids: Sequence[str] = []) -> list[WinUsbDeviceInfo]:
-    """
-    Retrieves a list of USB devices, optionally filtered by vendor IDs.
-    """
-    devs = []
-    for el in get_usb_tree().iterfind('.//UsbDevice'):
-        try:
-            dev = _extract_device_info(el)
-        except ExtractionError:
-            continue
-        else:
-            devs.append(dev)
-    
-    if vids:
-        vids = [x.lower() for x in vids]
-        devs = list(filter(lambda dev: dev.idVendor in vids, devs))
-    
-    return devs
+def parse_usb_version(bcd):
+    """Convert a BCD USB version to a human-readable string (e.g., '2.0', '3.1')."""
+    major = (bcd & 0xFF00) >> 8
+    minor = (bcd & 0x00F0) >> 4
+    subminor = bcd & 0x000F
+    if subminor:
+        return f"{major}.{minor}{subminor}"
+    return f"{major}.{minor}"
 
-def get_usb_tree() -> XMLTree.Element:
-    """
-    Retrieves the USB tree as an XML element.
-    """
-    cmd = [str(EXE)]
+def read_string_descriptor_ascii(handle, index):
+    """Read a string descriptor from a USB device and return it as ASCII."""
+    if index == 0:
+        return ""
+    buf = (ct.c_ubyte * 256)()
+    rc = usb.get_string_descriptor_ascii(handle, index, buf, ct.sizeof(buf))
+    if rc < 0:
+        return ""
+    return bytes(buf[:rc]).decode("utf-8", errors="replace")
+
+def dump_device_config(handle):
+    """Dumps the active configuration and its endpoints for debugging."""
+    print("\n  [*] Dumping Device Configuration...")
+    dev = usb.get_device(handle)
+    dev_desc = usb.device_descriptor()
+    rc = usb.get_device_descriptor(dev, ct.byref(dev_desc))
+    if rc < 0:
+        print(f"  - Failed to get device descriptor: {rc}")
+        return
+
+    print(f"  - Total Configurations Available: {dev_desc.bNumConfigurations}")
+
+    config_ptr = ct.POINTER(usb.config_descriptor)()
+    rc = usb.get_active_config_descriptor(dev, ct.byref(config_ptr))
+    if rc < 0:
+        print(f"  - Failed to get configuration descriptor: {rc}")
+        return
+
     try:
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False
-        )
-    except Exception as e:
-        raise UsbTreeError(f"Failed to execute command: {e}")
-    
-    if result.returncode != 0:
-        raise UsbTreeError(f"usbtree-cli returned non-zero exit code {result.returncode}")
-    
-    try:
-        return XMLTree.fromstring(result.stdout)
-    except Exception as e:
-        raise UsbTreeError(f"Error parsing usbtree-cli output: {e}")
+        config = config_ptr.contents
+        print(f"  - Active Configuration: {config.bConfigurationValue}")
+        print(f"  - Number of Interfaces: {config.bNumInterfaces}")
 
-def _extract_device_info(el: XMLTree.Element) -> WinUsbDeviceInfo:
-    """
-    Extracts device information from an XML element.
-    """
-    device_id, usb_protocol = el.get('DeviceId'), el.get('UsbProtocol')
-    dscptr = el.find('./ConnectionInfo/ConnectionInfoStruct/DeviceDescriptor')
-    
-    if not device_id or not usb_protocol or dscptr is None:
-        raise ExtractionError()
-    
-    bcdDevice, bcdUSB = dscptr.get('BcdDevice'), dscptr.get('BcdUSB')
-    idVendor, idProduct = dscptr.get('IdVendor'), dscptr.get('IdProduct')
-    
-    if not (bcdDevice and bcdUSB and idVendor and idProduct):
-        raise ExtractionError()
-    
-    return WinUsbDeviceInfo(
-        device_id=device_id,
-        usb_protocol=usb_protocol,
-        idProduct=_to_hex_s(idProduct).lower(),
-        idVendor=_to_hex_s(idVendor).lower(),
-        bcdDevice=_to_hex_s(bcdDevice),
-        bcdUSB=_parse_bcdUSB(bcdUSB),
-        iManufacturer=_find_txt_or_blank(el, './ConnectionInfo/ManufacturerString'),
-        iProduct=_find_txt_or_blank(el, './ConnectionInfo/ProductString'),
-        iSerial=_find_txt_or_blank(el, './ConnectionInfo/SerialString'),
-        vendor=_find_txt_or_blank(el, './ConnectionInfo/VendorString'),
-    )
+        for i in range(config.bNumInterfaces):
+            interface = config.interface[i]
+            for alt in range(interface.num_altsetting):
+                intf_desc = interface.altsetting[alt]
+                print(f"  - Interface {intf_desc.bInterfaceNumber}, Alt Setting {intf_desc.bAlternateSetting}")
+                print(f"    Number of Endpoints: {intf_desc.bNumEndpoints}")
 
-def _find_txt_or_blank(el: XMLTree.Element, xpath: str) -> str:
-    """ Retrieves text from an XML element or returns an empty string """
-    res = el.find(xpath)
-    return _make_blank_if_missing(res.text if res is not None else '')
-
-def _make_blank_if_missing(txt: str) -> str:
-    """ Converts error indicators into an empty string """
-    return '' if txt.startswith("ERROR") or txt == '?' else txt
-
-def _parse_bcdUSB(bcdUSB: str) -> str:
-    """ Converts a USB version string from hexadecimal """
-    hex_s = _to_hex_s(bcdUSB)
-    return f"{int(hex_s[0:2])}.{hex_s[2:]}"
-
-def _to_hex_s(int_str: str) -> str:
-    """ Converts an integer string to a zero-padded hexadecimal string """
-    try:
-        return f"{int(int_str):0>4x}"
-    except ValueError:
-        raise ExtractionError()
+                for ep_idx in range(intf_desc.bNumEndpoints):
+                    ep = intf_desc.endpoint[ep_idx]
+                    ep_addr = ep.bEndpointAddress
+                    ep_type = ep.bmAttributes & 0x03
+                    direction = "IN" if (ep_addr & 0x80) else "OUT"
+                    types = {0: "Control", 1: "Isochronous", 2: "Bulk", 3: "Interrupt"}
+                    print(f"    - Endpoint 0x{ep_addr:02x} ({direction}, {types.get(ep_type, 'Unknown')})")
+    finally:
+        usb.free_config_descriptor(config_ptr)
 
 def find_apricorn_device():
-    """
-    Searches for an Apricorn device among USB devices.
-    """
-    output = list_devices_info()
-    
-    for item in output:
-        if item.idProduct == '0351':
-            continue
-        
-        item.SCSIDevice = "True" if "MSFT30" in item.device_id else "False"
-        
-        ps_script = rf'''
-            $vendor = "{item.idVendor}"
-            Get-CimInstance Win32_USBControllerDevice | ForEach-Object {{
-                $device = Get-CimInstance -CimInstance $_.Dependent
-                if (($device.DeviceID -like "*VID_$vendor*") -and ($device.DeviceID -notlike "*0351*")) {{
-                    $controller = Get-CimInstance -CimInstance $_.Antecedent
-                    Write-Output $controller.Name
-                }}
-            }}
-            '''
-        
-        result = subprocess.run(["powershell.exe", "-Command", ps_script],
-                                capture_output=True, text=True)
-        item.usbController = result.stdout.strip()
-        
-        if item.idVendor == '0984':
-            # For demonstration, assign driveSize from the first USB drive (if any)
+    """Searches for an Apricorn device (VID '0984') and returns its info."""
+    ctx = ct.POINTER(usb.context)()
+    rc = usb.init(ct.byref(ctx))
+    if rc != 0:
+        raise UsbTreeError("Failed to initialize libusb")
+
+    try:
+        dev_list = ct.POINTER(ct.POINTER(usb.device))()
+        cnt = usb.get_device_list(ctx, ct.byref(dev_list))
+        if cnt < 0:
+            raise UsbTreeError("Failed to get device list")
+
+        for i in range(cnt):
+            dev = dev_list[i]
+            desc = usb.device_descriptor()
+            rc = usb.get_device_descriptor(dev, ct.byref(desc))
+            if rc != 0:
+                continue
+
+            idVendor = desc.idVendor
+            if idVendor != 0x0984:  # Skip non-Apricorn devices
+                continue
+
+            idProduct = desc.idProduct
+            if idProduct == 0x0351:  # Skip specific product ID
+                continue
+
+            bcdDevice = desc.bcdDevice
+            bcdUSB = desc.bcdUSB
+
+            iManufacturer = ""
+            iProduct = ""
+            iSerial = ""
+
+            handle = ct.POINTER(usb.device_handle)()
+            rc = usb.open(dev, ct.byref(handle))
+            if rc == 0:
+                try:
+                    iManufacturer = read_string_descriptor_ascii(handle, desc.iManufacturer)
+                    iProduct = read_string_descriptor_ascii(handle, desc.iProduct)
+                    iSerial = read_string_descriptor_ascii(handle, desc.iSerialNumber)
+                    dump_device_config(handle)  # Dump configuration if opened successfully
+                finally:
+                    usb.close(handle)
+            # Removed warning print statement here
+
+            device_id = f"USB\\VID_0984&PID_{idProduct:04X}\\{iSerial}"
+            usb_protocol = f"USB {parse_usb_version(bcdUSB).split('.')[0]}.0"
+
+            dev_info = WinUsbDeviceInfo(
+                idProduct=f"{idProduct:04x}",
+                idVendor="0984",
+                bcdDevice=f"{bcdDevice:04x}",
+                bcdUSB=parse_usb_version(bcdUSB),
+                iManufacturer=iManufacturer,
+                iProduct=iProduct,
+                iSerial=iSerial,
+                device_id=device_id,
+                vendor=iManufacturer,
+                usb_protocol=usb_protocol
+            )
+
+            # Add additional fields
+            dev_info.SCSIDevice = "True" if "MSFT30" in dev_info.device_id else "False"
+            dev_info.usbController = _get_usb_controller_name(dev_info.idVendor)
             drives = list_usb_drives()
             if drives:
-                item.driveSize = drives[0]['closest_match']
-            if 'Intel' in item.usbController:
-                item.usbController = 'Intel'
-            elif 'ASMedia' in item.usbController:
-                item.usbController = 'ASMedia'
-            return item
+                dev_info.driveSize = str(drives[0]['closest_match'])
+            if 'Intel' in dev_info.usbController:
+                dev_info.usbController = 'Intel'
+            elif 'ASMedia' in dev_info.usbController:
+                dev_info.usbController = 'ASMedia'
+
+            usb.free_device_list(dev_list, 1)
+            return dev_info
+
+        usb.free_device_list(dev_list, 1)
+        return None  # No Apricorn device found
+    finally:
+        usb.exit(ctx)
+
+# --- PowerShell Utility to Get USB Controller Name ---
+def _get_usb_controller_name(idVendor: str) -> str:
+    """Retrieve the USB controller name for a given vendor ID using PowerShell."""
+    ps_script = rf'''
+        $vendor = "{idVendor}"
+        Get-CimInstance Win32_USBControllerDevice | ForEach-Object {{
+            $device = Get-CimInstance -CimInstance $_.Dependent
+            if (($device.DeviceID -like "*VID_$vendor*") -and ($device.DeviceID -notlike "*0351*")) {{
+                $controller = Get-CimInstance -CimInstance $_.Antecedent
+                Write-Output $controller.Name
+            }}
+        }}
+    '''
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-Command", ps_script],
+        capture_output=True, text=True
+    )
+    return result.stdout.strip()
+
+# --- Main Function ---
 def main():
-    drives = list_usb_drives()
-    for d in drives:
-        print(d)
+    """Find and display information about an Apricorn device."""
+    dev = find_apricorn_device()
+    if dev:
+        pprint(vars(dev))
+    else:
+        print("No Apricorn device found.")
 
 if __name__ == '__main__':
     main()
