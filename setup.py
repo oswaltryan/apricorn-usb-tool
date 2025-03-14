@@ -21,6 +21,7 @@ setup(
     install_requires=[
         'pywin32==309',       # For WMI functionality
         'libusb==1.0.27.post4',  # For USB device enumeration
+        'pygments==2.19.1', #suppress errors in term
     ],
     setup_requires=[
         'setuptools>=75.8.0',  # Build-time dependency for setup.py
