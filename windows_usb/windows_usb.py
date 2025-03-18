@@ -25,7 +25,7 @@ service = locator.ConnectServer(".", "root\\cimv2")
 def list_usb_drives():
     """
     Returns a list of USB drives with their caption, size in GB,
-    and the closest matching size from a predefined list.
+    closest matching size, and PNPDeviceID.
     """
     query = "SELECT * FROM Win32_DiskDrive WHERE InterfaceType='USB'"
     usb_drives = service.ExecQuery(query)
@@ -43,6 +43,7 @@ def list_usb_drives():
             "caption": drive.Caption,
             "size_gb": size_gb,
             "closest_match": closest_match,
+            "pnpdeviceid": drive.PNPDeviceID  # Added for device correlation
         })
     return drives_info
 
@@ -86,17 +87,18 @@ def read_string_descriptor_ascii(handle, index):
     if rc < 0:
         return ""
     return bytes(buf[:rc]).decode("utf-8", errors="replace")
+
 def get_usb_devices_from_wmi():
     query = "SELECT * FROM Win32_PnPEntity WHERE DeviceID LIKE 'USB%'"
     usb_devices = service.ExecQuery(query)
 
     devices_info = []
     for device in usb_devices:
-        device_id = device.DeviceID  # e.g. "USB\\VID_0984&PID_1407\\SERIAL"
+        device_id = device.DeviceID
         if not device_id.upper().startswith("USB\\VID_"):
             continue
 
-        parts = device_id.split("\\", 2)  # ["USB", "VID_0984&PID_1407", "SERIAL"]
+        parts = device_id.split("\\", 2)
         if len(parts) < 2:
             continue
 
@@ -156,13 +158,16 @@ def dump_device_config(handle):
         usb.free_config_descriptor(config_ptr)
 
 def find_apricorn_device():
-    """Searches for an Apricorn device (VID '0984') and returns its info."""
-    wmi_usb_devices = get_usb_devices_from_wmi()  # Get WMI data upfront
+    """Searches for Apricorn devices (VID '0984') and returns a list of their info."""
+    wmi_usb_devices = get_usb_devices_from_wmi()
+    all_drives = list_usb_drives()  # Get all drives once upfront
 
     ctx = ct.POINTER(usb.context)()
     rc = usb.init(ct.byref(ctx))
     if rc != 0:
         raise UsbTreeError("Failed to initialize libusb")
+
+    devices = []
 
     try:
         dev_list = ct.POINTER(ct.POINTER(usb.device))()
@@ -179,21 +184,16 @@ def find_apricorn_device():
 
             idVendor = f"{desc.idVendor:04x}"
             idProduct = f"{desc.idProduct:04x}"
-            if idVendor != '0984':  # Skip non-Apricorn devices
-                continue
-            if idProduct == '0351':  # Skip specific product ID
+            if idVendor != '0984' or idProduct == '0351':
                 continue
 
             bcdDevice = f"{desc.bcdDevice:04x}"
             bcdUSB = parse_usb_version(desc.bcdUSB)
 
-            # Try to open the device with libusb
-            iManufacturer = ""
-            iProduct = ""
-            iSerial = ""
+            # Device info collection
             handle = ct.POINTER(usb.device_handle)()
-            rc = usb.open(dev, ct.byref(handle))
-            if rc == 0:
+            iManufacturer = iProduct = iSerial = ""
+            if usb.open(dev, ct.byref(handle)) == 0:
                 try:
                     iManufacturer = read_string_descriptor_ascii(handle, desc.iManufacturer)
                     iProduct = read_string_descriptor_ascii(handle, desc.iProduct)
@@ -202,13 +202,11 @@ def find_apricorn_device():
                 finally:
                     usb.close(handle)
             else:
-                # Fall back to WMI if libusb fails
-                matching_wmi = [d for d in wmi_usb_devices if d['vid'] == idVendor and d['pid'] == idProduct]
+                matching_wmi = next((d for d in wmi_usb_devices if d['vid'] == idVendor and d['pid'] == idProduct), None)
                 if matching_wmi:
-                    wmi_device = matching_wmi[0]  # Take first match
-                    iManufacturer = wmi_device['manufacturer']
-                    iProduct = wmi_device['description']
-                    iSerial = wmi_device['serial']
+                    iManufacturer = matching_wmi['manufacturer']
+                    iProduct = matching_wmi['description']
+                    iSerial = matching_wmi['serial']
 
             device_id = f"USB\\VID_{idVendor}&PID_{idProduct}\\{iSerial}"
             usb_protocol = f"USB {bcdUSB.split('.')[0]}.0"
@@ -226,33 +224,32 @@ def find_apricorn_device():
                 usb_protocol=usb_protocol
             )
 
-            # Add additional fields
-            dev_info.SCSIDevice = "True" if "MSFT30" in dev_info.device_id else "False"
-            dev_info.usbController = _get_usb_controller_name(dev_info.idVendor)
-            drives = list_usb_drives()
-            if drives:
-                dev_info.driveSize = str(drives[0]['closest_match'])
-            if 'Intel' in dev_info.usbController:
-                dev_info.usbController = 'Intel'
-            elif 'ASMedia' in dev_info.usbController:
-                dev_info.usbController = 'ASMedia'
+            # Drive size matching
+            matched_drives = [d for d in all_drives if iSerial and d["pnpdeviceid"] and iSerial in d["pnpdeviceid"]]
+            dev_info.driveSize = str(matched_drives[0]["closest_match"]) if matched_drives else "N/A"
 
-            usb.free_device_list(dev_list, 1)
-            return dev_info
+            # Controller info
+            controller_name = _get_usb_controller_name(idVendor)
+            dev_info.usbController = 'Intel' if 'Intel' in controller_name else \
+                                    'ASMedia' if 'ASMedia' in controller_name else controller_name
+            dev_info.SCSIDevice = "True" if "MSFT30" in device_id else "False"
+
+            devices.append(dev_info)
 
         usb.free_device_list(dev_list, 1)
-        return None  # No Apricorn device found
+        return devices if devices else None
     finally:
-        usb.exit(ctx)# --- PowerShell Utility to Get USB Controller Name ---
+        usb.exit(ctx)
+
 def _get_usb_controller_name(idVendor: str) -> str:
-    """Retrieve the USB controller name for a given vendor ID using PowerShell."""
+    """Retrieve the USB controller name using PowerShell."""
     ps_script = rf'''
         $vendor = "{idVendor}"
         Get-CimInstance Win32_USBControllerDevice | ForEach-Object {{
             $device = Get-CimInstance -CimInstance $_.Dependent
-            if (($device.DeviceID -like "*VID_$vendor*") -and ($device.DeviceID -notlike "*0351*")) {{
+            if ($device.DeviceID -like "*VID_$vendor*" -and $device.DeviceID -notlike "*0351*") {{
                 $controller = Get-CimInstance -CimInstance $_.Antecedent
-                Write-Output $controller.Name
+                $controller.Name
             }}
         }}
     '''
@@ -260,16 +257,17 @@ def _get_usb_controller_name(idVendor: str) -> str:
         ["powershell.exe", "-NoProfile", "-Command", ps_script],
         capture_output=True, text=True
     )
-    return result.stdout.strip()
+    return result.stdout.strip().split('\n')[0] if result.stdout else ""
 
-# --- Main Function ---
 def main():
-    """Find and display information about an Apricorn device."""
-    dev = find_apricorn_device()
-    if dev:
-        pprint(vars(dev))
+    """Find and display information about Apricorn devices."""
+    devices = find_apricorn_device()
+    if devices:
+        for idx, dev in enumerate(devices, 1):
+            print(f"\n=== Device #{idx} ===")
+            pprint(vars(dev))
     else:
-        print("No Apricorn device found.")
+        print("No Apricorn devices found.")
 
 if __name__ == '__main__':
     main()

@@ -4,8 +4,6 @@ import time
 import logging
 from windows_usb import find_apricorn_device, WinUsbDeviceInfo, get_usb_devices_from_wmi
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
-
 class UsbAutoLockTest:
     def __init__(self, poll_interval=10):
         self.poll_interval = poll_interval
@@ -13,10 +11,19 @@ class UsbAutoLockTest:
 
     async def select_device(self):
         logging.info("Searching for Apricorn device...")
-        self.target_device = find_apricorn_device()  # Full enumeration once.
-        if not self.target_device:
-            logging.error("No Apricorn device found.")
+        devices = find_apricorn_device()  # Now returns a list
+        
+        if not devices:
+            logging.error("No Apricorn devices found.")
             sys.exit(1)
+            
+        # Select first device by default (maintain original behavior)
+        self.target_device = devices[0]
+        
+        if len(devices) > 1:
+            logging.warning(f"Found {len(devices)} devices. Using first one:")
+            for idx, dev in enumerate(devices):
+                logging.warning(f"{idx+1}. {dev.iProduct} (SN: {dev.iSerial})")
         
         logging.info(f"Target device selected: {self.target_device.iProduct} "
                      f"({self.target_device.idVendor}:{self.target_device.idProduct})")
