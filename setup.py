@@ -9,7 +9,7 @@ if os.path.exists('README.md'):
 
 setup(
     name='win-usb-tool',
-    version='0.1.0',
+    version='0.1.1',
     description='Python tool to detect and display USB device information using libusb on Windows.',
     long_description=long_description,
     long_description_content_type='text/markdown',
