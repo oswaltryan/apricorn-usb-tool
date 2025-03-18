@@ -6,7 +6,8 @@ from .windows_usb import (
     list_usb_drives,
     find_apricorn_device,
     main,
-    WinUsbDeviceInfo
+    WinUsbDeviceInfo,
+    get_usb_devices_from_wmi
 )
 
 # __all__ = [
