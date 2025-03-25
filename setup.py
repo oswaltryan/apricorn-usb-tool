@@ -1,4 +1,5 @@
 import os
+import platform
 from setuptools import setup, find_packages
 
 # Read README for long description if available
@@ -7,9 +8,14 @@ if os.path.exists("README.md"):
     with open("README.md", encoding="utf-8") as f:
         long_description = f.read()
 
+# Only include setup_requires on Windows
+setup_requires = []
+if platform.system().lower().startswith("win"):
+    setup_requires = ["setuptools>=75.8.0"]
+
 setup(
     name='win-usb-tool',  
-    version='0.1.3',
+    version='0.1.4',
     description='Cross-platform USB tool with no Linux deps, Windows libusb + WMI on Windows only.',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -25,11 +31,12 @@ setup(
         'libusb==1.0.27.post4; platform_system=="Windows"',
         'pygments==2.19.1; platform_system=="Windows"',
     ],
-    setup_requires=['setuptools>=75.8.0'],
+
+    setup_requires=setup_requires,
 
     include_package_data=True,
 
-    # Console entry points for both the main tool and the update command:
+    # Console entry points for main tool and update command:
     entry_points={
         'console_scripts': [
             'usb=usb_tool.cross_usb:main',
