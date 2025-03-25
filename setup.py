@@ -9,7 +9,7 @@ if os.path.exists("README.md"):
 
 setup(
     name='win-usb-tool',  
-    version='0.1.2',
+    version='0.1.3',
     description='Cross-platform USB tool with no Linux deps, Windows libusb + WMI on Windows only.',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -19,27 +19,21 @@ setup(
     packages=find_packages(),
     python_requires='>=3.9',
 
-    # -------------------------------
     # Only install Windows deps on Windows
-    # -------------------------------
     install_requires=[
         'pywin32==309; platform_system=="Windows"',
         'libusb==1.0.27.post4; platform_system=="Windows"',
         'pygments==2.19.1; platform_system=="Windows"',
-        # ^ If needed on Windows only
     ],
     setup_requires=['setuptools>=75.8.0'],
 
-    # This includes all package data from MANIFEST.in or in the package dir
     include_package_data=True,
 
-    # ---------------------------------------
-    # Single console entry point: "usb"
-    # ---------------------------------------
+    # Console entry points for both the main tool and the update command:
     entry_points={
         'console_scripts': [
-            # When user types "usb", we call "usb_tool.cross_usb:main"
             'usb=usb_tool.cross_usb:main',
+            'usb-update=usb_tool.update:main',
         ],
     },
 
