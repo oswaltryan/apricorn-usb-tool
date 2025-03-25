@@ -267,7 +267,7 @@ def find_apricorn_device() -> Optional[List[WinUsbDeviceInfo]]:
 # ---------------
 # Example Usage
 # ---------------
-if __name__ == "__main__":
+def main(find_apricorn_device):
     devices = find_apricorn_device()
     if not devices:
         print("No Apricorn devices found.")
@@ -276,3 +276,6 @@ if __name__ == "__main__":
             print(f"\n=== Apricorn Device #{idx} ===")
             for field_name, value in dev.__dict__.items():
                 print(f"  {field_name}: {value}")
+
+if __name__ == "__main__":
+    main(find_apricorn_device)
