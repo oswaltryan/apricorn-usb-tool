@@ -44,6 +44,7 @@ def list_usb_drives():
             "caption": drive.Caption,
             "size_gb": size_gb,
             "closest_match": closest_match,
+            "iProduct": drive.PNPDeviceID[drive.PNPDeviceID.index("PROD_") + 5 : drive.PNPDeviceID.index("&REV")].replace('_', ' '),
             "pnpdeviceid": drive.PNPDeviceID  # Added for device correlation
         })
     return drives_info
@@ -203,7 +204,12 @@ def find_apricorn_device():
                 finally:
                     usb.close(handle)
             else:
-                matching_wmi = next((d for d in wmi_usb_devices if d['vid'] == idVendor and d['pid'] == idProduct), None)
+                
+                for device_info in wmi_usb_devices:
+                    pprint(device_info)
+                    if device_info['vid'] == idVendor and device_info['pid'] == idProduct:
+                        matching_wmi = device_info
+                        break
                 if matching_wmi:
                     iManufacturer = matching_wmi['manufacturer']
                     iProduct = matching_wmi['description']
