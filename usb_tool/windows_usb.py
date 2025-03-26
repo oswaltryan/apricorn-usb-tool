@@ -203,17 +203,15 @@ def find_apricorn_device():
                     dump_device_config(handle)
                 finally:
                     usb.close(handle)
-            else:
                 
-                for device_info in wmi_usb_devices:
-                    pprint(device_info)
-                    if device_info['vid'] == idVendor and device_info['pid'] == idProduct:
-                        matching_wmi = device_info
-                        break
-                if matching_wmi:
-                    iManufacturer = matching_wmi['manufacturer']
-                    iProduct = matching_wmi['description']
-                    iSerial = matching_wmi['serial']
+            for device_info in wmi_usb_devices:
+                if device_info['vid'] == idVendor and device_info['pid'] == idProduct:
+                    matching_wmi = device_info
+                    break
+            if matching_wmi:
+                iManufacturer = matching_wmi['manufacturer']
+                iProduct = matching_wmi['description']
+                iSerial = matching_wmi['serial']
 
             device_id = f"USB\\VID_{idVendor}&PID_{idProduct}\\{iSerial}"
             usb_protocol = f"USB {bcdUSB.split('.')[0]}.0"
@@ -232,7 +230,22 @@ def find_apricorn_device():
             )
 
             # Drive size matching
-            matched_drives = [d for d in all_drives if iSerial and d["pnpdeviceid"] and iSerial in d["pnpdeviceid"]]
+            matched_drives = []
+            for drive in all_drives:
+                print(iSerial)
+                # Skip if we don’t even have a serial to match against
+                if not iSerial:
+                    continue
+
+                # Grab the PnP ID (or skip if it’s missing/None/empty)
+                pnp = drive.get("pnpdeviceid")
+                if not pnp:
+                    continue
+
+                # If our serial appears in that PnP ID, we’ve got a match
+                if iSerial in pnp:
+                    # ← you can add more logic here before appending
+                    matched_drives.append(drive)
             dev_info.driveSize = str(matched_drives[0]["closest_match"]) if matched_drives else "N/A"
 
             # Controller info
