@@ -15,7 +15,8 @@ def bytes_to_gb(bytes_value):
 
 def find_closest(target, options):
     """Find the closest value in 'options' to 'target'."""
-    return min(options, key=lambda x: abs(x - target))
+    closest = min(options, key=lambda x: abs(x - target))
+    return f"{closest}GB"
 
 closest_values = [16, 30, 60, 120, 240, 480, 1000, 2000]
 
@@ -62,9 +63,9 @@ class WinUsbDeviceInfo:
     iManufacturer: str
     iProduct: str
     iSerial: str
-    device_id: str
-    vendor: str
-    usb_protocol: str
+    # device_id: str
+    # vendor: str
+    # usb_protocol: str
     usbController: str = ""
     SCSIDevice: str = ""
     driveSize: str = ""
@@ -184,7 +185,7 @@ def find_apricorn_device():
 
             idVendor = f"{desc.idVendor:04x}"
             idProduct = f"{desc.idProduct:04x}"
-            if idVendor != '0984' or idProduct == '0351':
+            if idVendor != '0984':
                 continue
 
             bcdDevice = f"{desc.bcdDevice:04x}"
@@ -219,9 +220,9 @@ def find_apricorn_device():
                 iManufacturer=iManufacturer,
                 iProduct=iProduct,
                 iSerial=iSerial,
-                device_id=device_id,
-                vendor=iManufacturer,
-                usb_protocol=usb_protocol
+                # device_id=device_id,
+                # vendor=iManufacturer,
+                # usb_protocol=usb_protocol
             )
 
             # Drive size matching
@@ -229,7 +230,7 @@ def find_apricorn_device():
             dev_info.driveSize = str(matched_drives[0]["closest_match"]) if matched_drives else "N/A"
 
             # Controller info
-            controller_name = _get_usb_controller_name(idVendor)
+            controller_name = _get_usb_controller_name(idVendor, iSerial)
             dev_info.usbController = 'Intel' if 'Intel' in controller_name else \
                                     'ASMedia' if 'ASMedia' in controller_name else controller_name
             dev_info.SCSIDevice = "True" if "MSFT30" in device_id else "False"
@@ -241,13 +242,17 @@ def find_apricorn_device():
     finally:
         usb.exit(ctx)
 
-def _get_usb_controller_name(idVendor: str) -> str:
+import subprocess
+
+def _get_usb_controller_name(idVendor: str, iSerial: str) -> str:
     """Retrieve the USB controller name using PowerShell."""
     ps_script = rf'''
         $vendor = "{idVendor}"
+        $serial = "{iSerial}"
         Get-CimInstance Win32_USBControllerDevice | ForEach-Object {{
             $device = Get-CimInstance -CimInstance $_.Dependent
-            if ($device.DeviceID -like "*VID_$vendor*" -and $device.DeviceID -notlike "*0351*") {{
+            # Check that the DeviceID contains both VID_{idVendor} and iSerial
+            if ($device.DeviceID -like "*VID_$vendor*" -and $device.DeviceID -like "*$serial*") {{
                 $controller = Get-CimInstance -CimInstance $_.Antecedent
                 $controller.Name
             }}
@@ -257,7 +262,9 @@ def _get_usb_controller_name(idVendor: str) -> str:
         ["powershell.exe", "-NoProfile", "-Command", ps_script],
         capture_output=True, text=True
     )
+    # Return the first line of output if it exists
     return result.stdout.strip().split('\n')[0] if result.stdout else ""
+
 
 def main():
     """Find and display information about Apricorn devices."""
@@ -266,6 +273,7 @@ def main():
         for idx, dev in enumerate(devices, 1):
             print(f"\n=== Device #{idx} ===")
             pprint(vars(dev))
+        print()
     else:
         print("No Apricorn devices found.")
 
