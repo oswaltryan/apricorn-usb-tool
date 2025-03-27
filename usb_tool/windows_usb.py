@@ -211,7 +211,7 @@ def find_apricorn_device():
             if matching_wmi:
                 iManufacturer = matching_wmi['manufacturer']
                 iProduct = matching_wmi['description']
-                iSerial = matching_wmi['serial']
+                iSerial = matching_wmi['serial'][6:] if "MSFT30" in matching_wmi['serial'] else matching_wmi['serial']
 
             device_id = f"USB\\VID_{idVendor}&PID_{idProduct}\\{iSerial}"
             usb_protocol = f"USB {bcdUSB.split('.')[0]}.0"
@@ -232,7 +232,6 @@ def find_apricorn_device():
             # Drive size matching
             matched_drives = []
             for drive in all_drives:
-                print(iSerial)
                 # Skip if we don’t even have a serial to match against
                 if not iSerial:
                     continue
@@ -252,7 +251,7 @@ def find_apricorn_device():
             controller_name = _get_usb_controller_name(idVendor, iSerial)
             dev_info.usbController = 'Intel' if 'Intel' in controller_name else \
                                     'ASMedia' if 'ASMedia' in controller_name else controller_name
-            dev_info.SCSIDevice = "True" if "MSFT30" in device_id else "False"
+            # dev_info.SCSIDevice = "True" if "MSFT30" in device_id else "False"
 
             devices.append(dev_info)
 
@@ -260,8 +259,6 @@ def find_apricorn_device():
         return devices if devices else None
     finally:
         usb.exit(ctx)
-
-import subprocess
 
 def _get_usb_controller_name(idVendor: str, iSerial: str) -> str:
     """Retrieve the USB controller name using PowerShell."""

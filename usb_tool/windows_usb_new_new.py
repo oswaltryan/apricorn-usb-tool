@@ -236,12 +236,24 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
     # pprint(usb_drives)
     # print()
 
+    devices = []
+    # for i in range(len(wmi_usb_devices)):
+    #     device_obj = WinUsbDeviceInfo(
+    #         idProduct=wmi_usb_devices[i]['pid'],
+    #         idVendor=wmi_usb_devices[i]['vid'],
+    #         iManufacturer=wmi_usb_devices[i]['manufacturer'],
+    #         iProduct=usb_drives[i]['iProduct'],
+    #         iSerial=wmi_usb_devices[i]['serial'],
+    #         driveSize=usb_drives[i]['closest_match'],
+    #         bcdDevice="",
+    #         bcdUSB=""
+    #     )
+    #     devices.append(device_obj)
+
     ctx = ct.POINTER(usb.context)()
     rc = usb.init(ct.byref(ctx))
     if rc != 0:
         raise UsbTreeError("Failed to initialize libusb")
-
-    devices = []
     try:
         dev_list = ct.POINTER(ct.POINTER(usb.device))()
         cnt = usb.get_device_list(ctx, ct.byref(dev_list))
@@ -255,6 +267,17 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
             if rc != 0:
                 continue
 
+            field_values = {}
+            for field, field_type in desc._fields_:
+                value = getattr(desc, field)
+                # Convert integer values to hex
+                if isinstance(value, int):
+                    # Format with leading zeros if desired (adjust width as needed)
+                    field_values[field] = f"0x{value:04x}"
+                else:
+                    field_values[field] = value
+            pprint(field_values)
+
             # Check if Apricorn device by VID
             idVendor = f"{desc.idVendor:04x}"
             if idVendor != "0984":
@@ -264,50 +287,21 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
             idProduct = f"{desc.idProduct:04x}"
             bcdDevice = f"{desc.bcdDevice:04x}"
             bcdUSB = parse_usb_version(desc.bcdUSB)
+            iSerialNumber = f"{desc.iSerialNumber:04x}"
 
             # Retrieve bus number and device address
             bus_number = usb.get_bus_number(dev)
             dev_address = usb.get_device_address(dev)
 
-            # Attempt to open device for string descriptors
-            iManufacturer = iProduct = iSerial = ""
 
-            # Try to match WMI device data by comparing vid/pid
-            matching_wmi = None
-            for device_info in wmi_usb_devices:
-                if device_info['vid'] == idVendor and device_info['pid'] == idProduct:
-                    matching_wmi = device_info
-                    break
 
-            if matching_wmi:
-                # Use WMI's manufacturer, description, serial if they exist
-                iManufacturer = matching_wmi['manufacturer'] or iManufacturer
-                # If "MSFT30" in the serial, we often skip those extra 6 chars
-                iSerial = (matching_wmi['serial'][6:]
-                           if "MSFT30" in matching_wmi['serial']
-                           else matching_wmi['serial'])
-                # Optionally override iProduct with something from WMI
-                # iProduct = matching_wmi['description'] or iProduct
-
-            # Attempt to match the drive for sizing (by serial in the PNPDeviceID)
-            driveSize = "N/A"
-            if iSerial:
-                for drive in usb_drives:
-                    pnp = drive.get("pnpdeviceid")
-                    if pnp and iSerial in pnp:
-                        driveSize = drive["closest_match"]
-                        # Optionally override iProduct with drive info
-                        if drive.get("iProduct"):
-                            iProduct = drive["iProduct"]
-                        break
-
-            # Get the USB controller name
-            controller_name = _get_usb_controller_name(idVendor, iSerial)
-            # Simplify or rename based on known vendor strings
-            if 'Intel' in controller_name:
-                controller_name = 'Intel'
-            elif 'ASMedia' in controller_name:
-                controller_name = 'ASMedia'
+            # # Get the USB controller name
+            # controller_name = _get_usb_controller_name(idVendor, iSerial)
+            # # Simplify or rename based on known vendor strings
+            # if 'Intel' in controller_name:
+            #     controller_name = 'Intel'
+            # elif 'ASMedia' in controller_name:
+            #     controller_name = 'ASMedia'
 
             # Build the final device info object
             dev_info = WinUsbDeviceInfo(
@@ -315,11 +309,11 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
                 idVendor=idVendor,
                 bcdDevice=bcdDevice,
                 bcdUSB=bcdUSB,
-                iManufacturer=iManufacturer,
-                iProduct=iProduct,
-                iSerial=iSerial,
-                usbController=controller_name,
-                driveSize=driveSize,
+                iManufacturer="",
+                iProduct="",
+                iSerial=iSerialNumber,
+                usbController="",
+                driveSize="",
                 busNumber=bus_number,
                 deviceAddress=dev_address
             )
