@@ -9,7 +9,7 @@ import win32com.client
 usb.config(LIBUSB=None)
 
 # ==================================
-#          Helper Functions
+# Helper Functions
 # ==================================
 
 def bytes_to_gb(bytes_value):
@@ -43,15 +43,15 @@ def read_string_descriptor_ascii(handle, index):
 def _get_usb_controller_name(idVendor: str, iSerial: str) -> str:
     """Retrieve the USB controller name using PowerShell."""
     ps_script = rf'''
-        $vendor = "{idVendor}"
-        $serial = "{iSerial}"
-        Get-CimInstance Win32_USBControllerDevice | ForEach-Object {{
-            $device = Get-CimInstance -CimInstance $_.Dependent
-            if ($device.DeviceID -like "*VID_$vendor*" -and $device.DeviceID -like "*$serial*") {{
-                $controller = Get-CimInstance -CimInstance $_.Antecedent
-                $controller.Name
-            }}
+    $vendor = "{idVendor}"
+    $serial = "{iSerial}"
+    Get-CimInstance Win32_USBControllerDevice | ForEach-Object {{
+        $device = Get-CimInstance -CimInstance $_.Dependent
+        if ($device.DeviceID -like "*VID_$vendor*" -and $device.DeviceID -like "*$serial*") {{
+            $controller = Get-CimInstance -CimInstance $_.Antecedent
+            $controller.Name
         }}
+    }}
     '''
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-Command", ps_script],
@@ -60,7 +60,7 @@ def _get_usb_controller_name(idVendor: str, iSerial: str) -> str:
     return result.stdout.strip().split('\n')[0] if result.stdout else ""
 
 # ==================================
-#   Dataclasses and Custom Errors
+# Dataclasses and Custom Errors
 # ==================================
 
 class UsbTreeError(Exception):
@@ -87,7 +87,7 @@ class WinUsbDeviceInfo:
     deviceAddress: int = 0
 
 # ==================================
-#         WMI Connections
+# WMI Connections
 # ==================================
 
 locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
@@ -167,17 +167,17 @@ def get_wmi_usb_drives():
     return drives_info
 
 # ==================================
-#  Gathering Apricorn Device Info
+# Gathering Apricorn Device Info
 # ==================================
 
 def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_name):
     """
     Use libusb to iterate over USB devices and collect info for Apricorn devices (VID '0984').
-    Enhanced to include serial numbers, manufacturer, product, drive size, and controller name.
-    Maintains efficiency with a single device list pass.
-    Sets SCSIDevice based on whether the WMI serial starts with 'MSFT30'.
+    Matches devices uniquely using serial numbers and ensures correct drive size assignment.
+    Overrides iProduct with drive-specific data when available.
     """
     devices = []
+    used_serials = set()  # Track processed serial numbers to avoid duplicates
     ctx = ct.POINTER(usb.context)()
     rc = usb.init(ct.byref(ctx))
     if rc != 0:
@@ -206,30 +206,53 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
             bus_number = usb.get_bus_number(dev)
             dev_address = usb.get_device_address(dev)
 
-            # Match with WMI data for consistency
-            matching_wmi = next((item for item in wmi_usb_devices 
-                                 if item['vid'] == idVendor and item['pid'] == idProduct), None)
-            if matching_wmi:
-                iManufacturer = matching_wmi['manufacturer']
-                iProduct = matching_wmi['description']
-                wmi_serial = matching_wmi['serial']
-                if wmi_serial.startswith('MSFT30'):
-                    SCSIDevice = 'True'
-                    iSerial = wmi_serial[6:]
+            # Create empty fields for descriptors we're filling in.
+            iManufacturer = iProduct = iSerial = ""
+
+            # If libusb serial is empty or not unique, fall back to WMI with VID/PID/serial matching
+            if not iSerial or iSerial in used_serials:
+                matching_wmi = next((item for item in wmi_usb_devices 
+                                     if item['vid'] == idVendor and item['pid'] == idProduct 
+                                     and item['serial'] not in used_serials), None)
+                if matching_wmi:
+                    wmi_serial = matching_wmi['serial']
+                    if wmi_serial.startswith('MSFT30'):
+                        SCSIDevice = 'True'
+                        iSerial = wmi_serial[6:]
+                    else:
+                        SCSIDevice = 'False'
+                        iSerial = wmi_serial
+                    iManufacturer = matching_wmi['manufacturer']
+                    iProduct = matching_wmi['description']
                 else:
                     SCSIDevice = 'False'
-                    iSerial = wmi_serial
-            # Match with USB drives for drive size
+                    iSerial = f"Unknown_{bus_number}_{dev_address}"  # Fallback unique ID
+            else:
+                SCSIDevice = 'False'  # Assume non-MSFT30 unless WMI overrides
+                matching_wmi = next((item for item in wmi_usb_devices 
+                                     if item['vid'] == idVendor and item['pid'] == idProduct 
+                                     and (item['serial'] == iSerial or 
+                                          (item['serial'].startswith('MSFT30') and item['serial'][6:] == iSerial))), None)
+                if matching_wmi:
+                    iManufacturer = matching_wmi['manufacturer']
+                    iProduct = matching_wmi['description']
+                    if matching_wmi['serial'].startswith('MSFT30'):
+                        SCSIDevice = 'True'
+
+            # Mark serial as used
+            used_serials.add(iSerial)
+
+            # Match with USB drives for drive size and override iProduct
             driveSize = "N/A"
             if iSerial:
                 for drive in usb_drives:
                     pnp = drive.get("pnpdeviceid")
                     if pnp and iSerial in pnp:
                         driveSize = drive["closest_match"]
-                        # Optionally override iProduct with drive info
                         if drive.get("iProduct"):
-                            iProduct = drive["iProduct"]
+                            iProduct = drive["iProduct"]  # Your fix: override iProduct
                         break
+
             # Get USB controller name
             controller_name = _get_usb_controller_name(idVendor, iSerial)
             usbController = ('Intel' if 'Intel' in controller_name else 
@@ -259,7 +282,7 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
     return devices if devices else None
 
 # ==================================
-#             Main
+# Main
 # ==================================
 
 def find_apricorn_device():
@@ -279,7 +302,7 @@ def main():
         for idx, dev in enumerate(devices, 1):
             print(f"\n=== Apricorn Device #{idx} ===")
             pprint(vars(dev))
-        print()
+            print()
     else:
         print("No Apricorn devices found.")
 
