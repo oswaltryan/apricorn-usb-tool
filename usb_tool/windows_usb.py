@@ -19,7 +19,7 @@ def bytes_to_gb(bytes_value):
 def find_closest(target, options):
     """Find the closest value in 'options' to 'target'."""
     closest = min(options, key=lambda x: abs(x - target))
-    return f"{closest}GB"
+    return int(closest)
 
 def parse_usb_version(bcd):
     """Convert a BCD USB version to a human-readable string (e.g., '2.0', '3.1')."""
@@ -76,13 +76,13 @@ class WinUsbDeviceInfo:
     idProduct: str
     idVendor: str
     bcdDevice: str
-    bcdUSB: str
+    bcdUSB: float
     iManufacturer: str
     iProduct: str
     iSerial: str
     usbController: str = ""
-    SCSIDevice: str = ""
-    driveSize: str = ""
+    SCSIDevice: bool = False
+    driveSizeGB: int = 0
     busNumber: int = 0
     deviceAddress: int = 0
 
@@ -160,7 +160,7 @@ def get_wmi_usb_drives():
             "caption": drive.Caption,
             "size_gb": size_gb,
             "closest_match": closest_match,
-            "iProduct": i_product,
+            "iProduct": i_product.title(),
             "pnpdeviceid": pnp
         })
 
@@ -176,6 +176,18 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
     Matches devices uniquely using serial numbers and ensures correct drive size assignment.
     Overrides iProduct with drive-specific data when available.
     """
+
+    # Modify original list to keep only Apricorn devices, skipping those without manufacturer
+    # wmi_usb_devices[:] = [item for item in wmi_usb_devices if item.get('manufacturer') == 'Apricorn']
+    # print(">> WMI Devices")
+    # pprint(wmi_usb_devices)
+    # print()
+
+    # print(">> USB Drives")
+    # pprint(usb_drives)
+    # print()
+
+
     devices = []
     used_serials = set()  # Track processed serial numbers to avoid duplicates
     ctx = ct.POINTER(usb.context)()
@@ -202,7 +214,7 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
             # Core descriptors
             idProduct = f"{desc.idProduct:04x}"
             bcdDevice = f"{desc.bcdDevice:04x}"
-            bcdUSB = parse_usb_version(desc.bcdUSB)
+            bcdUSB = float(parse_usb_version(desc.bcdUSB))
             bus_number = usb.get_bus_number(dev)
             dev_address = usb.get_device_address(dev)
 
@@ -217,15 +229,15 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
                 if matching_wmi:
                     wmi_serial = matching_wmi['serial']
                     if wmi_serial.startswith('MSFT30'):
-                        SCSIDevice = 'True'
+                        SCSIDevice = True
                         iSerial = wmi_serial[6:]
                     else:
-                        SCSIDevice = 'False'
+                        SCSIDevice = False
                         iSerial = wmi_serial
                     iManufacturer = matching_wmi['manufacturer']
                     iProduct = matching_wmi['description']
                 else:
-                    SCSIDevice = 'False'
+                    SCSIDevice = False
                     iSerial = f"Unknown_{bus_number}_{dev_address}"  # Fallback unique ID
             else:
                 SCSIDevice = 'False'  # Assume non-MSFT30 unless WMI overrides
@@ -237,18 +249,18 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
                     iManufacturer = matching_wmi['manufacturer']
                     iProduct = matching_wmi['description']
                     if matching_wmi['serial'].startswith('MSFT30'):
-                        SCSIDevice = 'True'
+                        SCSIDevice = True
 
             # Mark serial as used
             used_serials.add(iSerial)
 
             # Match with USB drives for drive size and override iProduct
-            driveSize = "N/A"
+            driveSizeGB = "N/A"
             if iSerial:
                 for drive in usb_drives:
                     pnp = drive.get("pnpdeviceid")
                     if pnp and iSerial in pnp:
-                        driveSize = drive["closest_match"]
+                        driveSizeGB = drive["closest_match"]
                         if drive.get("iProduct"):
                             iProduct = drive["iProduct"]  # Your fix: override iProduct
                         break
@@ -269,7 +281,7 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
                 iSerial=iSerial,
                 usbController=usbController,
                 SCSIDevice=SCSIDevice,
-                driveSize=driveSize,
+                driveSizeGB=driveSizeGB,
                 busNumber=bus_number,
                 deviceAddress=dev_address
             )
@@ -302,7 +314,7 @@ def main():
         for idx, dev in enumerate(devices, 1):
             print(f"\n=== Apricorn Device #{idx} ===")
             pprint(vars(dev))
-            print()
+        print()
     else:
         print("No Apricorn devices found.")
 
