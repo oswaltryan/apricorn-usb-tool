@@ -220,10 +220,16 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
                     SCSIDevice = 'False'
                     iSerial = wmi_serial
             # Match with USB drives for drive size
-            matched_drives = [drive for drive in usb_drives 
-                              if iSerial and drive.get("pnpdeviceid") and iSerial in drive["pnpdeviceid"]]
-            driveSize = matched_drives[0]["closest_match"] if matched_drives else "N/A"
-
+            driveSize = "N/A"
+            if iSerial:
+                for drive in usb_drives:
+                    pnp = drive.get("pnpdeviceid")
+                    if pnp and iSerial in pnp:
+                        driveSize = drive["closest_match"]
+                        # Optionally override iProduct with drive info
+                        if drive.get("iProduct"):
+                            iProduct = drive["iProduct"]
+                        break
             # Get USB controller name
             controller_name = _get_usb_controller_name(idVendor, iSerial)
             usbController = ('Intel' if 'Intel' in controller_name else 
