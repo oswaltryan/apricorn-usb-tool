@@ -131,38 +131,50 @@ def get_wmi_usb_drives():
     Fetch all USB drives from WMI (Win32_DiskDrive WHERE InterfaceType='USB').
     Returns a list of dicts with caption, size in GB, closest_match, iProduct, pnpdeviceid, etc.
     """
-    query = "SELECT * FROM Win32_DiskDrive WHERE InterfaceType='USB'"
+    query = """
+SELECT * FROM Win32_DiskDrive
+WHERE InterfaceType='USB'
+   OR InterfaceType='SCSI'
+"""
     usb_drives = service.ExecQuery(query)
     drives_info = []
-    closest_values = [16, 30, 60, 120, 240, 480, 1000, 2000]
     
     for drive in usb_drives:
-        if getattr(drive, "Size", None) is None:
-            continue
-        try:
-            size_bytes = int(drive.Size)
-        except (TypeError, ValueError):
-            continue
-        
-        size_gb = bytes_to_gb(size_bytes)
-        closest_match = find_closest(size_gb, closest_values)
-        
-        pnp = drive.PNPDeviceID
-        if not pnp:
-            continue
-        
-        try:
-            i_product = pnp[pnp.index("PROD_") + 5 : pnp.index("&REV")].replace('_', ' ')
-        except ValueError:
-            i_product = ""
-        
-        drives_info.append({
-            "caption": drive.Caption,
-            "size_gb": size_gb,
-            "closest_match": closest_match,
-            "iProduct": i_product.title(),
-            "pnpdeviceid": pnp
-        })
+        if "Apricorn" in getattr(drive, "Caption"):
+            # for prop in drive.Properties_:
+            #     print(prop.Name, "=", prop.Value)
+            # print()
+            if getattr(drive, "Size", None) is None:
+                continue
+            try:
+                size_bytes = int(drive.Size)
+            except (TypeError, ValueError):
+                continue
+            
+            pnp = drive.PNPDeviceID
+            if not pnp:
+                continue
+            
+            try:
+                if 'USBSTOR' in pnp:
+                    i_product = pnp[pnp.index("PROD_") + 5 : pnp.index("&REV")].replace('_', ' ').title()
+                elif 'SCSI' in pnp:
+                    i_product = pnp.split("PROD_", 1)[1].split("\\", 1)[0].replace('_', ' ')
+                    i_product = "Padlock NVX" if i_product == "PADLOCK NVX" else ""
+            except ValueError:
+                i_product = ""
+
+            closest_values = [16, 30, 60, 120, 240, 480, 1000, 2000]
+            size_gb = bytes_to_gb(size_bytes)
+            closest_match = find_closest(size_gb, closest_values)
+            
+            drives_info.append({
+                "caption": drive.Caption,
+                "size_gb": size_gb,
+                # "closest_match": closest_match,
+                "iProduct": i_product,
+                "pnpdeviceid": pnp
+            })
 
     return drives_info
 
@@ -231,11 +243,12 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
                     if wmi_serial.startswith('MSFT30'):
                         SCSIDevice = True
                         iSerial = wmi_serial[6:]
+                        iManufacturer = matching_wmi['manufacturer'] if matching_wmi['manufacturer'] == "Apricorn" else ""
                     else:
                         SCSIDevice = False
                         iSerial = wmi_serial
-                    iManufacturer = matching_wmi['manufacturer']
-                    iProduct = matching_wmi['description']
+                        iManufacturer = matching_wmi['manufacturer']
+                        iProduct = matching_wmi['description']
                 else:
                     SCSIDevice = False
                     iSerial = f"Unknown_{bus_number}_{dev_address}"  # Fallback unique ID
@@ -247,7 +260,6 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
                                           (item['serial'].startswith('MSFT30') and item['serial'][6:] == iSerial))), None)
                 if matching_wmi:
                     iManufacturer = matching_wmi['manufacturer']
-                    iProduct = matching_wmi['description']
                     if matching_wmi['serial'].startswith('MSFT30'):
                         SCSIDevice = True
 
@@ -255,15 +267,39 @@ def get_apricorn_libusb_data(wmi_usb_devices, usb_drives, _get_usb_controller_na
             used_serials.add(iSerial)
 
             # Match with USB drives for drive size and override iProduct
+            closest_values = {
+                "0310": [256, 500, 1000, 2000, 4000, 8000, 16000],                                  # Padlock 3.0
+                "0315": [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000],  # Padlock DT
+                "1400": [256, 500, 1000, 2000, 4000, 8000, 16000],                                  # Fortress
+                "1405": [240, 480, 1000, 2000, 4000],                                               # Padlock SSD
+                "1406": [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000],  # Padlock DT FIPS
+                "1407": [16, 30, 60, 120, 240, 480, 1000, 2000, 4000],                              # ASK3
+                "1408": [500, 512, 1000, 2000, 4000, 5000, 8000, 16000, 20000],                     # Fortress L3
+                "1409": [16, 32, 64, 128],                                                          # ASK3z
+                "1410": [4, 8, 16, 32, 64, 128, 256, 512],                                          # ASK3-NX3
+                "1413": [500, 1000, 2000],                                                          # NVX
+            }
             driveSizeGB = "N/A"
             if iSerial:
                 for drive in usb_drives:
                     pnp = drive.get("pnpdeviceid")
-                    if pnp and iSerial in pnp:
+                    if SCSIDevice and "NVX" in pnp:
+                        iProduct = drive['iProduct']
+                        iManufacturer = "Apricorn"
+                        closest_match = find_closest(drive["size_gb"], closest_values[idProduct])
+                        drive.update({"closest_match": closest_match})
                         driveSizeGB = drive["closest_match"]
                         if drive.get("iProduct"):
                             iProduct = drive["iProduct"]  # Your fix: override iProduct
                         break
+                    else:
+                        if pnp and iSerial in pnp:
+                            closest_match = find_closest(drive["size_gb"], closest_values[idProduct])
+                            drive.update({"closest_match": closest_match})
+                            driveSizeGB = drive["closest_match"]
+                            if drive.get("iProduct"):
+                                iProduct = drive["iProduct"]  # Your fix: override iProduct
+                            break
 
             # Get USB controller name
             controller_name = _get_usb_controller_name(idVendor, iSerial)
