@@ -15,3 +15,4 @@ def main():
             print(f"\n=== Apricorn Device #{idx} ===")
             for field_name, value in dev.__dict__.items():
                 print(f"  {field_name}: {value}")
+    print()
