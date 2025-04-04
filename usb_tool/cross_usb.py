@@ -32,15 +32,6 @@ def runtime_check():
         from usb_tool import linux_usb
         devices = linux_usb.find_apricorn_device()
 
-    if not devices:
-        print("No Apricorn devices found.")
-    else:
-        for idx, dev in enumerate(devices, start=1):
-            print(f"\n=== Apricorn Device #{idx} ===")
-            for field_name, value in dev.__dict__.items():
-                print(f"  {field_name}: {value}")
-    print()
-
     pr.disable()
     s = io.StringIO()
     sortby = pstats.SortKey.CUMULATIVE  # or 'time', 'cumulative'
@@ -59,7 +50,9 @@ def runtime_check():
         if start_index != -1 and end_index != -1 and start_index < end_index:
             sliced_string = summary_line[start_index : end_index + len("seconds")]
             sliced_string = float(sliced_string[3:8])
-            print(f"{sliced_string}s rumtime")
+            print()
+            print(f"Runtime: {sliced_string}s")
+            print()
         else:
             print("Could not parse the summary line.")
     else:
