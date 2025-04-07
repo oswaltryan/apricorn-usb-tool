@@ -2,8 +2,7 @@ import sys
 import asyncio
 import time
 import logging
-from windows_usb import find_apricorn_device, WinUsbDeviceInfo, get_usb_devices_from_wmi
-
+from usb_tool import find_apricorn_device
 class UsbAutoLockTest:
     def __init__(self, poll_interval=10):
         self.poll_interval = poll_interval
@@ -27,13 +26,13 @@ class UsbAutoLockTest:
         
         logging.info(f"Target device selected: {self.target_device.iProduct} "
                      f"({self.target_device.idVendor}:{self.target_device.idProduct})")
-        logging.info(f"Device Serial: {self.target_device.iSerial}, Protocol: {self.target_device.usb_protocol}")
+        logging.info(f"Device Serial: {self.target_device.iSerial}, Protocol: {self.target_device.bcdUSB}")
         logging.info("Press ENTER to start the test.")
         await asyncio.to_thread(input)
 
     def check_device_presence(self):
         # Lightweight check using WMI only.
-        usb_devices = get_usb_devices_from_wmi()
+        usb_devices = find_apricorn_device()
         for dev in usb_devices:
             if (dev['vid'] == self.target_device.idVendor and 
                 dev['pid'] == self.target_device.idProduct and 

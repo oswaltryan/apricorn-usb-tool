@@ -9,7 +9,7 @@ from typing import List, Optional
 # Same Dataclass as on Windows
 # -----------------------------
 @dataclass
-class WinUsbDeviceInfo:
+class LinuxUsbDeviceInfo:
     """Dataclass mirroring the Windows USB device info structure."""
     idProduct: str
     idVendor: str
@@ -24,6 +24,7 @@ class WinUsbDeviceInfo:
     usbController: str = ""
     SCSIDevice: str = ""
     driveSize: str = ""
+    blockDevice: str = ""
 
 # ----------------
 # Size Conversions
@@ -235,8 +236,6 @@ def find_apricorn_device() -> Optional[List[WinUsbDeviceInfo]]:
         iSerial_str = info_dict.get("iSerial", "").strip()
 
         device_id_str = f"USB\\VID_{idVendor_str}&PID_{idProduct_str}\\{iSerial_str}"
-        major_usb = bcdUSB_str.split('.', 1)[0]
-        usb_protocol_str = f"USB {major_usb}.0" if major_usb.isdigit() else f"USB {bcdUSB_str}"
 
         # Match the iSerial to the "serial" from lsblk
         matched_drive = next(
@@ -255,7 +254,6 @@ def find_apricorn_device() -> Optional[List[WinUsbDeviceInfo]]:
             iSerial=iSerial_str,
             device_id=device_id_str,
             vendor=iManufacturer_str,   # same as Windows code
-            usb_protocol=usb_protocol_str,
             usbController="",  # placeholder
             SCSIDevice="False",  # placeholder
             driveSize=drive_size_str
