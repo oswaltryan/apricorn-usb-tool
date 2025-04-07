@@ -120,7 +120,7 @@ class WinUsbDeviceInfo:
     deviceAddress: int = 0
 
 # ==================================
-# WMI Connections
+# Gathering Apricorn Device Info
 # ==================================
 
 locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
@@ -217,10 +217,6 @@ WHERE InterfaceType='USB'
     # print()
     return drives_info
 
-# ==================================
-# Gathering Apricorn Device Info
-# ==================================
-
 def get_apricorn_libusb_data():
     """
     Use libusb to iterate over USB devices and collect info for Apricorn devices (VID '0984').
@@ -273,27 +269,88 @@ def get_apricorn_libusb_data():
     # print()
     return devices if devices else None
 
+# ==================================
+# Process Apricorn Device Info
+# ==================================
+
 def match_devices(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data):
     """
-    wmi_usb_devices = iManufacturer, PID, VID, iSerial
-    wmi_usb_drives = iProduct, driveSize
-    get_all_usb_controller_names = PID, VID, iSerial, SCSIDevice
-    libusb = bcdDevice, bcdUSB, busNumber, deviceAddress, PID
+    Match and consolidate USB device information from multiple data sources.
+
+    This function iterates over entries in `wmi_usb_devices` and attempts to
+    find corresponding entries in `usb_controllers`, `libusb_data`, and
+    `wmi_usb_drives` based on matching product IDs (PIDs) or expected product
+    names. It then constructs a list of `WinUsbDeviceInfo` objects that contain
+    merged information from all four sources.
+
+    Args:
+        wmi_usb_devices (list of dict): 
+            A list of dictionaries, each containing information about a USB
+            device from WMI. Example keys include:
+            - "pid": The product ID of the USB device (string).
+            - "vid": The vendor ID of the USB device (string).
+            - "manufacturer": The manufacturer string.
+            - "serial": The serial string (includes a prefix that may indicate SCSI).
+        wmi_usb_drives (list of dict): 
+            A list of dictionaries with additional drive-specific info, such as:
+            - "iProduct": A human-readable name for the product.
+            - "size_gb": Numeric size of the drive in gigabytes.
+        usb_controllers (list of dict): 
+            A list of dictionaries representing USB controllers, with keys like:
+            - "DeviceID": A string that contains the PID.
+            - "ControllerName": A human-readable name for the USB controller.
+        libusb_data (list of dict): 
+            A list of dictionaries from libusb or a similar library, containing:
+            - "iProduct": The product ID string (used for matching).
+            - "bcdDevice": The device release number in binary-coded decimal.
+            - "bcdUSB": The USB specification version in binary-coded decimal.
+            - "bus_number": The bus number to which the device is attached.
+            - "dev_address": The device address on that bus.
+
+    Returns:
+        list of WinUsbDeviceInfo or None:
+            Returns a list of `WinUsbDeviceInfo` objects that consolidate
+            details from all inputs. If no matches were made, returns `None`.
+
+    Note:
+        - This function modifies the original lists (`wmi_usb_devices`,
+          `usb_controllers`, `libusb_data`, and `wmi_usb_drives`) by popping
+          and reinserting matched items to align indices.
+        - The function uses an internal `closest_values` mapping to find valid
+          or approximate drive sizes.
+        - A helper function `find_closest` (not shown here) is assumed to be
+          available for matching the numeric drive size to a predefined list.
     """
-    
     devices = []
     closest_values = {
-        "0310": [256, 500, 1000, 2000, 4000, 8000, 16000],
-        "0315": [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000],
-        "0351": [128, 256, 500, 1000, 2000, 4000, 8000, 12000, 16000],
-        "1400": [256, 500, 1000, 2000, 4000, 8000, 16000],
-        "1405": [240, 480, 1000, 2000, 4000],
-        "1406": [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000],
-        "1407": [16, 30, 60, 120, 240, 480, 1000, 2000, 4000],
-        "1408": [500, 512, 1000, 2000, 4000, 5000, 8000, 16000, 20000],
-        "1409": [16, 32, 64, 128],
-        "1410": [4, 8, 16, 32, 64, 128, 256, 512],
-        "1413": [500, 1000, 2000]}
+        "0310": ["Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
+        "0315": ["Padlock DT", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
+        "0351": ["Aegis Portable", [128, 256, 500, 1000, 2000, 4000, 8000, 12000, 16000]],
+        "1400": ["Fortress", [256, 500, 1000, 2000, 4000, 8000, 16000]],
+        "1405": ["Padlock SSD", [240, 480, 1000, 2000, 4000]],
+        "1406": ["Padlock DT FIPS", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
+        "1407": ["Secure Key 3.0", [16, 30, 60, 120, 240, 480, 1000, 2000, 4000]],
+        "1408": ["Fortress L3", [500, 512, 1000, 2000, 4000, 5000, 8000, 16000, 20000]],
+        "1409": ["Secure Key 3.0", [16, 32, 64, 128]],
+        "1410": ["Secure Key 3.0", [4, 8, 16, 32, 64, 128, 256, 512]],
+        "1413": ["Padlock NVX", [500, 1000, 2000]]}
+    
+    for item in range(len(wmi_usb_devices)): #start loop over wmi_usb_devices
+        for index in range(len(usb_controllers)): #find match in usb_controllers
+            if wmi_usb_devices[item]['pid'] in usb_controllers[index]['DeviceID']: #match pid from wmi_usb_devices to usb_controllers
+                matched_item = usb_controllers.pop(index)
+                usb_controllers.insert(item, matched_item)
+                break
+        for index in range(len(libusb_data)): #find match in libusb_data
+            if wmi_usb_devices[item]['pid'] in libusb_data[index]['iProduct']: #match pid from wmi_usb_devices to libusb_data
+                matched_item = libusb_data.pop(index)
+                libusb_data.insert(item, matched_item)
+                break
+        for index in range(len(wmi_usb_drives)): #find match in wmi_usb_drives
+            for x in closest_values:
+                if wmi_usb_drives[index]['iProduct'] == closest_values[x][0]:
+                    matched_item = wmi_usb_drives.pop(index)
+                    wmi_usb_drives.insert(item, matched_item)
 
     for item in range(len(wmi_usb_devices)):
         idProduct = wmi_usb_devices[item]['pid']
@@ -312,7 +369,7 @@ def match_devices(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data)
         else:
             SCSIDevice = False
 
-        driveSizeGB = find_closest(wmi_usb_drives[item]["size_gb"], closest_values[idProduct])
+        driveSizeGB = find_closest(wmi_usb_drives[item]["size_gb"], closest_values[idProduct][1])
 
         # Create device info without usbController for now
         dev_info = WinUsbDeviceInfo(
