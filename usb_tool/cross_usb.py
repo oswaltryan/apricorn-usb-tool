@@ -61,6 +61,6 @@ def runtime_check():
     # Save the profile data to a file (optional)
     # pr.dump_stats("usb_profile.prof")
 
-    # print("\n--- Full Profile Statistics ---")
-    # print(output)  # Print the full stats to the console
-    # print()
+    print("\n--- Full Profile Statistics ---")
+    print(output)  # Print the full stats to the console
+    print()
