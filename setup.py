@@ -14,8 +14,8 @@ if platform.system().lower().startswith("win"):
     setup_requires = ["setuptools>=75.8.0"]
 
 setup(
-    name='win-usb-tool',  
-    version='0.1.4',
+    name='usb-tool',  
+    version='0.1.5',
     description='Cross-platform USB tool with no Linux deps, Windows libusb + WMI on Windows only.',
     long_description=long_description,
     long_description_content_type='text/markdown',
