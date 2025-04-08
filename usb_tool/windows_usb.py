@@ -373,54 +373,55 @@ def sort_usb_controllers(wmi_usb_devices, usb_controllers):
     return usb_controllers
 
 def sort_libusb_data(wmi_usb_devices, libusb_data):
-    # --- Sorting Logic ---
+    """
+    Attempt to match libusb entries to wmi_usb_devices by pid and best-match bcdUSB.
+    Avoids hardcoding serial numbers.
+    """
+    if not libusb_data:
+        raise UsbTreeError("No libusb_data available to sort")
 
-    # 1. Create a lookup for libusb_data entries based on a unique key.
-    #    Using (iProduct, bcdDevice) seems appropriate here.
-    libusb_lookup = {(entry['iProduct'], entry['bcdDevice']): entry for entry in libusb_data}
+    # Build lookup: {pid: [libusb_entry, ...]}
+    from collections import defaultdict
+    pid_map = defaultdict(list)
+    for entry in libusb_data:
+        pid_map[entry['iProduct']].append(entry)
 
-    # 2. Define the known mapping based on the expected output for ambiguous PIDs.
-    #    This maps the unique serial from wmi_usb_devices to the unique key of the *expected* libusb_data entry.
-    #    This step essentially encodes the information missing from the direct key comparison.
-    serial_to_libusb_key = {
-        '160050000012': ('1407', '0457'), # First wmi 1407 maps to expected bcd 0457
-        'MSFT30888850000077': ('1407', '0463'), # Second wmi 1407 maps to expected bcd 0463
-        '141420000016': ('1410', '0803'), # Unique PID, map serial to its (PID, bcdDevice)
-        'MSFT30111122223364': ('1413', '0100')  # Unique PID, map serial to its (PID, bcdDevice)
-    }
-
-    # 3. Iterate through wmi_usb_devices and use the mapping to find the correct libusb entry
-    sorted_libusb_data = []
-    processed_libusb_keys = set() # Keep track of entries already added
+    sorted_libusb = []
+    used_entries = set()
 
     for device in wmi_usb_devices:
-        target_serial = device['serial']
+        pid = device['pid']
+        candidates = pid_map.get(pid, [])
 
-        if target_serial in serial_to_libusb_key:
-            target_libusb_key = serial_to_libusb_key[target_serial]
+        if not candidates:
+            print(f"Warning: No libusb entry found for PID {pid}")
+            sorted_libusb.append({
+                "iProduct": pid,
+                "bcdDevice": "0000",
+                "bcdUSB": 0.0,
+                "bus_number": -1,
+                "dev_address": -1
+            })
+            continue
 
-            if target_libusb_key in libusb_lookup:
-                # Check if we haven't already added this specific libusb entry
-                if target_libusb_key not in processed_libusb_keys:
-                    entry_to_add = libusb_lookup[target_libusb_key]
-                    sorted_libusb_data.append(entry_to_add)
-                    processed_libusb_keys.add(target_libusb_key)
-                else:
-                    # This shouldn't happen if the mapping is one-to-one
-                    print(f"Warning: Attempted to add libusb entry {target_libusb_key} again.")
+        # Select candidate with highest bcdUSB (assuming newest / best match)
+        best = max(candidates, key=lambda x: x['bcdUSB'])
+        key = (best['iProduct'], best['bcdDevice'])
+
+        if key in used_entries:
+            # Fall back to any not yet used candidate
+            unused = [c for c in candidates if (c['iProduct'], c['bcdDevice']) not in used_entries]
+            if unused:
+                best = unused[0]
+                key = (best['iProduct'], best['bcdDevice'])
             else:
-                print(f"Warning: Target libusb key {target_libusb_key} derived from serial {target_serial} not found in libusb_lookup.")
-        else:
-            print(f"Warning: Serial {target_serial} from wmi_usb_devices not found in the defined mapping.")
-    libusb_data = sorted_libusb_data
+                print(f"Warning: All libusb entries for PID {pid} already used")
+                best = candidates[0]  # fallback anyway
 
-    # --- Output and Verification ---
-    # print("wmi_usb_devices: ")
-    # pprint(wmi_usb_devices)
-    # print()
-    # print("libusb_data: ")
-    # pprint(sorted_libusb_data)
-    return libusb_data
+        used_entries.add(key)
+        sorted_libusb.append(best)
+
+    return sorted_libusb
 
 def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data):
     devices = []
