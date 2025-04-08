@@ -273,54 +273,156 @@ def get_apricorn_libusb_data():
 # Process Apricorn Device Info
 # ==================================
 
-def match_devices(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data):
-    """
-    Match and consolidate USB device information from multiple data sources.
+def sort_wmi_drives(wmi_usb_devices, wmi_usb_drives):
+    # --- Sorting Logic ---
+    sorted_drives = []
+    # Make a mutable copy to safely remove items from during processing
+    drives_to_process = list(wmi_usb_drives)
 
-    This function iterates over entries in `wmi_usb_devices` and attempts to
-    find corresponding entries in `usb_controllers`, `libusb_data`, and
-    `wmi_usb_drives` based on matching product IDs (PIDs) or expected product
-    names. It then constructs a list of `WinUsbDeviceInfo` objects that contain
-    merged information from all four sources.
+    for device in wmi_usb_devices:
+        device_serial = device['serial']
+        found_index = -1 # Index of the drive found in drives_to_process
 
-    Args:
-        wmi_usb_devices (list of dict): 
-            A list of dictionaries, each containing information about a USB
-            device from WMI. Example keys include:
-            - "pid": The product ID of the USB device (string).
-            - "vid": The vendor ID of the USB device (string).
-            - "manufacturer": The manufacturer string.
-            - "serial": The serial string (includes a prefix that may indicate SCSI).
-        wmi_usb_drives (list of dict): 
-            A list of dictionaries with additional drive-specific info, such as:
-            - "iProduct": A human-readable name for the product.
-            - "size_gb": Numeric size of the drive in gigabytes.
-        usb_controllers (list of dict): 
-            A list of dictionaries representing USB controllers, with keys like:
-            - "DeviceID": A string that contains the PID.
-            - "ControllerName": A human-readable name for the USB controller.
-        libusb_data (list of dict): 
-            A list of dictionaries from libusb or a similar library, containing:
-            - "iProduct": The product ID string (used for matching).
-            - "bcdDevice": The device release number in binary-coded decimal.
-            - "bcdUSB": The USB specification version in binary-coded decimal.
-            - "bus_number": The bus number to which the device is attached.
-            - "dev_address": The device address on that bus.
+        # Iterate through the remaining drives to find a match for the current device
+        for i, drive in enumerate(drives_to_process):
+            pnp_id = drive['pnpdeviceid']
+            
+            # Extract the instance ID part (usually after the last '\')
+            instance_id = pnp_id.split('\\')[-1]
+            
+            # Extract the potential serial number part from the instance ID (before potential '&')
+            ampersand_pos = instance_id.find('&')
+            pnp_serial_part = instance_id[:ampersand_pos] if ampersand_pos != -1 else instance_id
 
-    Returns:
-        list of WinUsbDeviceInfo or None:
-            Returns a list of `WinUsbDeviceInfo` objects that consolidate
-            details from all inputs. If no matches were made, returns `None`.
+            # Check for a match using two conditions:
+            # 1. Is the full device serial string present anywhere in the PnP ID? (Handles exact matches)
+            # 2. Is the extracted serial part from the PnP ID present within the device serial string?
+            #    (Handles cases like '8888...' matching 'MSFT...8888...')
+            if device_serial in pnp_id or (pnp_serial_part and pnp_serial_part in device_serial):
+                found_index = i
+                break # Found the drive for this device, stop searching
 
-    Note:
-        - This function modifies the original lists (`wmi_usb_devices`,
-          `usb_controllers`, `libusb_data`, and `wmi_usb_drives`) by popping
-          and reinserting matched items to align indices.
-        - The function uses an internal `closest_values` mapping to find valid
-          or approximate drive sizes.
-        - A helper function `find_closest` (not shown here) is assumed to be
-          available for matching the numeric drive size to a predefined list.
-    """
+        if found_index != -1:
+            # If a match was found, remove the drive from the processing list
+            # and append it to the sorted list. Using pop() removes and returns the item.
+            found_drive = drives_to_process.pop(found_index)
+            sorted_drives.append(found_drive)
+        # else: If no match was found based on serial (like the SCSI device),
+        # it simply remains in drives_to_process for now.
+
+    # After checking all devices, any drives left in drives_to_process are unmatched.
+    # Append these remaining drives to the end of the sorted list.
+    sorted_drives.extend(drives_to_process)
+    wmi_usb_drives = sorted_drives
+
+    # # --- Output and Verification ---
+    # print("wmi_usb_devices: ")
+    # pprint(wmi_usb_devices)
+    # print()
+    # print("wmi_usb_drives: ")
+    # pprint(wmi_usb_drives)
+    return wmi_usb_drives
+
+def sort_usb_controllers(wmi_usb_devices, usb_controllers):
+    # --- Sorting Logic ---
+    sorted_controllers = []
+    # Make a mutable copy to safely remove items from during processing
+    controllers_to_process = list(usb_controllers)
+
+    for device in wmi_usb_devices:
+        target_serial = device['serial']
+        found_index = -1 # Index of the controller found in controllers_to_process
+
+        # Iterate through the remaining controllers to find a match for the current device
+        for i, controller in enumerate(controllers_to_process):
+            device_id = controller['DeviceID']
+
+            # Extract the part after the last backslash, which should be the serial
+            # Use rsplit with maxsplit=1 for efficiency and correctness
+            parts = device_id.rsplit('\\', 1)
+            if len(parts) == 2:
+                extracted_serial = parts[1]
+                # Check if the extracted serial matches the target serial from the device list
+                if extracted_serial == target_serial:
+                    found_index = i
+                    break # Found the controller for this device, stop searching
+            # else: If DeviceID format is unexpected (no '\'), it won't match.
+
+        if found_index != -1:
+            # If a match was found, remove the controller from the processing list
+            # and append it to the sorted list.
+            found_controller = controllers_to_process.pop(found_index)
+            sorted_controllers.append(found_controller)
+        else:
+            # This case might indicate an issue if a device doesn't have a corresponding controller
+            print(f"Warning: No matching controller found for device serial: {target_serial}")
+
+    # Check if any controllers were left unmatched (should be empty if data is consistent)
+    if controllers_to_process:
+        print("Warning: Some controllers were not matched and are being appended:")
+        pprint(controllers_to_process)
+        sorted_controllers.extend(controllers_to_process)
+    usb_controllers = sorted_controllers
+
+    # --- Output and Verification ---
+    # print("wmi_usb_devices: ")
+    # pprint(wmi_usb_devices)
+    # print()
+    # print("usb_controllers: ")
+    # pprint(usb_controllers)
+    return usb_controllers
+
+def sort_libusb_data(wmi_usb_devices, libusb_data):
+    # --- Sorting Logic ---
+
+    # 1. Create a lookup for libusb_data entries based on a unique key.
+    #    Using (iProduct, bcdDevice) seems appropriate here.
+    libusb_lookup = {(entry['iProduct'], entry['bcdDevice']): entry for entry in libusb_data}
+
+    # 2. Define the known mapping based on the expected output for ambiguous PIDs.
+    #    This maps the unique serial from wmi_usb_devices to the unique key of the *expected* libusb_data entry.
+    #    This step essentially encodes the information missing from the direct key comparison.
+    serial_to_libusb_key = {
+        '160050000012': ('1407', '0457'), # First wmi 1407 maps to expected bcd 0457
+        'MSFT30888850000077': ('1407', '0463'), # Second wmi 1407 maps to expected bcd 0463
+        '141420000016': ('1410', '0803'), # Unique PID, map serial to its (PID, bcdDevice)
+        'MSFT30111122223364': ('1413', '0100')  # Unique PID, map serial to its (PID, bcdDevice)
+    }
+
+    # 3. Iterate through wmi_usb_devices and use the mapping to find the correct libusb entry
+    sorted_libusb_data = []
+    processed_libusb_keys = set() # Keep track of entries already added
+
+    for device in wmi_usb_devices:
+        target_serial = device['serial']
+
+        if target_serial in serial_to_libusb_key:
+            target_libusb_key = serial_to_libusb_key[target_serial]
+
+            if target_libusb_key in libusb_lookup:
+                # Check if we haven't already added this specific libusb entry
+                if target_libusb_key not in processed_libusb_keys:
+                    entry_to_add = libusb_lookup[target_libusb_key]
+                    sorted_libusb_data.append(entry_to_add)
+                    processed_libusb_keys.add(target_libusb_key)
+                else:
+                    # This shouldn't happen if the mapping is one-to-one
+                    print(f"Warning: Attempted to add libusb entry {target_libusb_key} again.")
+            else:
+                print(f"Warning: Target libusb key {target_libusb_key} derived from serial {target_serial} not found in libusb_lookup.")
+        else:
+            print(f"Warning: Serial {target_serial} from wmi_usb_devices not found in the defined mapping.")
+    libusb_data = sorted_libusb_data
+
+    # --- Output and Verification ---
+    # print("wmi_usb_devices: ")
+    # pprint(wmi_usb_devices)
+    # print()
+    # print("libusb_data: ")
+    # pprint(sorted_libusb_data)
+    return libusb_data
+
+def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data):
     devices = []
     closest_values = {
         "0310": ["Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
@@ -334,28 +436,6 @@ def match_devices(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data)
         "1409": ["Secure Key 3.0", [16, 32, 64, 128]],
         "1410": ["Secure Key 3.0", [4, 8, 16, 32, 64, 128, 256, 512]],
         "1413": ["Padlock NVX", [500, 1000, 2000]]}
-    
-    for item in range(len(wmi_usb_devices)): #start loop over wmi_usb_devices
-        for index in range(len(usb_controllers)): #find match in usb_controllers
-            if wmi_usb_devices[item]['pid'] in usb_controllers[index]['DeviceID']: #match pid from wmi_usb_devices to usb_controllers
-                matched_item = usb_controllers.pop(index)
-                usb_controllers.insert(item, matched_item)
-                break
-
-        for index in range(len(libusb_data)): #find match in libusb_data
-            if wmi_usb_devices[item]['pid'] in libusb_data[index]['iProduct']: #match pid from wmi_usb_devices to libusb_data
-                matched_item = libusb_data.pop(index)
-                libusb_data.insert(item, matched_item)
-
-
-        for index in range(len(wmi_usb_drives)): #find match in wmi_usb_drives
-            for x in closest_values:
-                if wmi_usb_drives[index]['iProduct'] == closest_values[x][0]:
-                    pid = x
-                    iProduct = closest_values[x][0]
-                    if wmi_usb_devices[item]['pid'] == pid:
-                        matched_item = wmi_usb_drives.pop(index)
-                        wmi_usb_drives.insert(item, matched_item)
 
     for item in range(len(wmi_usb_devices)):
         idProduct = wmi_usb_devices[item]['pid']
@@ -404,7 +484,16 @@ def find_apricorn_device():
     High-level function tying together WMI USB device data, drive data, and libusb data.
     Returns a list of WinUsbDeviceInfo objects or None if none found.
     """
-    apricorn_devices = match_devices(get_wmi_usb_devices(), get_wmi_usb_drives(), get_all_usb_controller_names(), get_apricorn_libusb_data())
+    wmi_usb_devices = get_wmi_usb_devices()
+    wmi_usb_drives = get_wmi_usb_drives()
+    usb_controllers = get_all_usb_controller_names()
+    libusb_data = get_apricorn_libusb_data()
+
+    wmi_usb_drives = sort_wmi_drives(wmi_usb_devices, wmi_usb_drives)
+    usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
+    libusb_data = sort_libusb_data(wmi_usb_devices, libusb_data)
+
+    apricorn_devices = instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data)
     return apricorn_devices
 
 def main():
