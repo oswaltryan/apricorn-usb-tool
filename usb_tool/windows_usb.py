@@ -106,16 +106,16 @@ class WinUsbDeviceInfo:
     Dataclass representing a USB device information structure.
     Includes busNumber and deviceAddress to differentiate devices.
     """
-    idProduct: str
-    idVendor: str
-    bcdDevice: str
     bcdUSB: float
+    idVendor: str
+    idProduct: str
+    bcdDevice: str
     iManufacturer: str
     iProduct: str
     iSerial: str
-    usbController: str = ""
     SCSIDevice: bool = False
     driveSizeGB: int = 0
+    usbController: str = ""
     busNumber: int = 0
     deviceAddress: int = 0
 
@@ -341,16 +341,21 @@ def match_devices(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data)
                 matched_item = usb_controllers.pop(index)
                 usb_controllers.insert(item, matched_item)
                 break
+
         for index in range(len(libusb_data)): #find match in libusb_data
             if wmi_usb_devices[item]['pid'] in libusb_data[index]['iProduct']: #match pid from wmi_usb_devices to libusb_data
                 matched_item = libusb_data.pop(index)
                 libusb_data.insert(item, matched_item)
-                break
+
+
         for index in range(len(wmi_usb_drives)): #find match in wmi_usb_drives
             for x in closest_values:
                 if wmi_usb_drives[index]['iProduct'] == closest_values[x][0]:
-                    matched_item = wmi_usb_drives.pop(index)
-                    wmi_usb_drives.insert(item, matched_item)
+                    pid = x
+                    iProduct = closest_values[x][0]
+                    if wmi_usb_devices[item]['pid'] == pid:
+                        matched_item = wmi_usb_drives.pop(index)
+                        wmi_usb_drives.insert(item, matched_item)
 
     for item in range(len(wmi_usb_devices)):
         idProduct = wmi_usb_devices[item]['pid']
@@ -359,36 +364,36 @@ def match_devices(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data)
         bcdUSB = libusb_data[item]['bcdUSB']
         iManufacturer = wmi_usb_devices[item]['manufacturer']
         iProduct = wmi_usb_drives[item]['iProduct']
-        iSerial = wmi_usb_devices[item]['serial'][6:]
         usbController = usb_controllers[item]['ControllerName']
         bus_number = libusb_data[item]['bus_number']
         dev_address = libusb_data[item]['dev_address']
 
         if wmi_usb_devices[item]['serial'].startswith('MSFT30'):
             SCSIDevice = True
+            iSerial = wmi_usb_devices[item]['serial'][6:]
         else:
             SCSIDevice = False
+            iSerial = wmi_usb_devices[item]['serial']
 
         driveSizeGB = find_closest(wmi_usb_drives[item]["size_gb"], closest_values[idProduct][1])
 
         # Create device info without usbController for now
         dev_info = WinUsbDeviceInfo(
-            idProduct=idProduct,
-            idVendor=idVendor,
-            bcdDevice=bcdDevice,
             bcdUSB=bcdUSB,
+            idVendor=idVendor,
+            idProduct=idProduct,
+            bcdDevice=bcdDevice,
             iManufacturer=iManufacturer,
             iProduct=iProduct,
             iSerial=iSerial,
-            usbController=usbController,
             SCSIDevice=SCSIDevice,
             driveSizeGB=driveSizeGB,
+            usbController=usbController,
             busNumber=bus_number,
             deviceAddress=dev_address
         )
         devices.append(dev_info)
     return devices if devices else None
-
 
 # ==================================
 # Main

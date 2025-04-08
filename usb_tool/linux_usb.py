@@ -11,19 +11,16 @@ from typing import List, Optional
 @dataclass
 class LinuxUsbDeviceInfo:
     """Dataclass mirroring the Windows USB device info structure."""
-    idProduct: str
+    bcdUSB: float
     idVendor: str
+    idProduct: str
     bcdDevice: str
-    bcdUSB: str
     iManufacturer: str
     iProduct: str
     iSerial: str
-    device_id: str
-    vendor: str
-    usb_protocol: str
+    SCSIDevice: bool = False
+    driveSizeGB: int = 0
     usbController: str = ""
-    SCSIDevice: str = ""
-    driveSize: str = ""
     blockDevice: str = ""
 
 # ----------------
@@ -185,14 +182,14 @@ def parse_lsusb_output(vid: str, pid: str) -> dict:
 # ------------------------------------------------------
 # Enumerate "lsusb", filter for Apricorn, gather details
 # ------------------------------------------------------
-def find_apricorn_device() -> Optional[List[WinUsbDeviceInfo]]:
+def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
     """
     Replicates your Windows 'find_apricorn_device' logic in Linux:
     1) "lsusb" short listing
     2) Filter for vendor=0984, exclude product=0351
     3) parse descriptors with parse_lsusb_output
     4) correlate with drive size from lsblk
-    5) return a list of WinUsbDeviceInfo
+    5) return a list of LinuxUsbDeviceInfo
     """
     # Collect drive info once
     all_drives = list_usb_drives()
@@ -235,7 +232,6 @@ def find_apricorn_device() -> Optional[List[WinUsbDeviceInfo]]:
         iProduct_str = info_dict.get("iProduct", "").strip()
         iSerial_str = info_dict.get("iSerial", "").strip()
 
-        device_id_str = f"USB\\VID_{idVendor_str}&PID_{idProduct_str}\\{iSerial_str}"
 
         # Match the iSerial to the "serial" from lsblk
         matched_drive = next(
@@ -244,19 +240,17 @@ def find_apricorn_device() -> Optional[List[WinUsbDeviceInfo]]:
         )
         drive_size_str = str(matched_drive["closest_match"]) if matched_drive else "N/A"
 
-        dev_info = WinUsbDeviceInfo(
-            idProduct=idProduct_str,
-            idVendor=idVendor_str,
-            bcdDevice=bcdDevice_str,
+        dev_info = LinuxUsbDeviceInfo(
             bcdUSB=bcdUSB_str,
+            idVendor=idVendor_str,
+            idProduct=idProduct_str,
+            bcdDevice=bcdDevice_str,
             iManufacturer=iManufacturer_str,
             iProduct=iProduct_str,
             iSerial=iSerial_str,
-            device_id=device_id_str,
-            vendor=iManufacturer_str,   # same as Windows code
-            usbController="",  # placeholder
             SCSIDevice="False",  # placeholder
-            driveSize=drive_size_str
+            driveSize=drive_size_str,
+            usbController="",  # placeholder
         )
         apricorn_devices.append(dev_info)
 
