@@ -1,7 +1,8 @@
-import libusb as usb
+from collections import defaultdict
 import ctypes as ct
 from dataclasses import dataclass
 import json
+import libusb as usb
 from pprint import pprint
 import subprocess
 import win32com.client
@@ -157,9 +158,9 @@ def get_wmi_usb_devices():
             "serial": serial
         })
 
-    # print("wmi_usb_devices:")
-    # pprint(devices_info)
-    # print()
+    print("wmi_usb_devices:")
+    pprint(devices_info)
+    print()
     return devices_info
 
 def get_wmi_usb_drives():
@@ -264,9 +265,9 @@ def get_apricorn_libusb_data():
     finally:
         usb.exit(ctx)
 
-    # print("libusb devices:")
-    # pprint(devices)
-    # print()
+    print("libusb devices:")
+    pprint(devices)
+    print()
     return devices if devices else None
 
 # ==================================
@@ -351,9 +352,8 @@ def sort_wmi_drives(wmi_usb_devices, wmi_usb_drives):
     # print("wmi_usb_devices: ")
     # pprint(wmi_usb_devices)
     # print()
-    # print("wmi_usb_drives: ")
-    # pprint(wmi_usb_drives)
-    # return wmi_usb_drives
+    print("wmi_usb_drives: ")
+    pprint(wmi_usb_drives)
     return wmi_usb_drives
 
 def sort_usb_controllers(wmi_usb_devices, usb_controllers):
@@ -407,60 +407,136 @@ def sort_usb_controllers(wmi_usb_devices, usb_controllers):
 
 def sort_libusb_data(wmi_usb_devices, libusb_data):
     """
-    Attempt to match libusb entries to wmi_usb_devices by pid and best-match bcdUSB.
-    Avoids hardcoding serial numbers.
+    Sorts libusb_data to align with wmi_usb_devices.
+    Includes a pre-check to see if the list is already ordered by PID.
+    Current sorting logic uses PID and highest bcdUSB as fallback.
+    For more robust sorting, consider implementing logic similar to test.py,
+    which uses PID and bcdDevice/REV code matching (requires sorted wmi_usb_drives).
     """
     if not libusb_data:
-        raise UsbTreeError("No libusb_data available to sort")
+        # raise UsbTreeError("No libusb_data available to sort") # Or handle appropriately
+        print("Error: No libusb_data available to sort.")
+        return [] # Return empty list or handle error
+
+    # --- Pre-Sort Order Check ---
+    is_already_sorted = False
+    if len(wmi_usb_devices) == len(libusb_data):
+        # Assume sorted until proven otherwise
+        potentially_sorted = True
+        for i in range(len(wmi_usb_devices)):
+            # Compare PID from WMI device with iProduct from libusb entry
+            wmi_pid = wmi_usb_devices[i].get('pid')
+            libusb_pid = libusb_data[i].get('iProduct')
+            if wmi_pid is None or libusb_pid is None or wmi_pid != libusb_pid:
+                potentially_sorted = False
+                break # Mismatch found, no need to check further
+        if potentially_sorted:
+            is_already_sorted = True
+
+    if is_already_sorted:
+        return libusb_data # Return the list as-is if PIDs align
+
+    # --- Original Sorting Logic (If pre-sort check failed) ---
+    print("Info: libusb_data does not appear pre-sorted by PID, proceeding with sorting logic.")
 
     # Build lookup: {pid: [libusb_entry, ...]}
-    from collections import defaultdict
     pid_map = defaultdict(list)
     for entry in libusb_data:
-        pid_map[entry['iProduct']].append(entry)
+        # Ensure iProduct exists before adding
+        pid_key = entry.get('iProduct')
+        if pid_key:
+            pid_map[pid_key].append(entry)
+        else:
+            print(f"Warning: libusb entry missing 'iProduct': {entry}")
+
 
     sorted_libusb = []
+    # Keep track of used libusb entries using a unique tuple (iProduct, bcdDevice)
+    # Initialize used_entries as a set
     used_entries = set()
 
     for device in wmi_usb_devices:
-        pid = device['pid']
+        pid = device.get('pid')
+        if not pid:
+            print(f"Warning: WMI device missing 'pid': {device}")
+            # Decide how to handle missing PID - skip device, add placeholder?
+            # Adding a placeholder for this example
+            sorted_libusb.append({
+                "iProduct": "UNKNOWN", "bcdDevice": "0000", "bcdUSB": 0.0,
+                "bus_number": -1, "dev_address": -1, "error": "Missing WMI PID"
+             })
+            continue
+
         candidates = pid_map.get(pid, [])
 
         if not candidates:
             print(f"Warning: No libusb entry found for PID {pid}")
             sorted_libusb.append({
-                "iProduct": pid,
-                "bcdDevice": "0000",
-                "bcdUSB": 0.0,
-                "bus_number": -1,
-                "dev_address": -1
+                "iProduct": pid, "bcdDevice": "0000", "bcdUSB": 0.0,
+                "bus_number": -1, "dev_address": -1, "error": "No matching libusb entry"
             })
             continue
 
-        # Select candidate with highest bcdUSB (assuming newest / best match)
-        best = max(candidates, key=lambda x: x['bcdUSB'])
-        key = (best['iProduct'], best['bcdDevice'])
+        # Find the best candidate NOT already used
+        best_candidate = None
+        # Sort candidates primarily by bcdUSB descending (as per original logic)
+        # to pick the highest USB spec first if multiple unused exist.
+        candidates.sort(key=lambda x: x.get('bcdUSB', 0.0), reverse=True)
 
-        if key in used_entries:
-            # Fall back to any not yet used candidate
-            unused = [c for c in candidates if (c['iProduct'], c['bcdDevice']) not in used_entries]
-            if unused:
-                best = unused[0]
-                key = (best['iProduct'], best['bcdDevice'])
+        for candidate in candidates:
+            # Create a unique key for the candidate
+            candidate_key = (candidate.get('iProduct'), candidate.get('bcdDevice'))
+            # Check if the key exists and is not already used
+            if candidate_key[0] is not None and candidate_key[1] is not None and candidate_key not in used_entries:
+                best_candidate = candidate
+                used_entries.add(candidate_key) # Mark as used
+                break # Found an unused candidate
+
+        # If all candidates for this PID were already used, or if no suitable candidate found
+        if best_candidate is None:
+            # This situation is tricky. The original code implicitly reused entries.
+            # A safer approach might be to log a warning and add a placeholder,
+            # or fallback to the first candidate if reuse is acceptable.
+            # Reverting to original behavior (potential reuse/using first candidate) with a warning:
+            if candidates: # If there are candidates, even if used
+                 best_candidate = candidates[0] # Fallback to the first one (highest bcdUSB)
+                 fallback_key = (best_candidate.get('iProduct'), best_candidate.get('bcdDevice'))
+                 if fallback_key[0] is not None and fallback_key[1] is not None:
+                      if fallback_key in used_entries:
+                           print(f"Warning: Reusing libusb entry for PID {pid} (Key: {fallback_key}). This might indicate duplicate devices or sorting issues.")
+                      else:
+                           # This case should ideally not happen if logic above is correct, but as a safeguard:
+                           used_entries.add(fallback_key)
+                 else:
+                     # Handle case where the fallback candidate itself lacks key info
+                     print(f"Error: Fallback libusb candidate for PID {pid} lacks key information.")
+                     best_candidate = { # Add placeholder on error
+                         "iProduct": pid, "bcdDevice": "FALLBACK_ERROR", "bcdUSB": 0.0,
+                         "bus_number": -1, "dev_address": -1, "error": "Fallback candidate invalid"
+                     }
             else:
-                print(f"Warning: All libusb entries for PID {pid} already used")
-                best = candidates[0]  # fallback anyway
+                 # Should not happen if candidates list was checked earlier, but for safety:
+                 best_candidate = { # Add placeholder if truly no candidates
+                     "iProduct": pid, "bcdDevice": "NO_CANDIDATES", "bcdUSB": 0.0,
+                     "bus_number": -1, "dev_address": -1, "error": "No candidates found (logic error?)"
+                 }
 
-        used_entries.add(key)
-        sorted_libusb.append(best)
-    libusb_data = sorted_libusb
 
-    # --- Output and Verification ---
-    # print("wmi_usb_devices: ")
+        sorted_libusb.append(best_candidate)
+
+    # Final check: Ensure the length matches the input device list
+    if len(sorted_libusb) != len(wmi_usb_devices):
+        print(f"Error: Length mismatch after sorting libusb data. Expected {len(wmi_usb_devices)}, Got {len(sorted_libusb)}")
+        # Depending on requirements, you might raise an error or try to pad/truncate
+
+    libusb_data = sorted_libusb # Assign the sorted list back
+
+    # --- Output (Optional Debugging) ---
+    # print("wmi_usb_devices (input order): ")
     # pprint(wmi_usb_devices)
     # print()
-    # print("usb_controllers: ")
-    # pprint(usb_controllers)
+    # print("libusb_data (sorted output): ")
+    # pprint(libusb_data)
     return libusb_data
 
 def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data):
