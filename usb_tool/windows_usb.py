@@ -274,53 +274,86 @@ def get_apricorn_libusb_data():
 # ==================================
 
 def sort_wmi_drives(wmi_usb_devices, wmi_usb_drives):
-    # --- Sorting Logic ---
+    """
+    Sorts the wmi_drives list to match the order of wmi_devices.
+
+    Relies on matching serial numbers, handling variations like prefixes
+    (e.g., 'MSFT30...') and serial numbers embedded in PNPDeviceIDs.
+    Handles SCSI devices as a fallback if serial matching fails.
+    """
     sorted_drives = []
     # Make a mutable copy to safely remove items from during processing
     drives_to_process = list(wmi_usb_drives)
 
     for device in wmi_usb_devices:
-        device_serial = device['serial']
+        device_serial = device.get('serial', '') # Use .get for safety
+        device_desc = device.get('description', '')
         found_index = -1 # Index of the drive found in drives_to_process
 
-        # Iterate through the remaining drives to find a match for the current device
+        # Special handling for known SCSI devices based on description if serial is unreliable/absent
+        is_scsi_device = 'SCSI' in device_desc or (device_serial and device_serial.startswith('MSFT30'))
+
+        best_match_score = -1 # Use a score for better matching prio
+
         for i, drive in enumerate(drives_to_process):
             pnp_id = drive['pnpdeviceid']
-            
+            current_score = -1
+
             # Extract the instance ID part (usually after the last '\')
-            instance_id = pnp_id.split('\\')[-1]
-            
+            instance_id = pnp_id.rsplit('\\', 1)[-1]
+
             # Extract the potential serial number part from the instance ID (before potential '&')
             ampersand_pos = instance_id.find('&')
             pnp_serial_part = instance_id[:ampersand_pos] if ampersand_pos != -1 else instance_id
 
-            # Check for a match using two conditions:
-            # 1. Is the full device serial string present anywhere in the PnP ID? (Handles exact matches)
-            # 2. Is the extracted serial part from the PnP ID present within the device serial string?
-            #    (Handles cases like '8888...' matching 'MSFT...8888...')
-            if device_serial in pnp_id or (pnp_serial_part and pnp_serial_part in device_serial):
-                found_index = i
-                break # Found the drive for this device, stop searching
+            # --- Scoring Logic ---
+            # Score 3: Exact match between device serial and PNP serial part
+            if device_serial and device_serial == pnp_serial_part:
+                current_score = 3
+            # Score 2: Device serial contains PNP serial part OR vice-versa (Handles prefixes/suffixes)
+            elif device_serial and pnp_serial_part and (pnp_serial_part in device_serial or device_serial in pnp_serial_part):
+                 current_score = 2
+            # Score 1: If it's a known SCSI device type and the drive is SCSI (fallback)
+            elif is_scsi_device and "SCSI" in pnp_id and "PADLOCK_NVX" in pnp_id: # Be specific if possible
+                 # Ensure this SCSI drive hasn't been matched by a higher score rule already
+                 # This simplistic check assumes only one such SCSI drive.
+                 current_score = 1
 
-        if found_index != -1:
-            # If a match was found, remove the drive from the processing list
-            # and append it to the sorted list. Using pop() removes and returns the item.
+            # Update best match if current score is higher
+            if current_score > best_match_score:
+                best_match_score = current_score
+                found_index = i
+
+        # If a reasonably confident match was found (Score > 0)
+        if found_index != -1 and best_match_score > 0:
+            # Remove the drive from the processing list and append it to the sorted list.
             found_drive = drives_to_process.pop(found_index)
             sorted_drives.append(found_drive)
-        # else: If no match was found based on serial (like the SCSI device),
-        # it simply remains in drives_to_process for now.
+        else:
+            # If no match found for this device, add a placeholder or handle error
+            # For simplicity here, we'll append None, but you might need robust error handling
+             print(f"Warning: No matching drive found for WMI device: {device_serial} / {device_desc}")
+             sorted_drives.append(None) # Add placeholder
 
-    # After checking all devices, any drives left in drives_to_process are unmatched.
-    # Append these remaining drives to the end of the sorted list.
-    sorted_drives.extend(drives_to_process)
-    wmi_usb_drives = sorted_drives
+    # Append any remaining drives that were not matched to any device (might be unexpected drives)
+    if drives_to_process:
+        print(f"Warning: Appending {len(drives_to_process)} unmatched drives to the end:")
+        pprint(drives_to_process)
+        sorted_drives.extend(drives_to_process) # Or handle as errors
+
+    # Filter out potential None placeholders if added
+    sorted_drives_filtered = [drive for drive in sorted_drives if drive is not None]
+
+    wmi_usb_drives = sorted_drives_filtered
 
     # # --- Output and Verification ---
+    # print("SORTED ----------")
     # print("wmi_usb_devices: ")
     # pprint(wmi_usb_devices)
     # print()
     # print("wmi_usb_drives: ")
     # pprint(wmi_usb_drives)
+    # return wmi_usb_drives
     return wmi_usb_drives
 
 def sort_usb_controllers(wmi_usb_devices, usb_controllers):
@@ -420,8 +453,15 @@ def sort_libusb_data(wmi_usb_devices, libusb_data):
 
         used_entries.add(key)
         sorted_libusb.append(best)
+    libusb_data = sorted_libusb
 
-    return sorted_libusb
+    # --- Output and Verification ---
+    # print("wmi_usb_devices: ")
+    # pprint(wmi_usb_devices)
+    # print()
+    # print("usb_controllers: ")
+    # pprint(usb_controllers)
+    return libusb_data
 
 def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data):
     devices = []
@@ -437,6 +477,22 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
         "1409": ["Secure Key 3.0", [16, 32, 64, 128]],
         "1410": ["Secure Key 3.0", [4, 8, 16, 32, 64, 128, 256, 512]],
         "1413": ["Padlock NVX", [500, 1000, 2000]]}
+
+    # print()
+    # print("----------")
+    # print("AFTER PROCESSING: ")
+    # print("USB Controllers:")
+    # pprint(usb_controllers)
+    # print()
+    # print("wmi_usb_devices:")
+    # pprint(wmi_usb_devices)
+    # print()
+    # print("wmi_usb_drives:")
+    # pprint(wmi_usb_drives)
+    # print()
+    # print("libusb devices:")
+    # pprint(libusb_data)
+    # print("----------")
 
     for item in range(len(wmi_usb_devices)):
         idProduct = wmi_usb_devices[item]['pid']
