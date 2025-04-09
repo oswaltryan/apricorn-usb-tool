@@ -158,9 +158,9 @@ def get_wmi_usb_devices():
             "serial": serial
         })
 
-    print("wmi_usb_devices:")
-    pprint(devices_info)
-    print()
+    # print("wmi_usb_devices:")
+    # pprint(devices_info)
+    # print()
     return devices_info
 
 def get_wmi_usb_drives():
@@ -265,9 +265,9 @@ def get_apricorn_libusb_data():
     finally:
         usb.exit(ctx)
 
-    print("libusb devices:")
-    pprint(devices)
-    print()
+    # print("libusb devices:")
+    # pprint(devices)
+    # print()
     return devices if devices else None
 
 # ==================================
@@ -352,8 +352,8 @@ def sort_wmi_drives(wmi_usb_devices, wmi_usb_drives):
     # print("wmi_usb_devices: ")
     # pprint(wmi_usb_devices)
     # print()
-    print("wmi_usb_drives: ")
-    pprint(wmi_usb_drives)
+    # print("wmi_usb_drives: ")
+    # pprint(wmi_usb_drives)
     return wmi_usb_drives
 
 def sort_usb_controllers(wmi_usb_devices, usb_controllers):
