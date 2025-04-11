@@ -8,6 +8,9 @@ def main():
     if platform.system().lower().startswith("win"):
         from usb_tool import windows_usb
         devices = windows_usb.find_apricorn_device()
+    elif platform.system().lower().startswith("darwin"):
+        from usb_tool import mac_usb
+        devices = mac_usb.find_apricorn_device()
     else:
         from usb_tool import linux_usb
         devices = linux_usb.find_apricorn_device()

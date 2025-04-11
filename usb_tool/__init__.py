@@ -2,6 +2,8 @@
 
 import platform
 
+print(platform.system)
+
 if platform.system().lower().startswith("win"):
     from .windows_usb import (
         find_apricorn_device,
@@ -9,20 +11,28 @@ if platform.system().lower().startswith("win"):
         WinUsbDeviceInfo,
     )
     __all__ = [
-        "list_usb_drives",
+        "find_apricorn_device",
+        "main",
+        "WinUsbDeviceInfo",
+    ]
+elif platform.system().lower().startswith("darwin"):
+    from .mac_usb import (
+        find_apricorn_device,
+        main,
+        macOSUsbDeviceInfo,
+    )
+    __all__ = [
         "find_apricorn_device",
         "main",
         "WinUsbDeviceInfo",
     ]
 else:
     from .linux_usb import (
-        list_usb_drives,
         find_apricorn_device,
         main,
         LinuxUsbDeviceInfo
     )
     __all__ = [
-        "list_usb_drives",
         "find_apricorn_device",
         "main",
         "LinuxUsbDeviceInfo",
