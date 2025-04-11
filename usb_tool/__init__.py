@@ -19,11 +19,11 @@ else:
         list_usb_drives,
         find_apricorn_device,
         main,
-        WinUsbDeviceInfo
+        LinuxUsbDeviceInfo
     )
     __all__ = [
         "list_usb_drives",
         "find_apricorn_device",
         "main",
-        "WinUsbDeviceInfo",
+        "LinuxUsbDeviceInfo",
     ]

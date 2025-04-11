@@ -4,6 +4,8 @@ import subprocess
 import re
 from dataclasses import dataclass, field
 from typing import List, Optional
+import json
+from pprint import pprint
 
 # -----------------------------
 # Same Dataclass as on Windows
@@ -20,7 +22,7 @@ class LinuxUsbDeviceInfo:
     iSerial: str
     SCSIDevice: bool = False
     driveSizeGB: int = 0
-    usbController: str = ""
+    # usbController: str = ""
     blockDevice: str = ""
 
 # ----------------
@@ -105,7 +107,48 @@ def list_usb_drives():
             "size_gb": size_gb,
             "closest_match": closest_match
         })
+    # pprint(drives_info)
     return drives_info
+
+def list_disk_partitions():
+    """
+    NEEDS DOCSTRINGS
+    """
+    target_disk = []
+    targets = ['a', 'b', 'c', 'd']
+    for disk in targets:
+        cmd = ["sudo", "fdisk", "-l", f"/dev/sd{disk}"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            continue
+        else:
+            target_disk.append([f"/dev/sd{disk}", result.stdout])
+    # pprint(target_disk)
+    return target_disk
+
+def parse_uasp_info():
+    """
+    NEEDS DOCSTRINGS
+    """
+    uasp_devices = []
+    cmd = ["sudo", "lshw", "-class", "disk", "-class", "storage", "-json"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        return result
+    else:
+        uasp_devices = json.loads(result.stdout)
+        apricorn_devices = []
+        for item in range(len(uasp_devices) -1, -1, -1):
+            if 'businfo' not in uasp_devices[item]:
+                uasp_devices.pop(item)
+        for item in range(len(uasp_devices)):
+            if 'vendor' not in uasp_devices[item].keys():
+                continue
+            if uasp_devices[item]['vendor'] == "Apricorn":
+                if 'usb' in uasp_devices[item]['businfo']:
+                    apricorn_devices.append(uasp_devices[item])
+        # pprint(apricorn_devices)
+        return apricorn_devices
 
 # ---------------------------------------
 # Helpers: parse USB version & placeholders
@@ -144,6 +187,7 @@ def parse_lsusb_output(vid: str, pid: str) -> dict:
         return {}
 
     output = result.stdout
+    # pprint(output)
     data = {}
 
     for line in output.splitlines():
@@ -193,6 +237,8 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
     """
     # Collect drive info once
     all_drives = list_usb_drives()
+    target_disk = list_disk_partitions()
+    apricorn_hardware = parse_uasp_info()
 
     lsusb_cmd = ["lsusb"]
     result = subprocess.run(lsusb_cmd, capture_output=True, text=True)
@@ -227,7 +273,7 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
         idVendor_str = info_dict.get("idVendor", f"0x{vid_lower}").lower().replace("0x", "")
         idProduct_str = info_dict.get("idProduct", f"0x{pid_lower}").lower().replace("0x", "")
         bcdUSB_str = parse_usb_version(info_dict.get("bcdUSB", "0"))
-        bcdDevice_str = info_dict.get("bcdDevice", "0000").lower().replace("0x", "")
+        bcdDevice_str = info_dict.get("bcdDevice", "0000").lower().replace("0x", "").replace('.', '')
         iManufacturer_str = info_dict.get("iManufacturer", "").strip()
         iProduct_str = info_dict.get("iProduct", "").strip()
         iSerial_str = info_dict.get("iSerial", "").strip()
@@ -240,17 +286,32 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
         )
         drive_size_str = str(matched_drive["closest_match"]) if matched_drive else "N/A"
 
+        # Match block device
+        for disk in target_disk:
+            if iProduct_str in disk[1]:
+                blockDevice_str = disk[0]
+
+        # Match UASP info
+        for device in apricorn_hardware:
+            if device['serial'] == iSerial_str:
+                if device['configuration']['driver'] == "uas":
+                    SCSIDevice_str = True
+                else:
+                    SCSIDevice_str = False                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+            
+
         dev_info = LinuxUsbDeviceInfo(
             bcdUSB=bcdUSB_str,
             idVendor=idVendor_str,
             idProduct=idProduct_str,
-            bcdDevice=bcdDevice_str,
+            bcdDevice=f"0{bcdDevice_str}",
             iManufacturer=iManufacturer_str,
             iProduct=iProduct_str,
             iSerial=iSerial_str,
-            SCSIDevice="False",  # placeholder
-            driveSize=drive_size_str,
-            usbController="",  # placeholder
+            SCSIDevice=SCSIDevice_str,  # placeholder
+            driveSizeGB=drive_size_str,
+            # usbController="",  # placeholder
+            blockDevice=blockDevice_str
         )
         apricorn_devices.append(dev_info)
 
