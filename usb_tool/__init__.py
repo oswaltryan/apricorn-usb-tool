@@ -2,8 +2,6 @@
 
 import platform
 
-print(platform.system)
-
 if platform.system().lower().startswith("win"):
     from .windows_usb import (
         find_apricorn_device,
@@ -24,7 +22,7 @@ elif platform.system().lower().startswith("darwin"):
     __all__ = [
         "find_apricorn_device",
         "main",
-        "WinUsbDeviceInfo",
+        "macOSUsbDeviceInfo",
     ]
 else:
     from .linux_usb import (
