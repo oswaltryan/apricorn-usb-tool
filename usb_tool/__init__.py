@@ -22,7 +22,7 @@ elif platform.system().lower().startswith("darwin"):
     __all__ = [
         "find_apricorn_device",
         "main",
-        "macOSUsbDeviceInfo",
+        "WinUsbDeviceInfo",
     ]
 else:
     from .linux_usb import (

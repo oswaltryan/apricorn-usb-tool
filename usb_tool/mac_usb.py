@@ -87,11 +87,13 @@ def list_usb_drives():
         # print()
         drives_info = []
         for drive in range(len(usb_drives['SPUSBDataType'])):
+            if len(usb_drives['SPUSBDataType'][drive].keys()) < 3:
+                continue
             if "Media" not in usb_drives['SPUSBDataType'][drive]['_items'][0].keys():
                 continue
             if usb_drives['SPUSBDataType'][drive]['_items'][0]['manufacturer'] == "Apricorn":
                 drives_info.append(usb_drives['SPUSBDataType'][drive]['_items'][0])
-        # pprint(drives_info)
+        pprint(drives_info)
         return drives_info
 
 def parse_uasp_info():
