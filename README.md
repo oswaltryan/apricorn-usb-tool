@@ -4,11 +4,10 @@
 This documentation provides instructions on how to install our Apricorn device USB library and use the `find_apricorn_device` function to detect, enumerate, and interact with Apricorn USB devices using **libusb** and **WMI**.
 
 ## Prerequisites
-Ensure you have Python 3.12 installed.
-
+Tested on Python 3.9‑3.12.
 ### 1. (Optional) Create a Virtual Environment
 ```sh
-python3.12 -m venv venv
+python -m venv venv
 ```
 
 Activate the virtual environment:
@@ -21,16 +20,16 @@ Activate the virtual environment:
   venv\Scripts\activate
   ```
 
-### 2. Install Dependencies
+### 2. Install Dependencies (development)
 To ensure compatibility, install dependencies from `requirements.txt`:
 ```sh
 pip install -r requirements.txt
 ```
 
-### 3. Install Dependencies from Local Wheel Files (Offline Mode)
-If installing in an environment without internet access:
+
+### 3. Install Globally as a Module (Offline Mode)
 ```sh
-pip install --no-index --find-links=wheels -r requirements.txt
+python -m pip install --no-index --find-links wheels usb-tool
 ```
 
 ### 4. Install as a Module for Global Access
@@ -39,10 +38,6 @@ For global installation:
 pip install .
 ```
 
-### 5. Install Globally as a Module (Offline Mode)
-```sh
-python -m pip install --no-index --find-links wheels usb-tool
-```
 
 ### 6. Invoke the USB Detection Script
 Run the script anywhere:
@@ -59,12 +54,12 @@ The `find_apricorn_device` function searches for Apricorn USB devices with Vendo
 
 ### Basic Usage
 ```python
-from windows_usb import find_apricorn_device
+from usb_tool import find_apricorn_device
 
-devices = find_apricorn_device()
+device = find_apricorn_device()
 
-if devices:
-    first_device = devices[0]  # Access the first detected device
+if device:
+    first_device = device[0]  # Access the first detected device
     print(first_device.idVendor)  # Correct attribute access
     print(first_device.idProduct)
     print(first_device.iSerial)
@@ -73,7 +68,7 @@ else:
 ```
 
 ### Accessing Device Attributes
-Each device returned is a `WinUsbDeviceInfo` object. Use **dot notation** to access properties:
+Each device returned is a `WinUsbDeviceInfo` `LinuxUsbDeviceInfo` or `macOSUsbDeviceInfo` object. Use **dot notation** to access properties:
 ```python
 print(device.iManufacturer)  # Manufacturer Name
 print(device.iProduct)       # Product Name
@@ -87,8 +82,8 @@ print(device.driveSize)      # Closest Matching Drive Size
 If you need a specific device from the list:
 ```python
 serial_number = "116120005489"
-
-for device in devices:
+device = find_apricorn_device()
+for device in device:
     if device.iSerial == serial_number:
         print(f"Device Found: {device.iProduct} - Serial: {device.iSerial}")
         break
