@@ -415,7 +415,6 @@ def sort_libusb_data(wmi_usb_devices, libusb_data):
     """
     if not libusb_data:
         # raise UsbTreeError("No libusb_data available to sort") # Or handle appropriately
-        print("Error: No libusb_data available to sort.")
         return [] # Return empty list or handle error
 
     # --- Pre-Sort Order Check ---
