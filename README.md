@@ -41,7 +41,7 @@ pip install .
 
 ### 5. Install Globally as a Module (Offline Mode)
 ```sh
-pip install --no-index --find-links=wheels .
+python -m pip install --no-index --find-links wheels usb-tool
 ```
 
 ### 6. Invoke the USB Detection Script

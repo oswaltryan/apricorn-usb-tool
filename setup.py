@@ -15,7 +15,7 @@ if platform.system().lower().startswith("win"):
 
 setup(
     name='usb-tool',  
-    version='0.1.7',
+    version='0.1.8',
     description='Cross-platform USB tool with no Linux deps, Windows libusb + WMI on Windows only.',
     long_description=long_description,
     long_description_content_type='text/markdown',
