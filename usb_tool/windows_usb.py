@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import json
 import libusb as usb
 from pprint import pprint
+import re
 import subprocess
 import win32com.client
 
@@ -119,6 +120,7 @@ class WinUsbDeviceInfo:
     usbController: str = ""
     busNumber: int = 0
     deviceAddress: int = 0
+    physicalDriveNum: int = 0
 
 # ==================================
 # Gathering Apricorn Device Info
@@ -168,12 +170,9 @@ def get_wmi_usb_drives():
     Fetch all USB drives from WMI (Win32_DiskDrive WHERE InterfaceType='USB').
     Returns a list of dicts with caption, size in GB, closest_match, iProduct, pnpdeviceid, etc.
     """
-    query = """
-SELECT * FROM Win32_DiskDrive
-WHERE InterfaceType='USB'
-   OR InterfaceType='SCSI'
-"""
-    usb_drives = service.ExecQuery(query)
+    wmi = win32com.client.GetObject("winmgmts:\\\\.\\root\\cimv2")
+    query = "SELECT * FROM Win32_DiskDrive WHERE InterfaceType='USB'"  # Filter for USB drives
+    usb_drives = service.ExecQuery(query) #changed from wmi.ExecQuery
     drives_info = []
     
     for drive in usb_drives:
@@ -190,8 +189,7 @@ WHERE InterfaceType='USB'
             
             pnp = drive.PNPDeviceID
             if not pnp:
-                continue
-            
+                continue            
             try:
                 if 'USBSTOR' in pnp:
                     i_product = pnp[pnp.index("PROD_") + 5 : pnp.index("&REV")].replace('_', ' ').title()
@@ -269,6 +267,47 @@ def get_apricorn_libusb_data():
     # pprint(devices)
     # print()
     return devices if devices else None
+
+import win32com.client
+import re
+
+def get_physical_drive_number():
+    """
+    Retrieves the physical drive number associated with a given PNPDeviceID.
+    
+    Returns:
+        str: The physical drive number (e.g., "0", "1"), or None if not found.
+    """
+    physical_drives = {}
+    try:
+        wmi = win32com.client.GetObject("winmgmts:\\\\.\\root\\cimv2")
+
+        # 1. Get all Win32_DiskDrive instances
+        query = "SELECT DeviceID, PNPDeviceID FROM Win32_DiskDrive"
+
+        results = wmi.ExecQuery(query)
+
+        for result in results:
+            drive_pnp_id = result.PNPDeviceID.rsplit('\\', 1)[1][:-2]
+            drive_device_id = int(result.DeviceID[-1:])
+            # print(f"Debugging: Drive PNPDeviceID: {drive_pnp_id}")
+            # print(f"Debugging: Drive DeviceID: {drive_device_id}")
+
+            if "APRI" in result.PNPDeviceID:
+                physical_drives.update({drive_pnp_id: drive_device_id})
+        
+        if physical_drives == {}:
+            print("Debugging: No matching drive found.")
+            return None
+        else:
+            # print("Physical Drives:")
+            # pprint(physical_drives)
+            # print()
+            return physical_drives
+
+    except Exception as e:
+        print(f"Error getting physical drive number(s): {e}")
+        return None
 
 # ==================================
 # Process Apricorn Device Info
@@ -538,7 +577,7 @@ def sort_libusb_data(wmi_usb_devices, libusb_data):
     # pprint(libusb_data)
     return libusb_data
 
-def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data):
+def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data, physical_drives):
     devices = []
     closest_values = {
         "0310": ["Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
@@ -587,6 +626,10 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
             SCSIDevice = False
             iSerial = wmi_usb_devices[item]['serial']
 
+        for key, value in physical_drives.items():
+            if key == iSerial:
+                drive_number = value
+
         driveSizeGB = find_closest(wmi_usb_drives[item]["size_gb"], closest_values[idProduct][1])
 
         # Create device info without usbController for now
@@ -602,7 +645,8 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
             driveSizeGB=driveSizeGB,
             usbController=usbController,
             busNumber=bus_number,
-            deviceAddress=dev_address
+            deviceAddress=dev_address,
+            physicalDriveNum=drive_number
         )
         devices.append(dev_info)
     return devices if devices else None
@@ -620,12 +664,13 @@ def find_apricorn_device():
     wmi_usb_drives = get_wmi_usb_drives()
     usb_controllers = get_all_usb_controller_names()
     libusb_data = get_apricorn_libusb_data()
+    physical_drives = get_physical_drive_number()
 
     wmi_usb_drives = sort_wmi_drives(wmi_usb_devices, wmi_usb_drives)
     usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
     libusb_data = sort_libusb_data(wmi_usb_devices, libusb_data)
 
-    apricorn_devices = instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data)
+    apricorn_devices = instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data, physical_drives)
     return apricorn_devices
 
 def main():
