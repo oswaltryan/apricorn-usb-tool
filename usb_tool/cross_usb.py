@@ -1,9 +1,7 @@
 import platform
-import cProfile
-import pstats
-import io
-import re
-import sys  # Import the sys module
+import sys
+import argparse  # Import the argparse module
+
 
 def print_help():
     """
@@ -31,33 +29,41 @@ Examples:
 """
     print(help_text)
 
+
 def main():
-    if "-h" in sys.argv or "--help" in sys.argv:
+    parser = argparse.ArgumentParser(
+        description="USB tool to find Apricorn devices"
+    )
+    # parser.add_argument(  # Removed: Let argparse handle -h/--help
+    #     "-h", "--help", action="store_true", help="Show this help message and exit"
+    # )
+
+    args = parser.parse_args()
+
+    if len(sys.argv) > 1 and not (sys.argv[1] in ('-h', '--help')):
         print_help()
-        sys.exit(0)  # Exit after displaying help
+        sys.exit(0)
 
-    if platform.system().lower().startswith("win"):
-        from usb_tool import windows_usb
-        devices = windows_usb.find_apricorn_device()
-    elif platform.system().lower().startswith("darwin"):
-        from usb_tool import mac_usb
-        devices = mac_usb.find_apricorn_device()
-    else:
-        from usb_tool import linux_usb
-        devices = linux_usb.find_apricorn_device()
+    if len(sys.argv) == 1 or args.list:  # Default action if no args or -list
+        if platform.system().lower().startswith("win"):
+            from usb_tool import windows_usb
+            devices = windows_usb.find_apricorn_device()
+        elif platform.system().lower().startswith("darwin"):
+            from usb_tool import mac_usb
+            devices = mac_usb.find_apricorn_device()
+        else:
+            from usb_tool import linux_usb
+            devices = linux_usb.find_apricorn_device()
 
-    if not devices:
-        print()
-        print("No Apricorn devices found.")
-    else:
-        for idx, dev in enumerate(devices, start=1):
-            print(f"\n=== Apricorn Device #{idx} ===")
-            for field_name, value in dev.__dict__.items():
-                print(f"  {field_name}: {value}")
-    print()
+        if not devices:
+            print("\nNo Apricorn devices found.\n")
+        else:
+            for idx, dev in enumerate(devices, start=1):
+                print(f"\n=== Apricorn Device #{idx} ===")
+                for field_name, value in dev.__dict__.items():
+                    print(f"  {field_name}: {value}")
+            print()
+
 
 if __name__ == "__main__":
-    if "-h" in sys.argv or "--help" in sys.argv:
-        print_help()
-    else:
-        main()
+    main()
