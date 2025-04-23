@@ -81,7 +81,7 @@ def get_all_usb_controller_names():
                 'DeviceID': item['DeviceID'].upper(),
                 'ControllerName': item['ControllerName'][:5] if item['ControllerName'].startswith('Intel') else 'ASMedia'
             }
-            for item in data
+            for item in data if "0221" not in item['DeviceID'] if "0301" not in item['DeviceID'] 
         ]
 
         # print("USB Controllers:")
@@ -151,6 +151,9 @@ def get_wmi_usb_devices():
         vid = vid_pid[0].replace('VID_', '').lower()
         pid = vid_pid[1].replace('PID_', '').lower()
         serial = parts[2] if len(parts) > 2 else ""
+
+        if pid == "0221" or pid == "0301":
+            continue
 
         devices_info.append({
             "vid": vid,
@@ -250,6 +253,9 @@ def get_apricorn_libusb_data():
             bus_number = usb.get_bus_number(dev)
             dev_address = usb.get_device_address(dev)
 
+            if idProduct == "0221" or idProduct == "0301":
+                continue
+
             devices.append({
                 "iProduct": idProduct,
                 "bcdDevice": bcdDevice,
@@ -290,14 +296,16 @@ def get_physical_drive_number():
         for result in results:
             drive_pnp_id = result.PNPDeviceID.rsplit('\\', 1)[1][:-2]
             drive_device_id = int(result.DeviceID[-1:])
-            # print(f"Debugging: Drive PNPDeviceID: {drive_pnp_id}")
-            # print(f"Debugging: Drive DeviceID: {drive_device_id}")
+            # print(f"Debugging: Drive PNPDeviceID: {result.PNPDeviceID}")
+            # print(f"Debugging: Drive DeviceID: {result.DeviceID}")
+
+            if "SATAWIRE" in result.PNPDeviceID or "FLASH_DISK" in result.PNPDeviceID:
+                continue
 
             if "APRI" in result.PNPDeviceID:
                 physical_drives.update({drive_pnp_id: drive_device_id})
         
         if physical_drives == {}:
-            print("Debugging: No matching drive found.")
             return None
         else:
             # print("Physical Drives:")

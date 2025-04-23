@@ -47,6 +47,7 @@ def main():
         devices = linux_usb.find_apricorn_device()
 
     if not devices:
+        print()
         print("No Apricorn devices found.")
     else:
         for idx, dev in enumerate(devices, start=1):
