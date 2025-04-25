@@ -12,7 +12,20 @@ from pprint import pprint
 # -----------------------------
 @dataclass
 class macOSUsbDeviceInfo:
-    """Dataclass mirroring the Windows USB device info structure."""
+    """
+    Represents information about an Apricorn USB device on macOS.
+
+    Attributes:
+        bcdUSB (float): USB specification release number.
+        idVendor (str): Vendor ID assigned by the USB Implementers Forum.
+        idProduct (str): Product ID assigned by the manufacturer.
+        bcdDevice (str): Device revision number.
+        iManufacturer (str): Index of the manufacturer string descriptor.
+        iProduct (str): Index of the product string descriptor.
+        iSerial (str): Index of the serial number string descriptor.
+        SCSIDevice (bool): Indicates if the device uses SCSI commands over USB (UAS).
+        driveSizeGB (int): Approximate drive size in Gigabytes.
+    """
     bcdUSB: float
     idVendor: str
     idProduct: str
@@ -29,18 +42,39 @@ class macOSUsbDeviceInfo:
 # Size Conversions
 # ----------------
 def bytes_to_gb(bytes_value: float) -> float:
-    """Convert bytes to gigabytes."""
+    """Convert a size value in bytes to gigabytes.
+
+    Args:
+        bytes_value (float): The size in bytes.
+
+    Returns:
+        float: The size in gigabytes.
+    """
     return bytes_value / (1024 ** 3)
 
 def find_closest(target, options):
-    """Find the closest value in 'options' to 'target'."""
+    """Find the closest value in a list of options to a given target value.
+
+    Args:
+        target (int or float): The target value to find the closest match for.
+        options (List[int]): A list of numerical options to search within.
+
+    Returns:
+        int: The closest value from the options list to the target.
+    """
     closest = min(options, key=lambda x: abs(x - target))
     return int(closest)
 
 def parse_lsblk_size(size_str: str) -> float:
     """
-    Parse a size string from lsblk (e.g., '465.8G', '14.2T', '500M') and return size in GB.
-    Default to 0 if unparsable.
+    Parse a size string from a command like 'lsblk' (e.g., '465.8G', '14.2T', '500M')
+    and return the size in gigabytes. Returns 0.0 if the string cannot be parsed.
+
+    Args:
+        size_str (str): The size string to parse.
+
+    Returns:
+        float: The parsed size in gigabytes, or 0.0 if parsing fails.
     """
     size_str = size_str.strip().upper()
     match = re.match(r'([\d\.]+)([GMTEK]?)', size_str)
@@ -74,8 +108,16 @@ def parse_lsblk_size(size_str: str) -> float:
 # -----------------------------------------------------------
 def list_usb_drives():
     """
-    Return a list of dictionaries with { 'serial': str, 'size_gb': float, 'closest_match': int }
-    from lsblk. We only parse "SERIAL" if it exists. Typically, USB flash drives etc. show up here.
+    Uses the 'system_profiler' command to retrieve information about USB devices
+    and extracts relevant details for connected USB drives, particularly focusing
+    on Apricorn devices.
+
+    Returns:
+        List[dict]: A list of dictionaries, where each dictionary contains
+                     information about a USB drive (if identified as an Apricorn
+                     device) including its name, serial number (if available),
+                     and size in bytes. Returns an empty list if no Apricorn
+                     USB drives are found or if the 'system_profiler' command fails.
     """
     cmd = ["system_profiler", "SPUSBDataType", "-json"]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -93,12 +135,18 @@ def list_usb_drives():
                 continue
             if usb_drives['SPUSBDataType'][drive]['_items'][0]['manufacturer'] == "Apricorn":
                 drives_info.append(usb_drives['SPUSBDataType'][drive]['_items'][0])
-        pprint(drives_info)
+        # pprint(drives_info)
         return drives_info
 
 def parse_uasp_info():
     """
-    NEEDS DOCSTRINGS
+    Uses the 'ioreg' command to identify USB devices that are using the
+    USB Attached SCSI Protocol (UASP).
+
+    Returns:
+        dict: A dictionary where keys are the product names of USB devices
+              and values are boolean indicating whether the device is using UAS
+              (True) or not (False).
     """
     uasp_devices = []
     cmd = r'''
@@ -137,7 +185,17 @@ ioreg -p IOUSB -w0 -l | awk '
 # ------------------------------------------------------
 def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
     """
-    NEEDS DOCSTRINGS
+    Identifies connected Apricorn USB devices and gathers detailed information
+    about them, including USB descriptors, product information, and whether
+    they are using UAS. It then maps this information to the `macOSUsbDeviceInfo`
+    dataclass.
+
+    Returns:
+        Optional[List[macOSUsbDeviceInfo]]: A list of `macOSUsbDeviceInfo` objects,
+                                             each representing an Apricorn USB device
+                                             found on the system. Returns None if no
+                                             Apricorn devices are detected or if
+                                             necessary commands fail.
     """
     closest_values = {
         "0310": ["padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
@@ -197,6 +255,14 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
 # Example Usage
 # ---------------
 def main(find_apricorn_device):
+    """
+    Main function to find and display information about connected Apricorn devices.
+
+    Args:
+        find_apricorn_device (callable): A function that returns a list of
+                                         macOSUsbDeviceInfo objects representing
+                                         connected Apricorn devices.
+    """
     devices = find_apricorn_device()
     if not devices:
         print("No Apricorn devices found.")

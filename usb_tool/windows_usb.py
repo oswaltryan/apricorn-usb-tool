@@ -682,7 +682,14 @@ def find_apricorn_device():
     return apricorn_devices
 
 def main():
-    """Find and display information about Apricorn devices."""
+    """
+    Main function to find and display information about connected Apricorn devices.
+
+    Args:
+        find_apricorn_device (callable): A function that returns a list of
+                                         macOSUsbDeviceInfo objects representing
+                                         connected Apricorn devices.
+    """
     devices = find_apricorn_device()
     if devices:
         for idx, dev in enumerate(devices, 1):

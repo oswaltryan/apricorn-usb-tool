@@ -349,6 +349,14 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
 # Example Usage
 # ---------------
 def main(find_apricorn_device):
+    """
+    Main function to find and display information about connected Apricorn devices.
+
+    Args:
+        find_apricorn_device (callable): A function that returns a list of
+                                         macOSUsbDeviceInfo objects representing
+                                         connected Apricorn devices.
+    """
     devices = find_apricorn_device()
     if not devices:
         print("No Apricorn devices found.")
