@@ -104,9 +104,9 @@ def list_usb_drives():
             "serial": serial,
             "size_gb": size_gb
         })
-    print("lsblk:")
-    pprint(drives_info)
-    print()
+    # print("lsblk:")
+    # pprint(drives_info)
+    # print()
     return drives_info
 
 def list_disk_partitions():
@@ -127,9 +127,9 @@ def list_disk_partitions():
             if "Flash Disk" in result.stdout:
                 continue
             target_disk.append([f"/dev/sd{disk}", result.stdout])
-    print("fdisk:")
-    pprint(target_disk)
-    print()
+    # print("fdisk:")
+    # pprint(target_disk)
+    # print()
     return target_disk
 
 def parse_uasp_info():
@@ -155,9 +155,9 @@ def parse_uasp_info():
             if uasp_devices[item]['vendor'] == "Apricorn":
                 if 'usb' in uasp_devices[item]['businfo']:
                     apricorn_devices.append(uasp_devices[item])
-        print("lshw:")
-        pprint(apricorn_devices)
-        print()
+        # print("lshw:")
+        # pprint(apricorn_devices)
+        # print()
         return apricorn_devices
 
 # ---------------------------------------
