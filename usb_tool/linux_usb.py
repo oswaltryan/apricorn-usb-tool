@@ -12,7 +12,7 @@ from pprint import pprint
 # -----------------------------
 @dataclass
 class LinuxUsbDeviceInfo:
-    """Dataclass mirroring the Windows USB device info structure."""
+    """Dataclass mirroring the Windows USB device info structure for Linux."""
     bcdUSB: float
     idVendor: str
     idProduct: str
@@ -29,13 +29,13 @@ class LinuxUsbDeviceInfo:
 # Size Conversions
 # ----------------
 def bytes_to_gb(bytes_value: float) -> float:
-    """Convert bytes to gigabytes."""
+    """Convert a value in bytes to gigabytes."""
     return bytes_value / (1024 ** 3)
 
 def parse_lsblk_size(size_str: str) -> float:
     """
-    Parse a size string from lsblk (e.g., '465.8G', '14.2T', '500M') and return size in GB.
-    Default to 0 if unparsable.
+    Parse a size string from the 'lsblk' command output (e.g., '465.8G', '14.2T', '500M')
+    and return the size in gigabytes as a float. Returns 0.0 if the string is unparsable.
     """
     size_str = size_str.strip().upper()
     match = re.match(r'([\d\.]+)([GMTEK]?)', size_str)
@@ -65,21 +65,20 @@ def parse_lsblk_size(size_str: str) -> float:
         return bytes_to_gb(val)
 
 def find_closest(target: float, options: List[int]) -> int:
-    """Find the closest integer value in `options` to the float `target`."""
+    """
+    Find the integer value in the list `options` that is closest to the float `target`.
+    Returns the closest integer.
+    """
     return min(options, key=lambda x: abs(x - target))
-
-# ----------------------------------------------
-# Known thresholds to mirror your Windows logic
-# ----------------------------------------------
-closest_values = [16, 30, 60, 120, 240, 480, 1000, 2000]
 
 # -----------------------------------------------------------
 # Gather block device info: name, serial, size (converted to GB)
 # -----------------------------------------------------------
 def list_usb_drives():
     """
-    Return a list of dictionaries with { 'serial': str, 'size_gb': float, 'closest_match': int }
-    from lsblk. We only parse "SERIAL" if it exists. Typically, USB flash drives etc. show up here.
+    Lists USB drives using the 'lsblk' command and extracts their serial number and size.
+    Returns a list of dictionaries, where each dictionary contains the 'serial' (string)
+    and 'size_gb' (float) of a USB drive. Only drives with a 12-character serial number are included.
     """
     cmd = ["lsblk", "-n", "-o", "NAME,SERIAL,SIZE", "-d"]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -97,38 +96,47 @@ def list_usb_drives():
 
         name, serial, size_str = parts
         # If there's no serial, skip
-        if not serial or serial == '-':
+        if not serial or serial == '-' or len(serial) != 12:
             continue
 
         size_gb = parse_lsblk_size(size_str)
-        closest_match = find_closest(size_gb, closest_values)
         drives_info.append({
             "serial": serial,
-            "size_gb": size_gb,
-            "closest_match": closest_match
+            "size_gb": size_gb
         })
-    # pprint(drives_info)
+    print("lsblk:")
+    pprint(drives_info)
+    print()
     return drives_info
 
 def list_disk_partitions():
     """
-    NEEDS DOCSTRINGS
+    Uses the 'fdisk' command to list partitions for /dev/sda through /dev/sdn.
+    It filters out entries that contain "Flash Disk" in their output.
+    Returns a list of lists, where each inner list contains the device path (e.g., '/dev/sda')
+    and the raw output of the 'fdisk -l' command for that device.
     """
     target_disk = []
-    targets = ['a', 'b', 'c', 'd']
+    targets = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n']
     for disk in targets:
         cmd = ["sudo", "fdisk", "-l", f"/dev/sd{disk}"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             continue
         else:
+            if "Flash Disk" in result.stdout:
+                continue
             target_disk.append([f"/dev/sd{disk}", result.stdout])
-    # pprint(target_disk)
+    print("fdisk:")
+    pprint(target_disk)
+    print()
     return target_disk
 
 def parse_uasp_info():
     """
-    NEEDS DOCSTRINGS
+    Uses the 'lshw' command to retrieve information about disk and storage devices in JSON format.
+    It then filters this information to identify Apricorn USB devices and checks if they are using the 'uas' driver (UASP).
+    Returns a list of dictionaries, where each dictionary contains information about an Apricorn USB device.
     """
     uasp_devices = []
     cmd = ["sudo", "lshw", "-class", "disk", "-class", "storage", "-json"]
@@ -142,12 +150,14 @@ def parse_uasp_info():
             if 'businfo' not in uasp_devices[item]:
                 uasp_devices.pop(item)
         for item in range(len(uasp_devices)):
-            if 'vendor' not in uasp_devices[item].keys():
+            if 'vendor' not in uasp_devices[item].keys() or uasp_devices[item]['version'] == '1.33': # Exclude SATAWire
                 continue
             if uasp_devices[item]['vendor'] == "Apricorn":
                 if 'usb' in uasp_devices[item]['businfo']:
                     apricorn_devices.append(uasp_devices[item])
-        # pprint(apricorn_devices)
+        print("lshw:")
+        pprint(apricorn_devices)
+        print()
         return apricorn_devices
 
 # ---------------------------------------
@@ -155,10 +165,9 @@ def parse_uasp_info():
 # ---------------------------------------
 def parse_usb_version(usb_str: str) -> str:
     """
-    Attempt to mirror the Windows logic for version formatting.
-    Windows code parses bcdUSB as BCD (e.g., 0x0320 -> 3.20).
-    If lsusb gives '3.20' or '2.00' directly, keep it as-is;
-    else do a best-effort parse.
+    Parses a USB version string, attempting to handle both direct version numbers (e.g., '3.20')
+    and BCD-formatted version numbers (e.g., '0x0320'). If a BCD format is detected, it converts
+    it to a human-readable format (e.g., 3.20). If parsing fails, it returns the original string.
     """
     if re.match(r'^\d+\.\d+$', usb_str):
         return usb_str
@@ -178,8 +187,10 @@ def parse_usb_version(usb_str: str) -> str:
 # -----------------------------
 def parse_lsusb_output(vid: str, pid: str) -> dict:
     """
-    Run 'lsusb -v -d vid:pid' and parse relevant descriptor info
-    into a dictionary. Return empty if we can't parse or permissions fail.
+    Runs the command 'lsusb -v -d vid:pid' and parses the output to extract relevant USB
+    descriptor information. Returns a dictionary containing the extracted information
+    (e.g., bcdUSB, idVendor, iProduct, iSerial). Returns an empty dictionary if the command
+    fails or the output cannot be parsed.
     """
     cmd = ["lsusb", "-v", "-d", f"{vid}:{pid}"]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -228,13 +239,25 @@ def parse_lsusb_output(vid: str, pid: str) -> dict:
 # ------------------------------------------------------
 def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
     """
-    Replicates your Windows 'find_apricorn_device' logic in Linux:
-    1) "lsusb" short listing
-    2) Filter for vendor=0984, exclude product=0351
-    3) parse descriptors with parse_lsusb_output
-    4) correlate with drive size from lsblk
-    5) return a list of LinuxUsbDeviceInfo
+    Enumerates USB devices using 'lsusb', filters for Apricorn devices (vendor ID 0984),
+    and gathers detailed information for each found device using 'lsusb -v -d'.
+    It then correlates this information with drive size information obtained from 'lsblk'
+    and UASP status from 'lshw'. Finally, it returns a list of LinuxUsbDeviceInfo objects
+    representing the detected Apricorn devices. Devices with product IDs 0221 and 0301 are excluded.
     """
+    closest_values = {
+        "0310": ["Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
+        "0315": ["Padlock DT", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
+        "0351": ["Aegis Portable", [128, 256, 500, 1000, 2000, 4000, 8000, 12000, 16000]],
+        "1400": ["Fortress", [256, 500, 1000, 2000, 4000, 8000, 16000]],
+        "1405": ["Padlock SSD", [240, 480, 1000, 2000, 4000]],
+        "1406": ["Padlock DT FIPS", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
+        "1407": ["Secure Key 3.0", [16, 30, 60, 120, 240, 480, 1000, 2000, 4000]],
+        "1408": ["Fortress L3", [500, 512, 1000, 2000, 4000, 5000, 8000, 16000, 20000]],
+        "1409": ["Secure Key 3.0", [16, 32, 64, 128]],
+        "1410": ["Secure Key 3.0", [4, 8, 16, 32, 64, 128, 256, 512]],
+        "1413": ["Padlock NVX", [500, 1000, 2000]]}
+        
     # Collect drive info once
     all_drives = list_usb_drives()
     target_disk = list_disk_partitions()
@@ -256,7 +279,7 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
         # Filter for Apricorn=0984, skip 0351
         vid_lower = vid.lower()
         pid_lower = pid.lower()
-        if vid_lower != "0984" or pid_lower == "0351":
+        if vid_lower != "0984" or pid_lower == "0221" or pid_lower == "0301": # Exclude SATAWire and 4GB keys
             continue
 
         info_dict = parse_lsusb_output(vid_lower, pid_lower)
@@ -276,7 +299,10 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
         bcdDevice_str = info_dict.get("bcdDevice", "0000").lower().replace("0x", "").replace('.', '')
         iManufacturer_str = info_dict.get("iManufacturer", "").strip()
         iProduct_str = info_dict.get("iProduct", "").strip()
+        SCSIDevice_str = "N/A"
         iSerial_str = info_dict.get("iSerial", "").strip()
+        if len(iSerial_str) != 12:
+            iSerial_str = iSerial_str[:-12]
 
 
         # Match the iSerial to the "serial" from lsblk
@@ -284,9 +310,12 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
             (d for d in all_drives if iSerial_str and iSerial_str in d["serial"]),
             None
         )
-        drive_size_str = str(matched_drive["closest_match"]) if matched_drive else "N/A"
+        drive_size_str = find_closest(matched_drive['size_gb'], closest_values[idProduct_str][1]) if matched_drive else "N/A"
+
 
         # Match block device
+        if target_disk == []:
+            blockDevice_str = "N/A"
         for disk in target_disk:
             if iProduct_str in disk[1]:
                 blockDevice_str = disk[0]
@@ -297,8 +326,7 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
                 if device['configuration']['driver'] == "uas":
                     SCSIDevice_str = True
                 else:
-                    SCSIDevice_str = False                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
-            
+                    SCSIDevice_str = False
 
         dev_info = LinuxUsbDeviceInfo(
             bcdUSB=bcdUSB_str,

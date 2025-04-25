@@ -15,8 +15,8 @@ if platform.system().lower().startswith("win"):
 
 setup(
     name='usb-tool',  
-    version='0.1.10',
-    description='Cross-platform USB tool with no Linux deps, Windows libusb + WMI on Windows only.',
+    version='0.1.11',
+    description='Cross-platform USB tool.',
     long_description=long_description,
     long_description_content_type='text/markdown',
     author='Ryan Oswalt',
@@ -53,3 +53,9 @@ setup(
         'License :: OSI Approved :: MIT License',
     ],
 )
+
+if platform.system().lower == "linux":
+    print()
+    print("\033[91m" + "To run, please run 'sudo usb'" + "\033[0m")
+    print("\033[91m" + "To run without sudo, run 'sudo ./update_sudoersd.sh'" + "\033[0m")
+    print()
