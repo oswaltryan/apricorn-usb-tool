@@ -31,7 +31,6 @@ def is_admin_windows():
 
 # --- Helper Function Definition ---
 def print_help():
-    # ... (keep as is) ...
     help_text = """
 usb-tool - Cross-platform USB tool for Apricorn devices
 
@@ -45,25 +44,22 @@ Usage:
   usb_tool [options]  # Or how you intend to invoke it
 
 Options:
-  -h, --help            Show this help message and exit.
-  --list                List connected Apricorn devices (this is the default action).
-  --poke DRIVE_NUMS     Windows Only: Send a SCSI READ(10) command ONLY to detected
-                        Apricorn drives specified by their physical drive numbers
-                        (comma-separated, e.g., '1' or '1,2'). Requires Admin rights.
+  -h, --help                Show this help message and exit.
+  -p, --poke DRIVE_NUMS     Windows Only: Send a SCSI READ(10) command ONLY to detected
+                            Apricorn drives specified by their physical drive numbers
+                            (comma-separated, e.g., '1' or '1,2'). Requires Admin rights.
 
 Examples:
-  usb_tool                   List all connected Apricorn devices.
-  usb_tool --list            Explicitly list devices.
-  usb_tool --poke 1          Send a READ(10) command to detected Apricorn drive #1 (Windows Admin).
-  usb_tool --poke 1,2        Send READ(10) commands to detected Apricorn drives #1 and #2
-                             (Windows Admin).
-  usb_tool -h                Show this help message.
+  usb_tool                  List all connected Apricorn devices.
+  usb_tool --poke 1         Send a READ(10) command to detected Apricorn drive #1 (Windows Admin).
+  usb_tool --poke 1,2       Send READ(10) commands to detected Apricorn drives #1 and #2
+                            (Windows Admin).
+  usb_tool -h               Show this help message.
 """
     print(help_text)
 
 # --- Synchronous Helper for Poking ---
 def sync_poke_drive(drive_num):
-    # ... (keep as is) ...
     if not POKE_AVAILABLE:
         print(f"  Drive {drive_num}: Poke SKIPPED (poke_device not available)")
         return False
@@ -102,10 +98,9 @@ def main():
     )
     parser.add_argument("-h", "--help", action="store_true", help="Show detailed help/manpage.")
     parser.add_argument(
-        "--poke", type=str, metavar="DRIVE_NUMS",
+        "-p", "--poke", type=str, metavar="DRIVE_NUMS",
         help="Windows only: Poke detected Apricorn drives by physical number (comma-separated)."
     )
-    parser.add_argument("--list", action="store_true", help="List connected Apricorn devices (default action).")
     args = parser.parse_args()
 
     # --- Help Handling ---
@@ -194,9 +189,8 @@ def main():
                 invalid_poke_targets.append(user_num)
 
         if invalid_poke_targets:
-            print()
-            print(f"Invalid physicalDriveNum, detected Apricorn devices: {sorted(list(valid_apricorn_drive_nums))}", file=sys.stderr)
-            print()
+            print(f"usage: usb [-h] [-p DRIVE_NUMS]")
+            print(f"usb: error: argument -p/--poke: invalid DRIVE_NUMS")
             sys.exit(1)
 
         if not validated_poke_targets:
@@ -206,6 +200,7 @@ def main():
 
 
         # Proceed with poking ONLY the validated targets
+        print()
         results = []
         for num in sorted(validated_poke_targets): # Poke in sorted order
             results.append(sync_poke_drive(num))
@@ -214,6 +209,8 @@ def main():
             print("Some poke operations failed.")
             # Consider exiting with error code if any poke fails
             # sys.exit(1)
+        else:
+            print()
 
     # --- List Logic ---
     # Run list if --list or no args given AND --poke wasn't the primary action
