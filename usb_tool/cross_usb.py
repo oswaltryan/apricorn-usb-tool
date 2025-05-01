@@ -214,7 +214,7 @@ def main():
 
     # --- List Logic ---
     # Run list if --list or no args given AND --poke wasn't the primary action
-    elif args.list or not args.poke:
+    elif not args.poke:
         # Only scan now if devices weren't already retrieved for poke validation
         if devices is None:
             print("Scanning for Apricorn devices...")
