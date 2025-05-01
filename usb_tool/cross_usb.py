@@ -10,12 +10,15 @@ _SYSTEM = platform.system().lower()
 
 if _SYSTEM.startswith("win"):
     try:
+        # Use relative import for package structure
         from .poke_device import send_scsi_read10, ScsiError
         POKE_AVAILABLE = True
     except ImportError:
+        # Keep existing warning print
         print("Warning: Could not import poke_device module.", file=sys.stderr)
         POKE_AVAILABLE = False
     except Exception as e:
+        # Keep existing warning print
         print(f"Warning: Error importing poke_device: {e}", file=sys.stderr)
         POKE_AVAILABLE = False
 else:
@@ -31,6 +34,7 @@ def is_admin_windows():
 
 # --- Helper Function Definition ---
 def print_help():
+    # --- MODIFIED help text ---
     help_text = """
 usb-tool - Cross-platform USB tool for Apricorn devices
 
@@ -41,25 +45,28 @@ Description:
   send a basic SCSI command ('poke') to specified drives on Windows.
 
 Usage:
-  usb_tool [options]  # Or how you intend to invoke it
+  usb_tool [options]
 
 Options:
   -h, --help                Show this help message and exit.
-  -p, --poke DRIVE_NUMS     Windows Only: Send a SCSI READ(10) command ONLY to detected
+  -p, --poke DRIVE_NUMS|all Windows Only: Send a SCSI READ(10) command ONLY to detected
                             Apricorn drives specified by their physical drive numbers
-                            (comma-separated, e.g., '1' or '1,2'). Requires Admin rights.
+                            (comma-separated, e.g., '1' or '1,2') OR use 'all'
+                            to poke all detected Apricorn drives. Requires Admin rights.
 
 Examples:
-  usb_tool                  List all connected Apricorn devices.
-  usb_tool --poke 1         Send a READ(10) command to detected Apricorn drive #1 (Windows Admin).
-  usb_tool --poke 1,2       Send READ(10) commands to detected Apricorn drives #1 and #2
-                            (Windows Admin).
+  usb_tool                  List all connected Apricorn devices (default action).
+  usb_tool -p 1             Send a READ(10) command to detected Apricorn drive #1 (Windows Admin).
+  usb_tool -p 1,2           Send READ(10) commands to detected Apricorn drives #1 and #2 (Windows Admin).
+  usb_tool -p all           Send READ(10) commands to ALL detected Apricorn drives (Windows Admin).
   usb_tool -h               Show this help message.
 """
+    # --- End MODIFIED help text ---
     print(help_text)
 
 # --- Synchronous Helper for Poking ---
 def sync_poke_drive(drive_num):
+    # --- Keep this function exactly as provided ---
     if not POKE_AVAILABLE:
         print(f"  Drive {drive_num}: Poke SKIPPED (poke_device not available)")
         return False
@@ -93,13 +100,13 @@ def sync_poke_drive(drive_num):
 def main():
     # --- Argument Parsing ---
     parser = argparse.ArgumentParser(
-        description="USB tool to find Apricorn devices. Can also 'poke' drives on Windows.",
+        description="USB tool for Apricorn devices.",
         add_help=False
     )
     parser.add_argument("-h", "--help", action="store_true", help="Show detailed help/manpage.")
     parser.add_argument(
-        "-p", "--poke", type=str, metavar="DRIVE_NUMS",
-        help="Windows only: Poke detected Apricorn drives by physical number (comma-separated)."
+        "-p", "--poke", type=str, metavar="DRIVE_NUMS|all",
+        help="Windows only: Poke detected Apricorn drives by physical number (comma-separated) or use 'all'."
     )
     args = parser.parse_args()
 
@@ -108,154 +115,166 @@ def main():
         print_help()
         sys.exit(0)
 
-    # --- Perform Device Discovery EARLY if --poke is used ---
+    # --- Device Discovery ---
     devices = None
-    if args.poke and _SYSTEM.startswith("win"): # Only need devices early for poke validation
+    scan_error = False
+    scan_needed = (_SYSTEM.startswith("win") and args.poke) or (not args.poke)
+
+    if scan_needed:
         print("Scanning for Apricorn devices...")
-        # Make sure to use the correct import based on package structure
-        from . import windows_usb # Assuming running as package
+        if _SYSTEM.startswith("win"): from . import windows_usb as os_usb
+        elif _SYSTEM.startswith("darwin"): from . import mac_usb as os_usb
+        elif _SYSTEM.startswith("linux"): from . import linux_usb as os_usb
+        else:
+            print(f"Unsupported platform: {_SYSTEM}", file=sys.stderr)
+            sys.exit(1)
         try:
-            devices = windows_usb.find_apricorn_device()
-            if not devices:
-                print("No Apricorn devices found to poke.")
-                # Exit here if no devices, prevents poke attempt later
-                sys.exit(0 if not args.list else 1) # Exit cleanly if poke was the only arg
+            devices = os_usb.find_apricorn_device()
         except Exception as e:
-            print(f"Error during initial device scan for poke validation: {e}", file=sys.stderr)
-            sys.exit(1)
+             print(f"Error during device scan: {e}", file=sys.stderr)
+             scan_error = True
 
+    # --- Action Logic ---
 
-    # --- Poke Logic ---
+    # Poke Action
     if args.poke:
+        # Perform initial checks (Platform, POKE_AVAILABLE, Admin, Scan Result)
         if not _SYSTEM.startswith("win"):
-            print("Error: --poke option is only available on Windows.", file=sys.stderr)
-            sys.exit(1)
+            parser.error("--poke option is only available on Windows.")
         if not POKE_AVAILABLE:
-            print("Error: Poke functionality could not be loaded.", file=sys.stderr)
-            sys.exit(1)
+            parser.error("Poke functionality could not be loaded.")
         if not is_admin_windows():
-            print("Error: --poke requires Administrator privileges.", file=sys.stderr)
-            sys.exit(1)
-
-        # Device scan should have happened above if devices is None or empty
-        if devices is None: # Should not happen if logic above is correct, but safety check
-            print("Error: Could not retrieve device list for validation.", file=sys.stderr)
-            sys.exit(1)
-        if not devices: # Check again in case scan yielded nothing
-             print("No Apricorn devices found. Nothing to poke.", file=sys.stderr)
+            parser.error("--poke requires Administrator privileges.")
+        if scan_error:
+             parser.error("Cannot execute --poke due to previous device scan error.")
+        if devices is None:
+             parser.error("Device scan failed or yielded no results; cannot validate poke targets.")
+        if not devices:
+             print("No Apricorn devices found. Nothing to poke.")
              sys.exit(0)
 
-
-        # --- Validation Step ---
+        # --- Get Valid Detected Drive Numbers ---
         valid_apricorn_drive_nums = set()
         for dev in devices:
-            # Ensure the attribute exists and is a valid number (e.g., not -1)
             if hasattr(dev, 'physicalDriveNum') and isinstance(dev.physicalDriveNum, int) and dev.physicalDriveNum >= 0:
                 valid_apricorn_drive_nums.add(dev.physicalDriveNum)
 
         if not valid_apricorn_drive_nums:
-            print("Error: No Apricorn devices with valid physical drive numbers were detected.", file=sys.stderr)
-            sys.exit(1)
+            parser.error("Detected Apricorn devices, but none have valid physical drive numbers assigned.")
 
-        # Parse user input
-        user_poke_nums_str = args.poke.split(',')
-        user_poke_nums_int = set() # Use a set for efficient checking
-        invalid_inputs = []
-        try:
-            for s in user_poke_nums_str:
+        # --- Determine Poke Targets ('all' or specific numbers) ---
+        poke_input = args.poke.strip() # Strip whitespace from the entire input first
+        validated_poke_targets = []
+
+        # *** CORRECTED 'all' HANDLING ***
+        if poke_input.lower() == 'all':
+            validated_poke_targets = list(valid_apricorn_drive_nums)
+            if not validated_poke_targets: # Should be caught above, but safety check
+                 parser.error("Keyword 'all' specified, but no valid drives were found.")
+            # If it's 'all', we set the targets and skip the number parsing logic below
+
+        else: # --- Only parse numbers if input is NOT 'all' ---
+            user_poke_nums_str_list = poke_input.split(',')
+            user_poke_nums_int = set()
+            invalid_inputs = []
+            processed_any_valid_element = False
+            for s in user_poke_nums_str_list:
                 s_strip = s.strip()
                 if not s_strip: continue
-                num = int(s_strip)
-                if num < 0:
-                    raise ValueError("Drive number cannot be negative")
-                user_poke_nums_int.add(num)
-        except ValueError as e:
-            invalid_inputs.append(s_strip if 's_strip' in locals() else s) # Capture the invalid string
-            # Continue parsing others, report all invalid at once
-            pass # Continue loop to find all format errors
+                processed_any_valid_element = True
+                try:
+                    # Check if 'all' was mixed in (should not happen if logic is correct, but defensive)
+                    # This check might be redundant now but doesn't hurt
+                    if s_strip.lower() == 'all':
+                        invalid_inputs.append(s_strip + " ('all' keyword cannot be mixed)")
+                        continue
 
-        if invalid_inputs:
-             print(f"Error: Invalid non-integer value(s) provided for --poke: {invalid_inputs}", file=sys.stderr)
-             sys.exit(1)
+                    num = int(s_strip)
+                    if num < 0: invalid_inputs.append(s_strip + " (negative)")
+                    else: user_poke_nums_int.add(num)
+                except ValueError: invalid_inputs.append(s_strip)
+
+            # Report parsing errors
+            if invalid_inputs:
+                 parser.error(f"Invalid value(s) for --poke: {invalid_inputs}. Use comma-separated non-negative integers or 'all'.")
+            if not processed_any_valid_element:
+                 parser.error("No drive numbers provided for --poke argument.")
+            if processed_any_valid_element and not user_poke_nums_int:
+                 # This catches cases like "--poke ," or "--poke abc"
+                 parser.error(f"No valid positive integers found in --poke argument '{args.poke}'.")
+
+            # Check parsed numbers against detected valid drives
+            invalid_poke_targets = []
+            for user_num in user_poke_nums_int:
+                if user_num in valid_apricorn_drive_nums:
+                    validated_poke_targets.append(user_num)
+                else:
+                    invalid_poke_targets.append(user_num)
+
+            if invalid_poke_targets:
+                error_msg = (f"argument -p/--poke: Invalid drive number(s). "
+                             f"Detected Apricorn drives: {sorted(list(valid_apricorn_drive_nums))}. "
+                             f"Invalid specified: {sorted(invalid_poke_targets)}.")
+                parser.error(error_msg)
+
+            if not validated_poke_targets:
+                 parser.error("No valid Apricorn drive numbers specified to poke after validation.")
+        # *** End CORRECTED 'all' HANDLING ***
 
 
-        # Check which user numbers are valid Apricorn drives
-        validated_poke_targets = []
-        invalid_poke_targets = []
-        for user_num in user_poke_nums_int:
-            if user_num in valid_apricorn_drive_nums:
-                validated_poke_targets.append(user_num)
-            else:
-                invalid_poke_targets.append(user_num)
-
-        if invalid_poke_targets:
-            print(f"usage: usb [-h] [-p DRIVE_NUMS]")
-            print(f"usb: error: argument -p/--poke: invalid DRIVE_NUMS")
-            sys.exit(1)
-
-        if not validated_poke_targets:
-             print("Error: No valid Apricorn drive numbers specified to poke.", file=sys.stderr)
-             sys.exit(1)
-        # --- End Validation Step ---
-
-
-        # Proceed with poking ONLY the validated targets
+        # --- Proceed with Poking ---
+        # This part remains the same, uses validated_poke_targets
         print()
         results = []
-        for num in sorted(validated_poke_targets): # Poke in sorted order
-            results.append(sync_poke_drive(num))
+        all_success = True
+        for num in sorted(validated_poke_targets):
+            success = sync_poke_drive(num)
+            results.append(success)
+            if not success:
+                 all_success = False
 
-        if not all(results):
-            print("Some poke operations failed.")
-            # Consider exiting with error code if any poke fails
+        if not all_success:
+            print("Some poke operations failed.") # Keep fail message
             # sys.exit(1)
-        else:
-            print()
+        print()
 
-    # --- List Logic ---
-    # Run list if --list or no args given AND --poke wasn't the primary action
-    elif not args.poke:
-        # Only scan now if devices weren't already retrieved for poke validation
+    # List Action (Default if poke not specified)
+    else:
+        # --- (Keep existing list logic) ---
+        if scan_error:
+            print("Cannot list devices due to previous scan error.", file=sys.stderr)
+            sys.exit(1)
         if devices is None:
-            print("Scanning for Apricorn devices...")
-            # Make sure to use the correct import based on package structure
-            if _SYSTEM.startswith("win"): from . import windows_usb as os_usb
-            elif _SYSTEM.startswith("darwin"): from . import mac_usb as os_usb
-            elif _SYSTEM.startswith("linux"): from . import linux_usb as os_usb
-            else:
-                print(f"Unsupported platform: {_SYSTEM}", file=sys.stderr)
-                sys.exit(1)
-            try:
-                devices = os_usb.find_apricorn_device()
-            except Exception as e:
-                 print(f"Error during device scan: {e}", file=sys.stderr)
-                 sys.exit(1)
-
+            print("Device scan failed or yielded no results.", file=sys.stderr)
+            sys.exit(1)
 
         if not devices:
             print("\nNo Apricorn devices found.\n")
         else:
             for idx, dev in enumerate(devices, start=1):
-                # Use original title format
                 print(f"\n=== Apricorn Device #{idx} ===")
                 try: attributes = vars(dev)
                 except TypeError: attributes = dev if isinstance(dev, dict) else {}
-
                 if attributes:
                     for field_name, value in attributes.items():
-                        # Use original field: value format (no padding)
                         print(f"  {field_name}: {value}")
                 else:
-                     print(f"  Device Info: {dev}") # Fallback if vars() fails
-            print() # Keep the final newline for spacing
+                     print(f"  Device Info: {dev}")
+            print()
 
 # --- Entry Point for direct execution ---
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
+        # Keep existing print
         print("\nOperation cancelled by user.")
         sys.exit(130)
+    except SystemExit:
+        raise # Allow SystemExit from argparse.error to propagate
     except Exception as e:
+        # Keep existing print
         print(f"\nAn unexpected error occurred: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
