@@ -638,7 +638,10 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
             if key == iSerial:
                 drive_number = value
 
-        driveSizeGB = find_closest(wmi_usb_drives[item]["size_gb"], closest_values[idProduct][1])
+        if wmi_usb_drives[item]["size_gb"] == 0.0:
+            driveSizeGB = "N/A (OOB Mode)"
+        else:
+            driveSizeGB = find_closest(wmi_usb_drives[item]["size_gb"], closest_values[idProduct][1])
 
         # Create device info without usbController for now
         dev_info = WinUsbDeviceInfo(
