@@ -15,7 +15,7 @@ if platform.system().lower().startswith("win"):
 
 setup(
     name='usb-tool',  
-    version='0.1.11',
+    version='0.2.0',
     description='Cross-platform USB tool.',
     long_description=long_description,
     long_description_content_type='text/markdown',
@@ -39,7 +39,7 @@ setup(
     # Console entry points for main tool and update command:
     entry_points={
         'console_scripts': [
-            'usb=usb_tool.cross_usb:cli_entry_point',
+            'usb=usb_tool.cross_usb:main',
             'usb-update=usb_tool.update:main',
         ],
     },
