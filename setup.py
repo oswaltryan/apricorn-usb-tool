@@ -39,7 +39,7 @@ setup(
     # Console entry points for main tool and update command:
     entry_points={
         'console_scripts': [
-            'usb=usb_tool.cross_usb:main',
+            'usb=usb_tool.cross_usb:cli_entry_point',
             'usb-update=usb_tool.update:main',
         ],
     },
