@@ -32,38 +32,156 @@ def is_admin_windows():
 
 # --- Helper Function Definition ---
 def print_help():
-    # *** Updated Help Text ***
-    help_text = """
-usb-tool - Cross-platform USB tool for Apricorn devices
+    if _SYSTEM.startswith("win"):
+        help_text = """
+NAME
+       usb - Cross-platform USB tool for Apricorn devices
+       usb-update - Update the usb-tool installation (if installed from Git)
 
-Description:
-  The usb-tool is a command-line utility designed to identify and
-  display information about Apricorn USB devices connected to your
-  system. It supports Windows, macOS, and Linux platforms. It can also
-  send a basic SCSI command ('poke') to specified drives on Windows and Linux.
+SYNOPSIS
+       usb [-h] [-p TARGETS]
+       usb-update
 
-Usage:
-  usb [options]
+DESCRIPTION
+       The usb-tool utility scans the system for connected Apricorn USB devices
+       (Vendor ID 0984) using WMI and libusb (if available) and displays detailed
+       information about them. It can also send a basic SCSI READ(10) command
+       (poke) to specified devices using the SCSI Pass Through Interface.
 
-Options:
-  -h, --help                Show this help message and exit.
-  -p, --poke TARGETS        Send a SCSI READ(10) command ONLY to detected
-                            Apricorn drives specified by their identifier:
-                              - Windows: Physical drive numbers (comma-separated, e.g., '1' or '1,2').
-                              - Linux: Block device paths (comma-separated, e.g., '/dev/sda' or '/dev/sda,/dev/sdb').
-                            Alternatively, use 'all' to poke all detected Apricorn drives.
-                            Skips devices detected in OOB mode.
-                            Requires Admin (Windows) or root (Linux) privileges.
-                            (Poke not supported on macOS).
+       The poke operation requires Administrator privileges.
 
-Examples:
-  usb                  List all connected Apricorn devices (default action).
-  usb -p 1             (Windows) Send READ(10) to detected Apricorn drive #1 (Admin).
-  usb -p 1,2           (Windows) Send READ(10) to detected Apricorn drives #1 and #2 (Admin).
-  usb -p /dev/sdc      (Linux) Send READ(10) to detected Apricorn drive /dev/sdc (root).
-  usb -p /dev/sda,/dev/sdb (Linux) Send READ(10) to drives /dev/sda and /dev/sdb (root).
-  usb -p all           Send READ(10) commands to ALL detected, non-OOB Apricorn drives (Admin/root).
-  usb -h               Show this help message.
+OPTIONS
+       -h, --help
+              Show this help message and exit.
+
+       -p TARGETS, --poke TARGETS
+              Send a SCSI READ(10) command to specified detected Apricorn
+              drives. TARGETS should be a comma-separated list of physical
+              drive numbers (e.g., '1', '0,2' - corresponding to \\.\PhysicalDriveX)
+              or the keyword 'all' to target all detected, non-OOB Apricorn drives.
+              This operation requires Administrator privileges.
+              Devices detected in Out-Of-Box (OOB) mode (reporting size as N/A)
+              will be skipped.
+
+DEFAULT BEHAVIOR
+       If run without options, `usb` scans for Apricorn devices and prints
+       detailed information for each one found, including:
+       VID/PID, Serial Number, Product Name, Manufacturer, USB Version (bcdUSB),
+       Device Revision (bcdDevice), Drive Size (or N/A), UAS/SCSI status,
+       USB Controller type (e.g., Intel, ASMedia), Bus/Device Address, and
+       Physical Drive Number.
+
+USB-UPDATE COMMAND
+       The `usb-update` command attempts to update the tool if it was installed
+       in editable mode from a Git repository. It runs `git pull origin main`
+       and then `pip install --upgrade .`.
+
+PRIVILEGES
+       - Listing devices (`usb`): Generally works as a standard user.
+       - Poking devices (`usb -p`): Requires Administrator privileges to access
+         physical drives via the SCSI Pass Through IOCTL. Run from an
+         Administrator command prompt or PowerShell.
+       - Updating (`usb-update`): May require Administrator privileges if installed
+         globally.
+
+EXAMPLES
+       usb
+              List all detected Apricorn devices.
+
+       usb -p 1
+              (Run as Admin) Send a SCSI READ(10) command to the Apricorn device
+              identified as PhysicalDrive1.
+
+       usb -p 0,2
+              (Run as Admin) Send a SCSI READ(10) command to devices
+              PhysicalDrive0 and PhysicalDrive2.
+
+       usb -p all
+              (Run as Admin) Send a SCSI READ(10) command to all detected,
+              non-OOB Apricorn devices.
+
+       usb-update
+              Attempt to update the tool from the Git repository.
+"""
+    elif _SYSTEM.startswith("linux"):
+        help_text = """
+NAME
+       usb - Cross-platform USB tool for Apricorn devices
+       usb-update - Update the usb-tool installation (if installed from Git)
+
+SYNOPSIS
+       usb [-h] [-p TARGETS]
+       usb-update
+
+DESCRIPTION
+       The usb-tool utility scans the system for connected Apricorn USB devices
+       (Vendor ID 0984) and displays detailed information about them. It can
+       also send a basic SCSI READ(10) command (poke) to specified devices.
+
+       On Linux, full device scanning details (e.g., via lshw, fdisk, lsusb -v)
+       may require root privileges. The poke operation requires root privileges
+       to access block devices directly.
+
+       An optional script (`update_sudoersd.sh`) can be run with sudo to
+       configure passwordless sudo access for specific scanning commands (`lshw`,
+       `fdisk`), potentially allowing `usb` (without poke) to show more details
+       without running the main tool as root.
+
+OPTIONS
+       -h, --help
+              Show this help message and exit.
+
+       -p TARGETS, --poke TARGETS
+              Send a SCSI READ(10) command to specified detected Apricorn
+              drives. TARGETS should be a comma-separated list of block device
+              paths (e.g., '/dev/sda', '/dev/sda,/dev/sdb') or the keyword
+              'all' to target all detected, non-OOB Apricorn drives.
+              This operation requires root privileges (e.g., run via `sudo usb -p ...`).
+              Devices detected in Out-Of-Box (OOB) mode (reporting size as N/A)
+              will be skipped.
+
+DEFAULT BEHAVIOR
+       If run without options, `usb` scans for Apricorn devices and prints
+       detailed information for each one found, including:
+       VID/PID, Serial Number, Product Name, Manufacturer, USB Version (bcdUSB),
+       Device Revision (bcdDevice), Drive Size (or N/A), UAS/SCSI status,
+       and Block Device path (e.g., /dev/sda).
+
+USB-UPDATE COMMAND
+       The `usb-update` command attempts to update the tool if it was installed
+       in editable mode from a Git repository. It runs `git pull origin main`
+       and then `pip install --upgrade .`. It may require root privileges
+       depending on the installation location.
+
+PRIVILEGES
+       - Listing devices (`usb`): May provide more detail if run as root or if
+         the `sudoers.d` configuration is applied (using
+         `update_sudoersd.sh`). Basic listing may work as a regular user.
+       - Poking devices (`usb -p`): Requires root privileges to access block
+         devices via the ioctl interface. Use `sudo`.
+       - Updating (`usb-update`): May require root privileges if installed
+         globally.
+
+EXAMPLES
+       usb
+              List all detected Apricorn devices.
+
+       sudo usb -p /dev/sdb
+              Send a SCSI READ(10) command to the Apricorn device at /dev/sdb.
+
+       sudo usb -p /dev/sda,/dev/sdc
+              Send a SCSI READ(10) command to devices /dev/sda and /dev/sdc.
+
+       sudo usb -p all
+              Send a SCSI READ(10) command to all detected, non-OOB Apricorn devices.
+
+       usb-update
+              Attempt to update the tool from the Git repository.
+
+       sudo ./update_sudoersd.sh
+              (Run from source directory) Install the sudoers configuration to
+              allow passwordless execution of specific scanning commands for the
+              `usb` tool when run by any user via sudo.
 """
     print(help_text)
 
