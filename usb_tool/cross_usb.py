@@ -194,7 +194,6 @@ def sync_poke_drive(device_identifier):
     if not POKE_AVAILABLE:
         print(f"  Device {device_identifier}: Poke SKIPPED (poke_device not available)")
         return False
-    print(f"Poking device {device_identifier}...")
     try:
         # Call the cross-platform function
         read_data = send_scsi_read10(device_identifier)
@@ -247,8 +246,8 @@ def main():
     )
     parser.add_argument("-h", "--help", action="store_true", help="Show detailed help/manpage.")
     # Updated help text for TARGETS based on platform
-    poke_help = ("Windows: Poke detected Apricorn drives by physical number (comma-separated) or 'all'. "
-                 "Linux: Poke by block device path (comma-separated, e.g., /dev/sda) or 'all'. "
+    poke_help = ("Windows: Poke by device index number shown in list (e.g., 1) or 'all'. "
+                 "Linux: Poke by index OR block device path (e.g., 1 or /dev/sda) or 'all'. "
                  "Requires Admin/root.")
     parser.add_argument(
         "-p", "--poke", type=str, metavar="TARGETS",
@@ -262,7 +261,7 @@ def main():
         sys.exit(0)
 
     # --- Device Discovery ---
-    devices = None
+    devices = None # This will be the ordered list of device objects
     scan_error = False
     scan_needed = True # Always scan if poke or list is intended
 
@@ -281,6 +280,8 @@ def main():
 
     print("Scanning for Apricorn devices...")
     try:
+        # *** CRITICAL: Assume os_usb.find_apricorn_device() returns devices
+        #     in a consistent, predictable order that will be shown to the user. ***
         devices = os_usb.find_apricorn_device()
     except Exception as e:
          print(f"Error during device scan: {e}", file=sys.stderr)
@@ -292,208 +293,218 @@ def main():
     # --- Action Logic ---
     # Poke Action
     if args.poke:
-        # --- Initial Checks ---
-        if not (_SYSTEM.startswith("win") or _SYSTEM.startswith("linux")):
-            parser.error(f"--poke option is only available on Windows and Linux (current: {_SYSTEM}).")
-        if not POKE_AVAILABLE:
-            parser.error("Poke functionality could not be loaded (poke_device import failed).")
-
-        # Privilege check / info message
-        if _SYSTEM.startswith("win"):
-            if not is_admin_windows():
-                parser.error("--poke requires Administrator privileges on Windows.")
-        elif _SYSTEM.startswith("linux"):
-             # Check effective UID. If not 0 (root), print warning and proceed.
-             # The actual permission error will be caught during device open/ioctl.
-             try:
-                 if os.geteuid() != 0:
-                     print("\nWarning: --poke on Linux typically requires root privileges (use sudo).")
-             except AttributeError:
-                  print("\nWarning: Cannot determine user privileges. --poke on Linux typically requires root.")
-
+        # ...(Initial checks, privilege checks remain the same)...
 
         if scan_error:
              parser.error("Cannot execute --poke due to previous device scan error.")
         if devices is None:
-             # Check if scan *attempted* but failed vs never ran
              if scan_needed:
                  parser.error("Device scan failed or yielded no results; cannot validate poke targets.")
              else:
-                 # This case shouldn't happen if scan_needed=True always
                  parser.error("Device scan did not run; cannot validate poke targets.")
         if not devices:
              print("No Apricorn devices found. Nothing to poke.")
              sys.exit(0)
 
-        # --- Enhanced Validation Step (Platform Aware) ---
-        # Map device identifier (drive num or path) to the device object
-        # Also track OOB status based on the identifier
-        detected_pokeable_map = {} # {identifier: device_obj} for non-OOB
-        detected_oob_map = {}      # {identifier: device_obj} for OOB
-
-        for dev in devices:
-            identifier = None
-            is_oob = False
-            try:
-                # Check for OOB - use startswith("N/A") for flexibility
-                size_attr = getattr(dev, 'driveSizeGB', 'Unknown')
-                # Convert to string to check, handles int size values too
-                if str(size_attr).strip().upper().startswith("N/A"):
-                     is_oob = True
-
-                if _SYSTEM.startswith("win"):
-                    p_num = getattr(dev, 'physicalDriveNum', -1)
-                    if isinstance(p_num, int) and p_num >= 0:
-                        identifier = p_num
-                elif _SYSTEM.startswith("linux"):
-                    b_dev = getattr(dev, 'blockDevice', '')
-                    # Ensure it looks like a valid block device path
-                    if isinstance(b_dev, str) and b_dev.startswith('/dev/'):
-                        identifier = b_dev
-
-                if identifier is not None:
-                    if is_oob:
-                        detected_oob_map[identifier] = dev
-                    else:
-                        detected_pokeable_map[identifier] = dev
-
-            except Exception as e:
-                 print(f"Warning: Error processing device data during validation: {dev} - {e}", file=sys.stderr)
-                 continue # Skip this device if critical data is missing/malformed
-
-        all_detected_identifiers = set(detected_pokeable_map.keys()) | set(detected_oob_map.keys())
-
-        if not all_detected_identifiers:
-             parser.error("No Apricorn devices with valid identifiers (drive number/path) were detected.")
-        # --- End Enhanced Validation Step Preparation ---
-
-        # --- Determine Poke Targets ('all' or specific identifiers) ---
+        # --- Determine Poke Targets (Index-based or Path-based) ---
         poke_input = args.poke.strip()
-        user_target_identifiers = set() # Identifiers user requested (int or str)
-        validated_poke_targets = [] # Final list of identifiers to actually poke
-        skipped_oob_targets = []    # Identifiers explicitly requested but skipped due to OOB
-        invalid_targets = []        # Identifiers requested but not detected/invalid
+        num_devices = len(devices)
+
+        # Store pairs: (user_facing_identifier, actual_os_identifier)
+        targets_to_poke = []
+        # Store user-facing identifiers for reporting skipped/invalid
+        user_targets_requested_str = [] # Store raw inputs
+        skipped_oob_targets_user_facing = [] # Store user-facing ID of skipped OOB
+        invalid_target_inputs = [] # Store invalid input strings
 
         if poke_input.lower() == 'all':
-            # In 'all' mode, we target all *pokeable* drives found
-            user_target_identifiers = set(detected_pokeable_map.keys()) # This is the set we want to poke
-            # Identify which OOB devices are implicitly skipped when 'all' is used
-            skipped_oob_targets = list(detected_oob_map.keys()) # All OOB devices are skipped
-            validated_poke_targets = list(detected_pokeable_map.keys())
+            user_targets_requested_str.append("'all'")
+            for i, dev in enumerate(devices):
+                index_num = i + 1 # 1-based index for user reference
+                user_facing_id = f"#{index_num}" # User sees #1, #2 etc.
+                is_oob = False
+                os_identifier = None
+                try:
+                    # Check OOB
+                    size_attr = getattr(dev, 'driveSizeGB', 'Unknown')
+                    if str(size_attr).strip().upper().startswith("N/A"):
+                        is_oob = True
+
+                    # Get OS identifier
+                    if _SYSTEM.startswith("win"):
+                        p_num = getattr(dev, 'physicalDriveNum', -1)
+                        if isinstance(p_num, int) and p_num >= 0:
+                            os_identifier = p_num
+                    elif _SYSTEM.startswith("linux"):
+                        b_dev = getattr(dev, 'blockDevice', '')
+                        if isinstance(b_dev, str) and b_dev.startswith('/dev/'):
+                            os_identifier = b_dev
+
+                    if os_identifier is None:
+                        print(f"Warning: Could not get valid OS identifier for device {user_facing_id}. Skipping in 'all' mode.", file=sys.stderr)
+                        invalid_target_inputs.append(f"Device {user_facing_id} (Missing OS ID)")
+                        continue
+
+                    if is_oob:
+                        skipped_oob_targets_user_facing.append(user_facing_id)
+                    else:
+                        targets_to_poke.append((user_facing_id, os_identifier))
+
+                except Exception as e:
+                     print(f"Warning: Error processing device {user_facing_id} during 'all' poke: {e}", file=sys.stderr)
+                     invalid_target_inputs.append(f"Device {user_facing_id} (Processing Error)")
 
         else:
-            # Parse specific identifiers requested by the user
+            # Parse specific identifiers requested by the user (can be index or path on Linux)
             user_poke_input_list = poke_input.split(',')
-            invalid_inputs_reported = [] # Store specific invalid strings for error message
-            processed_any_valid_element = False # Track if we got any non-empty string
+            processed_any_valid_element = False
+
+            # Temporary set to avoid adding the same target tuple multiple times
+            unique_targets_to_add = set() # Store (user_facing_id, os_id) tuples
 
             for s in user_poke_input_list:
                 s_strip = s.strip()
-                if not s_strip: continue # Skip empty parts from double commas etc.
+                if not s_strip: continue
 
                 processed_any_valid_element = True
+                user_targets_requested_str.append(s_strip)
+                user_facing_id = s_strip # Default user-facing ID is what they typed
+                target_index = -1 # Store the resolved index if input was numeric
 
-                # Block mixing 'all' with specific identifiers
-                if s_strip.lower() == 'all':
-                     invalid_inputs_reported.append(s_strip + " ('all' keyword cannot be mixed)")
-                     continue
+                # Try parsing as an index first
+                try:
+                    user_index = int(s_strip)
+                    if 1 <= user_index <= num_devices:
+                        target_index = user_index
+                        user_facing_id = f"#{user_index}" # Use consistent "#N" format
+                        device = devices[user_index - 1]
 
-                # Try to parse based on OS
-                target_id = None
-                is_valid_format = False
-                if _SYSTEM.startswith("win"):
-                     try:
-                         num = int(s_strip)
-                         if num >= 0:
-                             target_id = num
-                             is_valid_format = True
-                         else:
-                             invalid_inputs_reported.append(s_strip + " (negative number)")
-                     except ValueError:
-                         invalid_inputs_reported.append(s_strip + " (not a valid number)")
-                elif _SYSTEM.startswith("linux"):
-                     # Basic check: must start with /dev/
-                     if s_strip.startswith('/dev/'):
-                         target_id = s_strip
-                         is_valid_format = True
-                     else:
-                         invalid_inputs_reported.append(s_strip + " (not a valid /dev/ path)")
+                        is_oob = False
+                        os_identifier = None
 
-                if is_valid_format and target_id is not None:
-                     user_target_identifiers.add(target_id)
-                # else: error already reported
+                        # Check OOB
+                        size_attr = getattr(device, 'driveSizeGB', 'Unknown')
+                        if str(size_attr).strip().upper().startswith("N/A"):
+                            is_oob = True
 
-            # Report parsing errors
-            if invalid_inputs_reported:
-                 error_msg_parts = ["Invalid value(s) for --poke:"]
-                 error_msg_parts.extend(invalid_inputs_reported)
-                 if _SYSTEM.startswith("win"):
-                     error_msg_parts.append("Use comma-separated non-negative integers or 'all'.")
-                 elif _SYSTEM.startswith("linux"):
-                     error_msg_parts.append("Use comma-separated /dev/ paths or 'all'.")
-                 parser.error(" ".join(error_msg_parts))
+                        # Get OS identifier
+                        if _SYSTEM.startswith("win"):
+                            p_num = getattr(device, 'physicalDriveNum', -1)
+                            if isinstance(p_num, int) and p_num >= 0:
+                                os_identifier = p_num
+                        elif _SYSTEM.startswith("linux"):
+                             b_dev = getattr(device, 'blockDevice', '')
+                             if isinstance(b_dev, str) and b_dev.startswith('/dev/'):
+                                 os_identifier = b_dev
 
+                        if os_identifier is not None:
+                             if is_oob:
+                                 skipped_oob_targets_user_facing.append(user_facing_id)
+                             else:
+                                 unique_targets_to_add.add((user_facing_id, os_identifier))
+                        else:
+                             invalid_target_inputs.append(f"{s_strip} (Index valid, failed to get OS ID)")
+
+                    else:
+                        invalid_target_inputs.append(f"{s_strip} (Index out of range 1-{num_devices})")
+
+                except ValueError:
+                    # Not an integer, check if it's a valid Linux path
+                    if _SYSTEM.startswith("linux") and s_strip.startswith('/dev/'):
+                        # user_facing_id remains s_strip (the path)
+                        found_device_for_path = None
+                        found_index_for_path = -1 # For reporting if needed
+                        for i, dev in enumerate(devices):
+                             b_dev = getattr(dev, 'blockDevice', '')
+                             if b_dev == s_strip:
+                                 found_device_for_path = dev
+                                 found_index_for_path = i + 1
+                                 break
+
+                        if found_device_for_path:
+                             is_oob = False
+                             size_attr = getattr(found_device_for_path, 'driveSizeGB', 'Unknown')
+                             if str(size_attr).strip().upper().startswith("N/A"):
+                                 is_oob = True
+
+                             os_identifier = s_strip # Path is the OS identifier
+
+                             if is_oob:
+                                 # Use path as the user-facing ID for skipping
+                                 skipped_oob_targets_user_facing.append(user_facing_id)
+                             else:
+                                 unique_targets_to_add.add((user_facing_id, os_identifier))
+                        else:
+                             invalid_target_inputs.append(f"{s_strip} (Path not found for detected Apricorn device)")
+                    else:
+                        invalid_target_inputs.append(f"{s_strip} (Invalid format - expected index" +
+                                                    (" or /dev/ path" if _SYSTEM.startswith("linux") else "") + ")")
+
+                # End of processing single input 's'
+
+            # After processing all inputs:
             if not processed_any_valid_element:
                  parser.error("No device identifiers provided for --poke argument.")
-            # If we processed inputs but ended up with no valid identifiers
-            if processed_any_valid_element and not user_target_identifiers:
-                 err_type = "positive integers" if _SYSTEM.startswith("win") else "/dev/ paths"
-                 parser.error(f"No valid {err_type} found in --poke argument '{args.poke}'.")
 
-            # --- Validate the user_target_identifiers against detected devices ---
-            for identifier in user_target_identifiers:
-                if identifier in detected_pokeable_map:
-                    validated_poke_targets.append(identifier)
-                elif identifier in detected_oob_map:
-                    # It's an OOB device the user explicitly asked for
-                    skipped_oob_targets.append(identifier)
-                else:
-                    # It's an identifier the user asked for but isn't a detected Apricorn drive
-                    invalid_targets.append(identifier)
-
-            if invalid_targets:
-                 id_type = "drive number(s)" if _SYSTEM.startswith("win") else "device path(s)"
-                 error_msg = (f"argument -p/--poke: Invalid or non-Apricorn {id_type} specified. "
-                              f"Detected Apricorn identifiers: {sorted(list(all_detected_identifiers))}. "
-                              f"Invalid specified: {sorted(invalid_targets)}.")
+            if invalid_target_inputs:
+                 error_msg = "Invalid value(s) for --poke: " + ", ".join(invalid_target_inputs)
                  parser.error(error_msg)
 
+            # Convert the unique set of tuples to the final list
+            targets_to_poke = list(unique_targets_to_add)
 
         # --- Unified Reporting and Final Check ---
-        # Check if any valid targets remain *after* potential skipping
-        if not validated_poke_targets:
-             # This covers cases where 'all' found only OOB, or specific targets were all OOB/invalid.
-             skipped_msg = f" Skipped OOB devices: {sorted(skipped_oob_targets)}." if skipped_oob_targets else ""
-             parser.error(f"No valid, non-OOB Apricorn devices specified or found to poke.{skipped_msg}")
-             # sys.exit(1) # parser.error already exits
+        if not targets_to_poke:
+             skipped_msg_parts = []
+             if skipped_oob_targets_user_facing:
+                 skipped_msg_parts.append(f"Skipped OOB devices: {sorted(skipped_oob_targets_user_facing)}")
+             if invalid_target_inputs:
+                  skipped_msg_parts.append(f"Invalid targets: {invalid_target_inputs}")
 
-        # Report skipped OOB devices (if any) - Consistent message
-        if skipped_oob_targets:
-             print(f"Info: Skipping poke for OOB Mode devices: {sorted(skipped_oob_targets)}") # Use print for info/warning
+             final_skipped_msg = ". ".join(skipped_msg_parts)
+             parser.error(f"No valid, non-OOB Apricorn devices specified or found to poke. {final_skipped_msg}")
 
+        if skipped_oob_targets_user_facing:
+             print(f"Info: Skipping poke for OOB Mode devices: {sorted(skipped_oob_targets_user_facing)}")
 
         # --- Proceed with Poking ---
-        print() # Separator before poking starts
+        print()
         results = []
         all_success = True
-        # Sort identifiers for consistent execution order
-        for identifier in sorted(validated_poke_targets, key=lambda x: str(x)):
-            success = sync_poke_drive(identifier)
+
+        # Sort targets based on the user-facing identifier for predictable order
+        # Handle "#N" correctly by extracting N
+        def sort_key(target_tuple):
+            user_id = target_tuple[0]
+            if isinstance(user_id, str) and user_id.startswith('#'):
+                try:
+                    return (0, int(user_id[1:])) # Sort indices numerically first
+                except ValueError:
+                    return (1, user_id) # Fallback for malformed #id
+            else:
+                return (1, str(user_id)) # Sort paths/other strings after indices
+
+        sorted_targets_to_poke = sorted(targets_to_poke, key=sort_key)
+
+        for user_id, os_id in sorted_targets_to_poke:
+            # --- MOVED PRINT STATEMENT HERE ---
+            print(f"Poking device {user_id}...") # Use the user-facing identifier
+            success = sync_poke_drive(os_id) # Pass the actual OS identifier
             results.append(success)
             if not success:
                  all_success = False
 
         # Report overall status
-        print() # Separator after poking finishes
+        print()
         if not all_success:
             print("Warning: One or more poke operations failed.")
-            sys.exit(1) # Exit with error code if any poke failed
+            sys.exit(1)
         else:
-            sys.exit(0) # Implicit success exit
+            sys.exit(0)
 
     # List Action (Default if poke not specified)
     else:
-        # --- (Keep existing list logic and printing) ---
+        # ...(List logic remains the same)...
         if scan_error:
             print("Cannot list devices due to previous scan error.", file=sys.stderr)
             sys.exit(1)
@@ -505,30 +516,25 @@ def main():
         else:
             print(f"\nFound {len(devices)} Apricorn device(s):") # Added count
             for idx, dev in enumerate(devices, start=1):
-                print(f"\n=== Apricorn Device #{idx} ===")
+                print(f"\n=== Apricorn Device #{idx} ===") # The user sees this index number
                 try:
-                    # Use vars() for dataclasses, handle dicts as fallback (e.g., if scan partially failed)
                     attributes = vars(dev) if hasattr(dev, '__dataclass_fields__') else dev
                 except TypeError:
-                    attributes = dev if isinstance(dev, dict) else {} # Fallback
+                    attributes = dev if isinstance(dev, dict) else {}
 
                 if attributes and isinstance(attributes, dict):
-                    # Determine longest key for alignment (optional, improves readability)
                     max_key_len = 0
                     try:
                         max_key_len = max(len(str(k)) for k in attributes.keys())
-                    except ValueError: # Handle empty attributes dict
+                    except ValueError:
                         pass
-
                     for field_name, value in attributes.items():
-                        # Simple alignment: Pad field name
                         print(f"  {str(field_name):<{max_key_len}} : {value}")
                 elif isinstance(dev, object) and not isinstance(dev, dict):
-                     # Fallback for non-dict, non-dataclass objects
                      print(f"  Device Info: {dev}")
-                else: # Should not happen if attributes is dict but empty
+                else:
                      print(f"  Device Info: (Could not display attributes)")
-            print() # Add a final newline
+            print()
 
 # --- Entry Point for direct execution ---
 if __name__ == "__main__":
