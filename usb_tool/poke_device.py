@@ -41,7 +41,12 @@ class ScsiError(Exception):
         if self.sense_data:
             details.append(f"Sense: {self.sense_hex}")
         if self.os_errno is not None:
-             details.append(f"OS Errno: {self.os_errno} ({os.strerror(self.os_errno)})")
+             # Only include os.strerror if errno is valid
+             try:
+                 err_str = os.strerror(self.os_errno)
+                 details.append(f"OS Errno: {self.os_errno} ({err_str})")
+             except ValueError:
+                 details.append(f"OS Errno: {self.os_errno}")
         if self.driver_status is not None:
              details.append(f"Driver Status: 0x{self.driver_status:02X}")
         if self.host_status is not None:
@@ -128,9 +133,13 @@ elif _SYSTEM == "Linux":
     # Load libc
     try:
         libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
-    except OSError:
-        raise ImportError("Could not load libc.")
-    ioctl = libc.ioctl
+        ioctl = libc.ioctl # Assign here after successful load
+    except (OSError, AttributeError):
+        # Handle cases where libc loading or ioctl attribute access fails
+        libc = None
+        ioctl = None
+        # Raise or log error if needed, or let it fail later in send_scsi_read10
+
 
 # --- macOS Specific ---
 elif _SYSTEM == "Darwin":
@@ -162,12 +171,17 @@ elif _SYSTEM == "Darwin":
     # Load libc
     try:
         libc = ctypes.CDLL(ctypes.util.find_library('c'), use_errno=True)
-    except OSError:
-        raise ImportError("Could not load libc.")
-    ioctl = libc.ioctl
+        ioctl = libc.ioctl # Assign here after successful load
+    except (OSError, AttributeError):
+        # Handle cases where libc loading or ioctl attribute access fails
+        libc = None
+        ioctl = None
+        # Raise or log error if needed, or let it fail later in send_scsi_read10
 
 else:
     # Unsupported OS
+    libc = None
+    ioctl = None
     pass # send_scsi_read10 will check _SYSTEM later
 
 def _build_read10_cdb(lba=0, blocks=1):
@@ -200,8 +214,9 @@ def _windows_read10(drive_num, lba, blocks, block_size, timeout_sec, path_id, ta
         )
         if h_drive == INVALID_HANDLE_VALUE:
             win_error = ctypes.GetLastError()
-            # Raise ctypes.WinError - this IS an OSError subclass
-            # It automatically formats the message based on the error code.
+            if win_error == errno.EACCES: # ERROR_ACCESS_DENIED = 5
+                raise PermissionError(f"Permission denied accessing {drive_path}. Requires Administrator privileges.")
+            # Raise ctypes.WinError for other errors
             raise ctypes.WinError(win_error)
 
         sptd_sense = SPTD_WITH_SENSE()
@@ -242,11 +257,13 @@ def _windows_read10(drive_num, lba, blocks, block_size, timeout_sec, path_id, ta
 
         if status == 0:
             win_error = ctypes.GetLastError()
-            # Also raise WinError here for consistency
+            # Raise WinError here for consistency
             raise ctypes.WinError(win_error)
 
         if sptd.ScsiStatus == 0x00:
-            return data_buffer.raw[:returned_bytes_struct.value]
+            # Calculate actual bytes read
+            bytes_read = min(buffer_size, sptd.DataTransferLength) # Use the transfer length from SPTD
+            return data_buffer.raw[:bytes_read]
         else:
             raise ScsiError("SCSI command READ(10) failed", sptd.ScsiStatus, sense_data_bytes)
 
@@ -257,11 +274,18 @@ def _windows_read10(drive_num, lba, blocks, block_size, timeout_sec, path_id, ta
 
 def _linux_read10(device_path, lba, blocks, block_size, timeout_ms):
     fd = -1
+    if not ioctl:
+         raise NotImplementedError("ioctl function not loaded (likely libc issue on Linux).")
     try:
-        fd = os.open(device_path, O_RDWR)
-        if fd < 0:
-             # This might also indicate permission error
-             raise OSError(f"Failed to open device {device_path}")
+        try:
+            fd = os.open(device_path, O_RDWR)
+        except OSError as e:
+             if e.errno == errno.ENOENT:
+                 raise FileNotFoundError(f"Device path not found: {device_path}")
+             elif e.errno == errno.EACCES:
+                 raise PermissionError(f"Permission denied opening {device_path}. Requires root privileges.")
+             else:
+                 raise # Re-raise other OS errors
 
         # Prepare buffers and structures
         cdb = _build_read10_cdb(lba, blocks)
@@ -287,33 +311,42 @@ def _linux_read10(device_path, lba, blocks, block_size, timeout_ms):
 
         # Send IOCTL
         ret = ioctl(fd, SG_IO, ctypes.byref(sg_hdr))
-        current_errno = ctypes.get_errno()
+        current_errno = ctypes.get_errno() # Get errno immediately after the call
 
         if ret != 0:
              # Check errno for specifics
              if current_errno == errno.EPERM or current_errno == errno.EACCES:
-                 raise PermissionError(f"Permission denied for ioctl on {device_path}. Requires root or disk group.")
-             raise OSError(f"ioctl(SG_IO) failed on {device_path}. Errno: {current_errno} ({os.strerror(current_errno)})", None, None, current_errno)
+                 raise PermissionError(f"Permission denied for ioctl on {device_path}. Requires root privileges.")
+             # Include errno in the general OSError
+             raise OSError(f"ioctl(SG_IO) failed on {device_path}", None, None, current_errno)
 
         # Check SCSI status and other statuses from sg_hdr
         # See sg_io_v3 documentation for status interpretation
-        ok = (
-              (sg_hdr.info & SG_INFO_OK_MASK) == SG_INFO_OK and
+        # Check the info field first - this indicates if other fields are valid
+        ok_info = (sg_hdr.info & SG_INFO_OK_MASK) == SG_INFO_OK
+
+        # Treat success as: OK info, host status 0, driver status 0, and SCSI status 0
+        success = (
+              ok_info and
               sg_hdr.host_status == 0 and
-              sg_hdr.driver_status == 0
+              sg_hdr.driver_status == 0 and
+              sg_hdr.status == 0x00
         )
 
         sense_data_bytes = sense_buffer.raw[:sg_hdr.sb_len_wr]
 
-        if ok and sg_hdr.status == 0x00:
+        if success:
             # Calculate actual data transferred (total - residual)
             bytes_returned = buffer_size - sg_hdr.resid
             return data_buffer.raw[:bytes_returned]
         else:
+             # Include errno in the ScsiError if ioctl didn't fail but statuses did
+             os_err_val = current_errno if ret != 0 else None # Only use errno if ioctl failed
              raise ScsiError(
                  "SCSI command READ(10) failed (Linux SG_IO)",
                  scsi_status=sg_hdr.status,
                  sense_data=sense_data_bytes,
+                 os_errno=os_err_val, # Pass errno if relevant
                  driver_status=sg_hdr.driver_status,
                  host_status=sg_hdr.host_status
              )
@@ -331,10 +364,18 @@ def _macos_read10(device_path, lba, blocks, block_size, timeout_ms):
         raw_device_path = device_path # Assume user provided raw path if not standard /dev/disk
 
     fd = -1
+    if not ioctl:
+         raise NotImplementedError("ioctl function not loaded (likely libc issue on macOS).")
     try:
-        fd = os.open(raw_device_path, O_RDWR)
-        if fd < 0:
-            raise OSError(f"Failed to open raw device {raw_device_path}")
+        try:
+             fd = os.open(raw_device_path, O_RDWR)
+        except OSError as e:
+             if e.errno == errno.ENOENT:
+                 raise FileNotFoundError(f"Device path not found: {raw_device_path}")
+             elif e.errno == errno.EACCES:
+                 raise PermissionError(f"Permission denied opening {raw_device_path}. Requires root privileges.")
+             else:
+                 raise # Re-raise other OS errors
 
         # Prepare buffers and structure
         cdb = _build_read10_cdb(lba, blocks)
@@ -361,10 +402,12 @@ def _macos_read10(device_path, lba, blocks, block_size, timeout_ms):
         if ret != 0:
             if current_errno == errno.EPERM or current_errno == errno.EACCES:
                 raise PermissionError(f"Permission denied for ioctl on {raw_device_path}. Requires root.")
-            raise OSError(f"ioctl(DKIOCSCSIUSERCMD) failed on {raw_device_path}. Errno: {current_errno} ({os.strerror(current_errno)})", None, None, current_errno)
+            raise OSError(f"ioctl(DKIOCSCSIUSERCMD) failed on {raw_device_path}", None, None, current_errno)
 
         # Check SCSI status
-        sense_data_bytes = bytes(dk_req.dsr_sense[:dk_req.dsr_senselen]) # Use actual length if available (check header def)
+        # Note: dsr_senselen might be max length, not actual written. Check headers if available.
+        # Assuming sense buffer contains valid data up to dsr_senselen if status is not 0.
+        sense_data_bytes = bytes(dk_req.dsr_sense[:dk_req.dsr_senselen])
 
         if dk_req.dsr_status == 0x00:
             bytes_returned = buffer_size - dk_req.dsr_resid
@@ -372,7 +415,8 @@ def _macos_read10(device_path, lba, blocks, block_size, timeout_ms):
         else:
             raise ScsiError("SCSI command READ(10) failed (macOS DKIOCSCSIUSERCMD)",
                             scsi_status=dk_req.dsr_status,
-                            sense_data=sense_data_bytes)
+                            sense_data=sense_data_bytes,
+                            os_errno=current_errno if ret != 0 else None) # Pass errno if ioctl failed
 
     finally:
         if fd >= 0:
@@ -401,9 +445,9 @@ def send_scsi_read10(device_identifier, lba=0, blocks=1, block_size=512, timeout
         ValueError: If input parameters (blocks, block_size) are invalid or device_identifier type is wrong for OS.
         PermissionError: If the script lacks Administrator/root privileges.
         FileNotFoundError: If the specified device path does not exist (Linux/macOS).
-        OSError: If opening the device or the IOCTL call fails at the OS level.
+        OSError: If opening the device or the IOCTL call fails at the OS level (excluding permissions/not found).
         ScsiError: If the SCSI command completes with a non-zero status.
-        NotImplementedError: If run on an unsupported operating system.
+        NotImplementedError: If run on an unsupported operating system or dependencies (libc/ioctl) are missing.
         Exception: For other unexpected errors.
     """
     if blocks <= 0 or block_size <= 0:
@@ -415,21 +459,24 @@ def send_scsi_read10(device_identifier, lba=0, blocks=1, block_size=512, timeout
         if not isinstance(device_identifier, int):
             raise ValueError("On Windows, device_identifier must be an integer drive number.")
         # Assuming PathId=0, TargetId=0, Lun=0 which works for most USB drives
+        # Let _windows_read10 handle PermissionError
         return _windows_read10(device_identifier, lba, blocks, block_size, timeout, 0, 0, 0)
 
     elif _SYSTEM == "Linux":
         if not isinstance(device_identifier, str):
             raise ValueError("On Linux, device_identifier must be a string device path (e.g., '/dev/sda').")
-        if not os.path.exists(device_identifier):
-             raise FileNotFoundError(f"Device path not found: {device_identifier}")
+        if not libc or not ioctl: # Check if libc/ioctl loaded
+             raise NotImplementedError("Failed to load libc or ioctl on Linux, cannot perform SCSI pass-through.")
+        # Let _linux_read10 handle FileNotFoundError and PermissionError
         return _linux_read10(device_identifier, lba, blocks, block_size, timeout_ms)
 
     elif _SYSTEM == "Darwin":
         if not isinstance(device_identifier, str):
             raise ValueError("On macOS, device_identifier must be a string device path (e.g., '/dev/disk2').")
-        # Basic check for existence, actual raw path checked in implementation
-        if not os.path.exists(device_identifier) and not os.path.exists(device_identifier.replace("/dev/disk", "/dev/rdisk", 1)):
-             raise FileNotFoundError(f"Device path not found: {device_identifier}")
+        if not libc or not ioctl: # Check if libc/ioctl loaded
+             raise NotImplementedError("Failed to load libc or ioctl on macOS, cannot perform SCSI pass-through.")
+        # Let _macos_read10 handle FileNotFoundError and PermissionError
+        # Basic check for existence here is redundant as _macos_read10 checks raw path
         return _macos_read10(device_identifier, lba, blocks, block_size, timeout_ms)
 
     else:
@@ -440,12 +487,13 @@ def send_scsi_read10(device_identifier, lba=0, blocks=1, block_size=512, timeout
 if __name__ == "__main__":
     print(f"Running SCSI READ(10) Utility Example on {_SYSTEM}...")
 
+    # Use argparse for the standalone script execution
     parser = argparse.ArgumentParser(description="Test Cross-Platform SCSI READ(10) Utility")
     parser.add_argument("device", help="Device identifier (Drive number for Windows, /dev/path for Linux/macOS)")
-    parser.add_argument("--lba", type=int, default=0)
-    parser.add_argument("--blocks", type=int, default=1)
-    parser.add_argument("--blocksize", type=int, default=512)
-    parser.add_argument("--timeout", type=int, default=5)
+    parser.add_argument("--lba", type=int, default=0, help="Logical Block Address (default: 0)")
+    parser.add_argument("--blocks", type=int, default=1, help="Number of blocks to read (default: 1)")
+    parser.add_argument("--blocksize", type=int, default=512, help="Block size in bytes (default: 512)")
+    parser.add_argument("--timeout", type=int, default=5, help="Timeout in seconds (default: 5)")
     test_args = parser.parse_args()
 
     # Convert device identifier type based on OS for the function call
@@ -455,21 +503,27 @@ if __name__ == "__main__":
         except ValueError:
             print("ERROR: On Windows, device must be an integer drive number.")
             sys.exit(1)
+    elif _SYSTEM == "Linux" or _SYSTEM == "Darwin":
+         # Keep as string for Linux/macOS, ensure it looks like a path
+         if not test_args.device.startswith('/dev/'):
+              print(f"WARNING: Device path '{test_args.device}' does not start with /dev/. Proceeding anyway.")
+         device_id = test_args.device
     else:
-        device_id = test_args.device # Keep as string for Linux/macOS
+        print(f"ERROR: Unsupported operating system: {_SYSTEM}")
+        sys.exit(1)
 
 
     # Check privileges (best effort)
     has_perms = False
     if _SYSTEM == "Windows":
         try: has_perms = (ctypes.windll.shell32.IsUserAnAdmin() != 0)
-        except AttributeError: pass # Ignore if function doesn't exist
+        except Exception: pass # Ignore errors checking admin status
     elif _SYSTEM == "Linux" or _SYSTEM == "Darwin":
         try: has_perms = (os.geteuid() == 0)
-        except AttributeError: pass # Ignore if function doesn't exist
+        except AttributeError: pass # Ignore if function doesn't exist (e.g. Jython)
 
     if not has_perms:
-        print("\nWARNING: Example run may fail without Administrator/root privileges.")
+        print(f"\nWARNING: Example run may fail without Administrator/root privileges on {_SYSTEM}.")
 
     start_time = time.time()
     try:
@@ -487,13 +541,28 @@ if __name__ == "__main__":
         print("\nCommand SUCCEEDED.")
         print(f"Read {len(read_data)} bytes in {end_time - start_time:.3f} seconds.")
         if read_data:
-             print(f"First 64 bytes (hex): {read_data[:64].hex()}")
+             # Limit displayed hex dump length
+             display_len = min(len(read_data), 64)
+             hex_part = read_data[:display_len].hex()
+             ellipsis = "..." if len(read_data) > display_len else ""
+             print(f"First {display_len} bytes (hex): {hex_part}{ellipsis}")
 
     except (PermissionError, FileNotFoundError, OSError, ValueError, ScsiError, NotImplementedError) as e:
         end_time = time.time()
         print(f"\nERROR during test run ({end_time - start_time:.3f}s): {e}")
+        # Include more details from ScsiError if present
+        if isinstance(e, ScsiError):
+             print(f"  SCSI Status: {e.scsi_status:#04x}" if e.scsi_status is not None else "  SCSI Status: N/A")
+             print(f"  Sense Data: {e.sense_hex}")
+             if _SYSTEM == "Linux":
+                 print(f"  Host Status: {e.host_status:#04x}" if e.host_status is not None else "  Host Status: N/A")
+                 print(f"  Driver Status: {e.driver_status:#04x}" if e.driver_status is not None else "  Driver Status: N/A")
+        sys.exit(1) # Exit with error code
     except Exception as e:
         end_time = time.time()
         print(f"\nUNEXPECTED ERROR during test run ({end_time - start_time:.3f}s): {e}")
         import traceback
         traceback.print_exc()
+        sys.exit(1) # Exit with error code
+
+    sys.exit(0) # Explicit success exit
