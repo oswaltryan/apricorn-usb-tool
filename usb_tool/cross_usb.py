@@ -364,10 +364,6 @@ def main():
             results.append(success)
             if not success:
                  all_success = False
-            else:
-                 # Print success message here after the poke attempt returns True
-                 print(f"  Device {identifier}: Poke SUCCEEDED.")
-
 
         # Report overall status
         print() # Separator after poking finishes
@@ -375,8 +371,7 @@ def main():
             print("Warning: One or more poke operations failed.")
             sys.exit(1) # Exit with error code if any poke failed
         else:
-            print("All specified poke operations completed successfully.")
-            # sys.exit(0) # Implicit success exit
+            sys.exit(0) # Implicit success exit
 
     # List Action (Default if poke not specified)
     else:

@@ -34,7 +34,12 @@ python -m pip install --no-index --find-links wheels usb-tool
 
 ### 4. Install as a Module for Global Access
 For global installation:
+LINUX ONLY:
 ```sh
+sudo python3 -m pip install .
+```
+
+```
 python3 -m pip install .
 ```
 
