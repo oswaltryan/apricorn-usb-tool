@@ -530,7 +530,7 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
             SCSIDevice_bool = True
 
         # --- Determine Drive Size ---
-        driveSize_val = "N/A" # Use string "N/A" for consistency with Windows OOB
+        driveSize_val = "N/A (OOB Mode)" # Use string "N/A" for consistency with Windows OOB
         size_gb_float = 0.0
         if matched_lsblk:
              size_gb_float = matched_lsblk.get('size_gb', 0.0)
@@ -550,7 +550,7 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
             else:
                 # If no match found, maybe report raw GB? Or stick to N/A?
                 # Stick to N/A if lookup fails, indicates unusual size or missing PID in map
-                driveSize_val = "N/A" # Fallback if closest match fails
+                driveSize_val = "N/A (OOB Mode)" # Fallback if closest match fails
         # If size_gb_float is 0 or less, it remains "N/A"
 
         # --- Refine Product Name ---
@@ -564,16 +564,14 @@ def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
         # --- Parse USB/Device Versions ---
         bcdUSB_float = parse_usb_version(bcdUSB_str)
         # Clean bcdDevice string (remove 0x, ensure 4 hex digits if possible)
-        bcdDevice_clean = bcdDevice_str.lower().replace('0x', '').replace('.', '')
-        bcdDevice_formatted = f"0x{bcdDevice_clean.zfill(4)}" # Pad with zeros if needed
-
+        bcdDevice_str = bcdDevice_str.lower().replace('0x', '').replace('.', '').zfill(4)
 
         # --- Create Device Info Object ---
         dev_info = LinuxUsbDeviceInfo(
             bcdUSB=bcdUSB_float,
             idVendor=vid_lower,
             idProduct=pid_lower,
-            bcdDevice=bcdDevice_formatted,
+            bcdDevice=bcdDevice_str,
             iManufacturer=iManufacturer_str,
             iProduct=iProduct_str,
             iSerial=iSerial_str,
