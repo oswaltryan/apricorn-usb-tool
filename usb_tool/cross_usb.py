@@ -261,16 +261,15 @@ def main():
         sys.exit(0)
 
     # --- Device Discovery ---
-    devices = None # This will be the ordered list of device objects
+    devices = None # This will be the list of device objects
     scan_error = False
-    scan_needed = True # Always scan if poke or list is intended
+    scan_needed = True
 
     # Dynamically import the correct OS module
     os_usb = None
     if _SYSTEM.startswith("win"):
         from . import windows_usb as os_usb
     elif _SYSTEM.startswith("darwin"):
-        # Poke not supported on Darwin currently, but listing is
         from . import mac_usb as os_usb
     elif _SYSTEM.startswith("linux"):
         from . import linux_usb as os_usb
@@ -280,20 +279,69 @@ def main():
 
     print("Scanning for Apricorn devices...")
     try:
-        # *** CRITICAL: Assume os_usb.find_apricorn_device() returns devices
-        #     in a consistent, predictable order that will be shown to the user. ***
         devices = os_usb.find_apricorn_device()
     except Exception as e:
          print(f"Error during device scan: {e}", file=sys.stderr)
-         # Optionally print traceback for debugging
-         # import traceback
-         # traceback.print_exc()
          scan_error = True
+
+    # --- Sort Devices Based on OS ---
+    if devices: # Only sort if we have devices
+        if _SYSTEM.startswith("win"):
+            # Sort by Physical Drive Number on Windows
+            def get_sort_key_win(dev):
+                p_num = getattr(dev, 'physicalDriveNum', -1)
+                if isinstance(p_num, int) and p_num >= 0:
+                    return p_num
+                else:
+                    return float('inf') # Push invalid/missing to end
+
+            try:
+                devices.sort(key=get_sort_key_win)
+                # print("Debug: Devices sorted by physicalDriveNum.")
+            except Exception as e:
+                print(f"Warning: Could not sort devices by physicalDriveNum (Windows): {e}", file=sys.stderr)
+
+        elif _SYSTEM.startswith("linux"):
+            # Sort by Block Device Path Alphabetically on Linux
+            def get_sort_key_linux(dev):
+                block_dev = getattr(dev, 'blockDevice', None)
+                # Ensure it's a non-empty string starting with /dev/ for reliable sorting
+                if isinstance(block_dev, str) and block_dev.startswith('/dev/'):
+                    return block_dev
+                else:
+                    # Push devices without a valid block device path to the end
+                    # Using a high Unicode character ensures it sorts after typical paths
+                    return "~~~~~"
+
+            try:
+                devices.sort(key=get_sort_key_linux)
+                # print("Debug: Devices sorted by blockDevice path.")
+            except Exception as e:
+                print(f"Warning: Could not sort devices by blockDevice path (Linux): {e}", file=sys.stderr)
+
+        # Add elif for macOS sorting here if needed later
 
     # --- Action Logic ---
     # Poke Action
     if args.poke:
-        # ...(Initial checks, privilege checks remain the same)...
+        # ...(Poke logic remains exactly the same as the previous version)...
+        # It will now operate on the *sorted* devices list.
+        # --- Initial Checks ---
+        if not (_SYSTEM.startswith("win") or _SYSTEM.startswith("linux")):
+            parser.error(f"--poke option is only available on Windows and Linux (current: {_SYSTEM}).")
+        if not POKE_AVAILABLE:
+            parser.error("Poke functionality could not be loaded (poke_device import failed).")
+
+        # Privilege check / info message
+        if _SYSTEM.startswith("win"):
+            if not is_admin_windows():
+                parser.error("--poke requires Administrator privileges on Windows.")
+        elif _SYSTEM.startswith("linux"):
+             try:
+                 if os.geteuid() != 0:
+                     print("\nWarning: --poke on Linux typically requires root privileges (use sudo).")
+             except AttributeError:
+                  print("\nWarning: Cannot determine user privileges. --poke on Linux typically requires root.")
 
         if scan_error:
              parser.error("Cannot execute --poke due to previous device scan error.")
@@ -308,29 +356,26 @@ def main():
 
         # --- Determine Poke Targets (Index-based or Path-based) ---
         poke_input = args.poke.strip()
-        num_devices = len(devices)
+        num_devices = len(devices) # Use length of potentially sorted list
 
-        # Store pairs: (user_facing_identifier, actual_os_identifier)
         targets_to_poke = []
-        # Store user-facing identifiers for reporting skipped/invalid
-        user_targets_requested_str = [] # Store raw inputs
-        skipped_oob_targets_user_facing = [] # Store user-facing ID of skipped OOB
-        invalid_target_inputs = [] # Store invalid input strings
+        user_targets_requested_str = []
+        skipped_oob_targets_user_facing = []
+        invalid_target_inputs = []
 
         if poke_input.lower() == 'all':
             user_targets_requested_str.append("'all'")
+            # Iterate through the potentially sorted devices list
             for i, dev in enumerate(devices):
-                index_num = i + 1 # 1-based index for user reference
-                user_facing_id = f"#{index_num}" # User sees #1, #2 etc.
+                index_num = i + 1
+                user_facing_id = f"#{index_num}"
                 is_oob = False
                 os_identifier = None
                 try:
-                    # Check OOB
                     size_attr = getattr(dev, 'driveSizeGB', 'Unknown')
                     if str(size_attr).strip().upper().startswith("N/A"):
                         is_oob = True
 
-                    # Get OS identifier
                     if _SYSTEM.startswith("win"):
                         p_num = getattr(dev, 'physicalDriveNum', -1)
                         if isinstance(p_num, int) and p_num >= 0:
@@ -355,12 +400,9 @@ def main():
                      invalid_target_inputs.append(f"Device {user_facing_id} (Processing Error)")
 
         else:
-            # Parse specific identifiers requested by the user (can be index or path on Linux)
             user_poke_input_list = poke_input.split(',')
             processed_any_valid_element = False
-
-            # Temporary set to avoid adding the same target tuple multiple times
-            unique_targets_to_add = set() # Store (user_facing_id, os_id) tuples
+            unique_targets_to_add = set()
 
             for s in user_poke_input_list:
                 s_strip = s.strip()
@@ -368,26 +410,24 @@ def main():
 
                 processed_any_valid_element = True
                 user_targets_requested_str.append(s_strip)
-                user_facing_id = s_strip # Default user-facing ID is what they typed
-                target_index = -1 # Store the resolved index if input was numeric
+                user_facing_id = s_strip
+                target_index = -1
 
-                # Try parsing as an index first
                 try:
                     user_index = int(s_strip)
                     if 1 <= user_index <= num_devices:
                         target_index = user_index
-                        user_facing_id = f"#{user_index}" # Use consistent "#N" format
+                        user_facing_id = f"#{user_index}"
+                        # Access device from the potentially sorted list
                         device = devices[user_index - 1]
 
                         is_oob = False
                         os_identifier = None
 
-                        # Check OOB
                         size_attr = getattr(device, 'driveSizeGB', 'Unknown')
                         if str(size_attr).strip().upper().startswith("N/A"):
                             is_oob = True
 
-                        # Get OS identifier
                         if _SYSTEM.startswith("win"):
                             p_num = getattr(device, 'physicalDriveNum', -1)
                             if isinstance(p_num, int) and p_num >= 0:
@@ -409,11 +449,10 @@ def main():
                         invalid_target_inputs.append(f"{s_strip} (Index out of range 1-{num_devices})")
 
                 except ValueError:
-                    # Not an integer, check if it's a valid Linux path
                     if _SYSTEM.startswith("linux") and s_strip.startswith('/dev/'):
-                        # user_facing_id remains s_strip (the path)
                         found_device_for_path = None
-                        found_index_for_path = -1 # For reporting if needed
+                        found_index_for_path = -1
+                        # Check against potentially sorted list
                         for i, dev in enumerate(devices):
                              b_dev = getattr(dev, 'blockDevice', '')
                              if b_dev == s_strip:
@@ -426,11 +465,8 @@ def main():
                              size_attr = getattr(found_device_for_path, 'driveSizeGB', 'Unknown')
                              if str(size_attr).strip().upper().startswith("N/A"):
                                  is_oob = True
-
-                             os_identifier = s_strip # Path is the OS identifier
-
+                             os_identifier = s_strip
                              if is_oob:
-                                 # Use path as the user-facing ID for skipping
                                  skipped_oob_targets_user_facing.append(user_facing_id)
                              else:
                                  unique_targets_to_add.add((user_facing_id, os_identifier))
@@ -440,9 +476,6 @@ def main():
                         invalid_target_inputs.append(f"{s_strip} (Invalid format - expected index" +
                                                     (" or /dev/ path" if _SYSTEM.startswith("linux") else "") + ")")
 
-                # End of processing single input 's'
-
-            # After processing all inputs:
             if not processed_any_valid_element:
                  parser.error("No device identifiers provided for --poke argument.")
 
@@ -450,7 +483,6 @@ def main():
                  error_msg = "Invalid value(s) for --poke: " + ", ".join(invalid_target_inputs)
                  parser.error(error_msg)
 
-            # Convert the unique set of tuples to the final list
             targets_to_poke = list(unique_targets_to_add)
 
         # --- Unified Reporting and Final Check ---
@@ -472,29 +504,22 @@ def main():
         results = []
         all_success = True
 
-        # Sort targets based on the user-facing identifier for predictable order
-        # Handle "#N" correctly by extracting N
         def sort_key(target_tuple):
             user_id = target_tuple[0]
             if isinstance(user_id, str) and user_id.startswith('#'):
-                try:
-                    return (0, int(user_id[1:])) # Sort indices numerically first
-                except ValueError:
-                    return (1, user_id) # Fallback for malformed #id
-            else:
-                return (1, str(user_id)) # Sort paths/other strings after indices
+                try: return (0, int(user_id[1:]))
+                except ValueError: return (1, user_id)
+            else: return (1, str(user_id))
 
         sorted_targets_to_poke = sorted(targets_to_poke, key=sort_key)
 
         for user_id, os_id in sorted_targets_to_poke:
-            # --- MOVED PRINT STATEMENT HERE ---
-            print(f"Poking device {user_id}...") # Use the user-facing identifier
-            success = sync_poke_drive(os_id) # Pass the actual OS identifier
+            print(f"Poking device {user_id}...")
+            success = sync_poke_drive(os_id)
             results.append(success)
             if not success:
                  all_success = False
 
-        # Report overall status
         print()
         if not all_success:
             print("Warning: One or more poke operations failed.")
@@ -504,7 +529,7 @@ def main():
 
     # List Action (Default if poke not specified)
     else:
-        # ...(List logic remains the same)...
+        # --- List logic now operates on the *sorted* devices list ---
         if scan_error:
             print("Cannot list devices due to previous scan error.", file=sys.stderr)
             sys.exit(1)
@@ -514,9 +539,10 @@ def main():
         if not devices:
             print("\nNo Apricorn devices found.\n")
         else:
-            print(f"\nFound {len(devices)} Apricorn device(s):") # Added count
+            print(f"\nFound {len(devices)} Apricorn device(s):")
+            # The idx here will now correspond to the sorted order
             for idx, dev in enumerate(devices, start=1):
-                print(f"\n=== Apricorn Device #{idx} ===") # The user sees this index number
+                print(f"\n=== Apricorn Device #{idx} ===") # This index matches the sorted order
                 try:
                     attributes = vars(dev) if hasattr(dev, '__dataclass_fields__') else dev
                 except TypeError:
@@ -524,10 +550,8 @@ def main():
 
                 if attributes and isinstance(attributes, dict):
                     max_key_len = 0
-                    try:
-                        max_key_len = max(len(str(k)) for k in attributes.keys())
-                    except ValueError:
-                        pass
+                    try: max_key_len = max(len(str(k)) for k in attributes.keys())
+                    except ValueError: pass
                     for field_name, value in attributes.items():
                         print(f"  {str(field_name):<{max_key_len}} : {value}")
                 elif isinstance(dev, object) and not isinstance(dev, dict):
