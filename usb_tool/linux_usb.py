@@ -3,7 +3,7 @@
 import subprocess
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict, Any # Added Dict, Any
 import json
 from pprint import pprint
 import os # Added for path checks
@@ -23,9 +23,9 @@ class LinuxUsbDeviceInfo:
     iProduct: str
     iSerial: str
     SCSIDevice: bool = False
-    driveSizeGB: int = 0 # Keep as int for consistency, handle N/A during assignment
+    driveSizeGB: Any = "N/A (OOB Mode)" # Changed type hint to Any, updated default
     # usbController: str = "" # Removed, not easily available/reliable on Linux
-    blockDevice: str = "" # Added block device path (e.g., /dev/sdx)
+    blockDevice: str = "N/A" # Added block device path (e.g., /dev/sdx), updated default
 
 # ----------------
 # Size Conversions
@@ -81,7 +81,11 @@ def find_closest(target: float, options: List[int]) -> Optional[int]:
     if not isinstance(target, (int, float)) or target <= 0 or not options:
         return None
     try:
-        return min(options, key=lambda x: abs(x - target))
+        # Filter out non-numeric options if any crept in
+        numeric_options = [opt for opt in options if isinstance(opt, (int, float))]
+        if not numeric_options:
+            return None
+        return min(numeric_options, key=lambda x: abs(x - target))
     except (TypeError, ValueError): # Catch issues if options are not numbers
         return None
 
@@ -92,29 +96,36 @@ def list_usb_drives():
     """
     Lists USB drives using the 'lsblk' command and extracts their serial number,
     size, and device name.
-    Returns a list of dictionaries, where each dictionary contains 'name' (str, e.g., sda),
+    Returns a list of dictionaries, where each dictionary contains 'name' (str, e.g., /dev/sda),
     'serial' (string), and 'size_gb' (float).
-    Only drives with a 12-character serial number are included.
+    Filters for likely valid serials (e.g., 12 chars) but relies on later correlation.
     Handles potential errors during subprocess execution.
     """
     # -p includes full path /dev/..., -l provides list format
-    cmd = ["lsblk", "-p", "-o", "NAME,SERIAL,SIZE", "-d", "-n", "-l"]
+    # -e 7 excludes loop devices (common snaps/etc)
+    cmd = ["lsblk", "-p", "-o", "NAME,SERIAL,SIZE", "-d", "-n", "-l", "-e", "7"]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False) # Don't check return code here
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10) # Don't check return code here
         if result.returncode != 0:
             print(f"Warning: 'lsblk' command failed with code {result.returncode}. Stderr: {result.stderr.strip()}", file=sys.stderr)
-            return []
+            # Don't return empty if stderr indicates permission issues but stdout has data (common in containers)
+            if not result.stdout.strip() and "Permission denied" not in result.stderr:
+                 return []
         if not result.stdout.strip():
              # print("Warning: 'lsblk' command returned no output.", file=sys.stderr)
              return [] # Handle case where lsblk runs but finds nothing
     except FileNotFoundError:
         print("Error: 'lsblk' command not found. Cannot determine drive sizes or paths.", file=sys.stderr)
         return []
+    except subprocess.TimeoutExpired:
+        print("Warning: 'lsblk' command timed out.", file=sys.stderr)
+        return []
     except Exception as e:
         print(f"Error running 'lsblk': {e}", file=sys.stderr)
         return []
 
     drives_info = []
+    processed_serials = set() # Avoid duplicates if lsblk lists partitions with same serial
     for line in result.stdout.splitlines():
         line = line.strip()
         if not line:
@@ -126,10 +137,13 @@ def list_usb_drives():
             continue
 
         name, serial, size_str = parts
-        # Check if serial looks valid (12 chars, not placeholder)
-        # Apricorn serials are typically 12 hex chars, but let's be flexible if needed.
-        # We rely more on matching via lshw later. Keep the 12 char check for now.
-        if not serial or serial == '-' or len(serial) != 12:
+        # Check if serial looks potentially valid (not None, not '-', reasonable length maybe?)
+        # Rely more on matching via lshw/lsusb later.
+        if not serial or serial == '-':
+            continue
+
+        # Basic check to avoid processing partition entries if main device was already added
+        if serial in processed_serials:
             continue
 
         size_gb = parse_lsblk_size(size_str)
@@ -138,146 +152,210 @@ def list_usb_drives():
             "serial": serial,
             "size_gb": size_gb
         })
-    # print("lsblk:")
+        processed_serials.add(serial) # Mark serial as seen
+
+    # print("lsblk Results (Filtered):")
     # pprint(drives_info)
     # print()
     return drives_info
 
 def list_disk_partitions():
     """
-    Uses the 'fdisk' command (requires sudo) to list partitions for /dev/sda through /dev/sdn.
-    This seems less reliable for getting the base device associated with an Apricorn drive
-    compared to 'lshw' or 'lsblk'. It's currently used to check for "Flash Disk",
-    but might not be necessary if other methods work.
-
-    Returns a list of lists, where each inner list contains the device path (e.g., '/dev/sda')
-    and the raw output of the 'fdisk -l' command for that device IF it doesn't contain "Flash Disk".
-    Returns an empty list if sudo/fdisk fails or no relevant disks are found.
+    Uses the 'fdisk' command (requires sudo) to list partitions for potential block devices.
+    Less reliable than lshw/lsblk for primary correlation. Used mainly as a fallback check.
+    Returns a list of lists: [[device_path, fdisk_output], ...].
     """
-    target_disk = []
-    targets = [f'/dev/sd{chr(ord("a") + i)}' for i in range(14)] # /dev/sda to /dev/sdn
+    target_disk_info = [] # Changed name for clarity
+    # Generate potential device paths more dynamically
+    targets = []
+    for prefix in ["/dev/sd", "/dev/nvme"]: # Check both common types
+        if prefix == "/dev/sd":
+             targets.extend([f'{prefix}{chr(ord("a") + i)}' for i in range(16)]) # sda-sdp
+        elif prefix == "/dev/nvme":
+             targets.extend([f'{prefix}{i}n1' for i in range(4)]) # nvme0n1-nvme3n1
 
-    fdisk_path = "/usr/sbin/fdisk" # Common path, adjust if needed
-    if not os.path.exists(fdisk_path):
-        # print("Warning: 'fdisk' not found at /usr/sbin/fdisk. Skipping partition check.", file=sys.stderr)
+    fdisk_path = shutil.which("fdisk") # Use shutil.which to find fdisk reliably
+    if not fdisk_path:
+        # Try common fallback if not in PATH
+        if os.path.exists("/usr/sbin/fdisk"):
+            fdisk_path = "/usr/sbin/fdisk"
+        else:
+            # print("Warning: 'fdisk' command not found. Skipping partition check.", file=sys.stderr)
+            return []
+
+    sudo_path = shutil.which("sudo")
+    if not sudo_path:
+        print("Error: 'sudo' command not found. Cannot run fdisk.", file=sys.stderr)
         return []
 
+
     for disk_path in targets:
-        # Check if the block device exists before trying fdisk
         if not os.path.exists(disk_path):
             continue
 
-        cmd = ["sudo", fdisk_path, "-l", disk_path]
+        cmd = [sudo_path, fdisk_path, "-l", disk_path]
         try:
-            # Increased timeout, fdisk can sometimes hang on problematic devices
             result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
-        except FileNotFoundError:
-             print("Error: 'sudo' command not found. Cannot run fdisk.", file=sys.stderr)
-             return [] # Cannot proceed without sudo
         except subprocess.TimeoutExpired:
-            print(f"Warning: 'sudo fdisk -l {disk_path}' timed out.", file=sys.stderr)
+            print(f"Warning: '{' '.join(cmd)}' timed out.", file=sys.stderr)
             continue
         except Exception as e:
-             print(f"Error running 'sudo fdisk -l {disk_path}': {e}", file=sys.stderr)
+             print(f"Error running '{' '.join(cmd)}': {e}", file=sys.stderr)
              continue # Skip this disk on error
 
-        # fdisk returns non-zero if no partition table, etc. We care about the output.
         # Check stderr for permission errors first
-        if "must be root" in result.stderr.lower() or "permission denied" in result.stderr.lower():
-             print(f"Warning: Permission error running 'sudo fdisk -l {disk_path}'. Check sudo setup.", file=sys.stderr)
-             # Don't exit, maybe other disks work or listing continues without fdisk info
+        if result.returncode != 0 and ("must be root" in result.stderr.lower() or "permission denied" in result.stderr.lower()):
+             print(f"Warning: Permission error running '{' '.join(cmd)}'. Check sudo setup.", file=sys.stderr)
              continue
 
         # Check if output contains "Flash Disk" (often indicates non-Apricorn USB key)
-        if "Flash Disk" in result.stdout:
-            continue
+        # Allow if it's an Apricorn product name maybe? Be cautious.
+        # Let's disable this filter for now, rely on VID/PID filtering later.
+        # if "Flash Disk" in result.stdout:
+        #    continue
 
-        # If we got output and it wasn't a flash disk, store it
-        # Return code 1 is common if disk exists but has no recognized partition table, still useful info maybe
+        # Store if we got output, even if return code != 0 (e.g., no partition table)
         if result.stdout:
-            target_disk.append([disk_path, result.stdout])
+            target_disk_info.append([disk_path, result.stdout])
 
-    # print("fdisk Results (Non-Flash Disk):")
-    # pprint(target_disk)
+    # print("fdisk Results (Potential Devices):")
+    # pprint(target_disk_info)
     # print()
-    return target_disk
+    return target_disk_info
 
-def parse_uasp_info():
+
+def parse_uasp_info() -> Dict[str, Dict[str, Optional[str]]]: # Return type changed conceptually, but signature kept for now
     """
     Uses 'lshw' (requires sudo) to get info about disk/storage devices in JSON.
-    Filters for Apricorn USB devices and extracts info like serial, logical name (block device),
-    and driver (to infer UASP).
+    Extracts serial, logical name (block device), driver (uas/usb-storage), and product
+    for devices potentially related to Apricorn, correlating by block device name.
 
-    Returns a list of dictionaries for detected Apricorn USB devices found by lshw,
-    including 'serial', 'logicalname' (e.g., /dev/sda), and 'driver' ('uas' or other).
-    Returns an empty list on error (e.g., command not found, permission error, JSON parse error).
+    Returns a dictionary where keys are block device logical names (e.g., '/dev/sda')
+    and values are dictionaries containing 'serial', 'driver', and 'product'.
+    Returns empty dict on error.
     """
-    lshw_path = "/usr/bin/lshw" # Common path
-    if not os.path.exists(lshw_path):
-        print("Error: 'lshw' command not found at /usr/bin/lshw. Cannot get detailed hardware info.", file=sys.stderr)
-        return []
+    import shutil # Moved import here as it's only used here and in fdisk
+    lshw_path = shutil.which("lshw") # Find lshw reliably
+    if not lshw_path:
+        # Try common fallback
+         if os.path.exists("/usr/bin/lshw"):
+             lshw_path = "/usr/bin/lshw"
+         else:
+            print("Error: 'lshw' command not found. Cannot get detailed hardware info.", file=sys.stderr)
+            return {}
 
-    cmd = ["sudo", lshw_path, "-class", "disk", "-class", "storage", "-json"]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=15)
-    except FileNotFoundError:
+    sudo_path = shutil.which("sudo")
+    if not sudo_path:
         print("Error: 'sudo' command not found. Cannot run lshw.", file=sys.stderr)
-        return []
+        return {}
+
+    cmd = [sudo_path, lshw_path, "-class", "disk", "-class", "storage", "-json"]
+    try:
+        # Increased timeout slightly
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=20)
     except subprocess.TimeoutExpired:
-        print("Warning: 'sudo lshw ... -json' timed out.", file=sys.stderr)
-        return []
+        print(f"Warning: '{' '.join(cmd)}' timed out.", file=sys.stderr)
+        return {}
     except Exception as e:
-        print(f"Error running 'sudo lshw ... -json': {e}", file=sys.stderr)
-        return []
+        print(f"Error running '{' '.join(cmd)}': {e}", file=sys.stderr)
+        return {}
 
     if result.returncode != 0:
-        # Check stderr for common issues
         if "must be root" in result.stderr.lower() or "permission denied" in result.stderr.lower():
-             print("Warning: Permission error running 'sudo lshw'. Check sudo setup. Cannot get detailed hardware info.", file=sys.stderr)
+             print(f"Warning: Permission error running '{' '.join(cmd)}'. Check sudo setup. Detailed hardware info may be incomplete.", file=sys.stderr)
+             # Proceed if there's still output, might be partial info
+             if not result.stdout.strip(): return {}
         else:
-             print(f"Warning: 'sudo lshw' command failed with code {result.returncode}. Stderr: {result.stderr.strip()}", file=sys.stderr)
-        return []
+             print(f"Warning: '{' '.join(cmd)}' failed (code {result.returncode}). Stderr: {result.stderr.strip()}", file=sys.stderr)
+             # Proceed if there's still output
+             if not result.stdout.strip(): return {}
+
+    if not result.stdout.strip():
+         # print("Warning: 'lshw' command returned no JSON output.", file=sys.stderr)
+         return {}
 
     try:
-        all_devices = json.loads(result.stdout)
-        if not isinstance(all_devices, list):
-             print("Warning: Unexpected JSON format from 'lshw' (expected a list).", file=sys.stderr)
-             all_devices = [] # Treat as empty if format is wrong
+        # lshw sometimes returns a single dict, sometimes a list
+        raw_data = json.loads(result.stdout)
+        if isinstance(raw_data, dict):
+            all_devices = [raw_data] # Wrap single device in a list
+        elif isinstance(raw_data, list):
+            all_devices = raw_data
+        else:
+             print("Warning: Unexpected JSON format from 'lshw' (expected list or dict).", file=sys.stderr)
+             return {}
     except json.JSONDecodeError:
-        print("Error: Failed to parse JSON output from 'lshw'.", file=sys.stderr)
-        return []
+        print("Error: Failed to parse JSON output from 'lshw'. Output was:", file=sys.stderr)
+        print(result.stdout[:500] + "...", file=sys.stderr) # Print beginning of output
+        return {}
 
-    apricorn_devices_info = []
-    for device in all_devices:
-        # Ensure it's a dictionary and has necessary keys
-        if not isinstance(device, dict): continue
+    # CHANGE: Key data by logicalname (block device path) instead of serial
+    lshw_data_by_name: Dict[str, Dict[str, Optional[str]]] = {}
 
-        businfo = device.get('businfo', '')
-        vendor = device.get('vendor', '')
-        product = device.get('product', '') # Get product name if available
-        serial = device.get('serial', '')
-        logical_name = device.get('logicalname', '') # This should be the /dev/sdX path
-        driver = device.get('configuration', {}).get('driver', '')
-        firmware_version = device.get('version', '') # lshw 'version' is often firmware - *** Fixed: Uncommented ***
+    def find_dev_path(logicalname: Any) -> Optional[str]:
+        """Extracts /dev/sdX or /dev/nvmeXnY path from lshw logicalname field."""
+        if isinstance(logicalname, str):
+            if logicalname.startswith('/dev/sd') or logicalname.startswith('/dev/nvme'):
+                 # Basic validation: Ensure it's not just '/dev/sd' or '/dev/nvme'
+                 if len(logicalname) > len('/dev/sd') and logicalname[-1].isalpha(): # e.g. /dev/sda
+                      return logicalname
+                 if len(logicalname) > len('/dev/nvme') and logicalname[-1].isdigit(): # e.g. /dev/nvme0n1
+                      return logicalname
+        elif isinstance(logicalname, list):
+            for item in logicalname:
+                path = find_dev_path(item) # Recurse for strings within the list
+                if path:
+                    return path
+        return None
 
-        # Filter for USB devices from Apricorn
-        if 'usb' in businfo and vendor == "Apricorn":
-            # Basic sanity check - skip SATAwire adapters if they appear here
-            if firmware_version == '1.33': # *** Fixed: Now uses defined variable ***
-                continue
-            # Ensure we have a serial and logical name for matching
-            if serial and logical_name.startswith('/dev/sd'): # Ensure it's a block device path
-                 apricorn_devices_info.append({
-                     'serial': serial,
-                     'logicalname': logical_name,
-                     'driver': driver,
-                     'product': product # Include product name for potential matching
-                 })
+    def process_device_node(device: Dict[str, Any]):
+        """Recursively processes a device node and its children."""
+        nonlocal lshw_data_by_name # Allow modification of the outer scope dictionary
+        if not isinstance(device, dict):
+            return
 
-    # print("lshw Apricorn Devices Info:")
-    # pprint(apricorn_devices_info)
+        # Check if it's potentially a disk/storage with a logicalname and serial
+        # Use .get() with default to avoid KeyErrors
+        dev_path = find_dev_path(device.get('logicalname'))
+        serial = device.get('serial', None) # Serial is still needed to link to lsusb later
+        driver = device.get('configuration', {}).get('driver')
+        product = device.get('product')
+        vendor = device.get('vendor') # Get vendor too
+
+        # If we found a valid block device path, store info keyed by it
+        if dev_path:
+            if dev_path not in lshw_data_by_name:
+                lshw_data_by_name[dev_path] = {'serial': None, 'driver': None, 'product': None, 'vendor': None} # Add vendor
+
+            # Update fields if they are not already set or if new info is found
+            if serial and not lshw_data_by_name[dev_path]['serial']:
+                lshw_data_by_name[dev_path]['serial'] = serial
+            if driver and driver in ('uas', 'usb-storage') and not lshw_data_by_name[dev_path]['driver']:
+                lshw_data_by_name[dev_path]['driver'] = driver
+            if product and not lshw_data_by_name[dev_path]['product']:
+                lshw_data_by_name[dev_path]['product'] = product
+            if vendor and not lshw_data_by_name[dev_path]['vendor']:
+                 lshw_data_by_name[dev_path]['vendor'] = vendor # Store vendor
+
+        # Recursively process children nodes if they exist
+        children = device.get('children')
+        if isinstance(children, list):
+            for child in children:
+                process_device_node(child) # Recurse
+
+    # Process all top-level devices found
+    for dev in all_devices:
+        process_device_node(dev)
+
+    # --- Debugging Print ---
+    # CHANGE: Print data keyed by name
+    filtered_lshw_data = {k: v for k, v in lshw_data_by_name.items() if v.get('serial') or v.get('driver')} # Filter slightly differently
+    # pprint(filtered_lshw_data)
     # print()
-    return apricorn_devices_info
+    # --- End Debugging Print ---
+
+    return lshw_data_by_name
+
 
 # ---------------------------------------
 # Helpers: parse USB version & placeholders
@@ -285,36 +363,36 @@ def parse_uasp_info():
 def parse_usb_version(usb_str: str) -> float:
     """
     Parses a USB version string (e.g., '3.20' or BCD '0x0320') into a float (e.g., 3.2).
-    Returns 0.0 on failure.
+    Handles variations like '3.00', '0210'. Returns 0.0 on failure.
     """
     if not usb_str: return 0.0
+    usb_str = str(usb_str).strip() # Ensure string
 
-    # Handle direct version like "3.0", "2.10"
-    if re.match(r'^\d+\.\d+$', usb_str):
+    # Handle direct version like "3.0", "2.10", "3.20"
+    match_decimal = re.match(r'^(\d+)\.(\d+)$', usb_str)
+    if match_decimal:
         try:
-             # Attempt to convert directly, handling potential multi-digit minor/subminor
-             parts = usb_str.split('.')
-             major = int(parts[0])
-             minor_sub = parts[1]
-             # Combine minor and subminor for float representation (e.g., "20" -> 0.2)
-             float_val = float(f"{major}.{minor_sub}")
+             major = int(match_decimal.group(1))
+             minor_sub = match_decimal.group(2) # Keep as string "00", "10", "20"
+             # Represent 3.00 as 3.0, 3.10 as 3.1, 3.20 as 3.2
+             float_val = float(f"{major}.{minor_sub[0]}") # Take first digit of minor version
              return float_val
         except (ValueError, IndexError):
              pass # Fall through to BCD check
 
-    # Handle BCD format like "0x0300", "0210"
+    # Handle BCD format like "0x0300", "0210", "320" (assumed hex)
     try:
         # Remove "0x" prefix if present
         if usb_str.lower().startswith('0x'):
             bcd_val = int(usb_str[2:], 16)
         else:
-            bcd_val = int(usb_str, 16) # Assume hex if not decimal format above
+            # Try interpreting as hex directly if not decimal format
+            bcd_val = int(usb_str, 16)
 
         major = (bcd_val >> 8) & 0xFF
         minor = (bcd_val >> 4) & 0x0F
         subminor = bcd_val & 0x0F
-        # Format as float major.minor (subminor usually ignored for simple float)
-        # e.g., 0x0310 -> 3.1, 0x0200 -> 2.0
+        # Format as float major.minor (e.g., 0x0310 -> 3.1, 0x0200 -> 2.0)
         float_val = float(f"{major}.{minor}")
         return float_val
     except ValueError:
@@ -324,264 +402,385 @@ def parse_usb_version(usb_str: str) -> float:
 # -----------------------------
 # Parse "lsusb -v -d <vid:pid>"
 # -----------------------------
-def parse_lsusb_output(vid: str, pid: str) -> dict:
+def parse_lsusb_output(vid: str, pid: str) -> List[Dict[str, str]]: # Return a LIST of dicts
     """
-    Runs 'lsusb -v -d vid:pid' (requires permissions, often root) and parses output
-    for USB descriptor details.
+    Runs 'lsusb -v -d vid:pid' (may require permissions) and parses output
+    for USB descriptor details FOR ALL MATCHING DEVICES.
 
-    Returns a dictionary with keys like 'bcdUSB', 'idVendor', 'idProduct', 'bcdDevice',
-    'iManufacturer', 'iProduct', 'iSerial'. Returns empty dict on failure.
+    Returns a LIST of dictionaries, where each dictionary contains keys like
+    'bcdUSB', 'idVendor', 'idProduct', 'bcdDevice', 'iManufacturer', 'iProduct', 'iSerial'
+    for each distinct device found matching the VID:PID. Returns empty list on failure or no devices.
     """
-    lsusb_path = "/usr/bin/lsusb" # Common path
-    if not os.path.exists(lsusb_path):
-        # print("Warning: 'lsusb' not found at /usr/bin/lsusb. Cannot get detailed USB descriptors.", file=sys.stderr)
-        return {}
+    import shutil # Ensure shutil is available
+    lsusb_path = shutil.which("lsusb")
+    if not lsusb_path:
+        # Try common fallback
+        if os.path.exists("/usr/bin/lsusb"):
+            lsusb_path = "/usr/bin/lsusb"
+        else:
+            return [] # Return empty list
 
-    cmd = [lsusb_path, "-v", "-d", f"{vid}:{pid}"]
+    # Use sudo if available and needed (heuristic: check if we are not root)
+    sudo_prefix = []
+    if os.geteuid() != 0:
+         sudo_path = shutil.which("sudo")
+         if sudo_path:
+             sudo_prefix = [sudo_path]
+         # else: # Don't warn here, warning happens later if command fails
+         #     print("Warning: sudo not found, lsusb -v might fail due to permissions.", file=sys.stderr)
+
+    cmd = sudo_prefix + [lsusb_path, "-v", "-d", f"{vid}:{pid}"]
     try:
-        # Needs permissions for -v, might fail without sudo
-        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=10)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=15) # Increased timeout slightly
     except subprocess.TimeoutExpired:
-        print(f"Warning: '{lsusb_path} -v -d {vid}:{pid}' timed out.", file=sys.stderr)
-        return {}
+        print(f"Warning: '{' '.join(cmd)}' timed out.", file=sys.stderr)
+        return []
     except Exception as e:
-        print(f"Error running '{lsusb_path} -v -d {vid}:{pid}': {e}", file=sys.stderr)
-        return {}
+        print(f"Error running '{' '.join(cmd)}': {e}", file=sys.stderr)
+        return []
 
-    # lsusb -v often returns non-zero if device disconnects during query, or permission errors
+    # Handle errors but proceed if there's output
     if result.returncode != 0:
-         if "could not open" in result.stderr.lower() or "permission denied" in result.stderr.lower():
-             pass # Expected if not root, don't flood warnings
-             # print(f"Info: Insufficient permissions for 'lsusb -v -d {vid}:{pid}'. Detailed descriptors unavailable.", file=sys.stderr)
-         elif "not found" in result.stderr.lower():
-             pass # Device might have disconnected
+         stderr_lower = result.stderr.lower()
+         if "could not open" in stderr_lower or "permission denied" in stderr_lower:
+             # Fail silently if permissions likely cause and no output
+             if not result.stdout.strip(): return []
+             # print(f"Info: Insufficient permissions for '{' '.join(cmd)}'. Detailed descriptors might be incomplete.", file=sys.stderr)
+         elif "not found" in stderr_lower:
+             # Device might have disconnected
+             if not result.stdout.strip(): return []
          else:
-             # Log other errors if they occur
-             print(f"Warning: '{lsusb_path} -v -d {vid}:{pid}' failed (code {result.returncode}). Stderr: {result.stderr.strip()}", file=sys.stderr)
-         return {} # Return empty on any failure
+             print(f"Warning: '{' '.join(cmd)}' failed (code {result.returncode}). Stderr: {result.stderr.strip()}", file=sys.stderr)
+             if not result.stdout.strip(): return [] # Return empty only if no output at all
 
     output = result.stdout
-    data = {}
-    # Use regex with re.IGNORECASE for flexibility
-    # Capture hex values and text descriptions where available
+    devices_found = []
 
-    # --- Standard Descriptor Fields ---
-    # bcdUSB and bcdDevice
-    bcd_match = re.search(r'bcdUSB\s+([\d\.xXa-fA-F]+)', output, re.IGNORECASE)
-    if bcd_match: data['bcdUSB'] = bcd_match.group(1).strip()
-    bcd_dev_match = re.search(r'bcdDevice\s+([\d\.xXa-fA-F]+)', output, re.IGNORECASE)
-    if bcd_dev_match: data['bcdDevice'] = bcd_dev_match.group(1).strip()
+    # Split the output into sections for each device
+    # Each device section starts with "Bus XXX Device YYY: ID VVVV:PPPP ..."
+    device_sections = re.split(r'\nBus\s+\d+\s+Device\s+\d+:\s+ID\s+[0-9a-fA-F]{4}:[0-9a-fA-F]{4}', output)
 
-    # idVendor and idProduct (with text if available)
-    id_vendor_match = re.search(r'idVendor\s+(0x[0-9a-fA-F]+)\s*(.*)', output, re.IGNORECASE)
-    if id_vendor_match:
-        data['idVendor'] = id_vendor_match.group(1).strip()
-        if id_vendor_match.group(2): data['iManufacturer_desc'] = id_vendor_match.group(2).strip()
-    id_product_match = re.search(r'idProduct\s+(0x[0-9a-fA-F]+)\s*(.*)', output, re.IGNORECASE)
-    if id_product_match:
-        data['idProduct'] = id_product_match.group(1).strip()
-        if id_product_match.group(2): data['iProduct_desc'] = id_product_match.group(2).strip()
+    # The first split element might be empty or preamble, skip it if it doesn't contain Device Descriptor
+    start_index = 0
+    if device_sections and not "Device Descriptor:" in device_sections[0]:
+        start_index = 1
 
-    # --- String Descriptor Fields (iManufacturer, iProduct, iSerial) ---
-    # These rely on lines like: iManufacturer 1 Apricorn
-    # Handle cases where the text description might be missing
-    imanu_match = re.search(r'iManufacturer\s+\d+\s+(.*)', output)
-    if imanu_match: data['iManufacturer'] = imanu_match.group(1).strip()
-    iprod_match = re.search(r'iProduct\s+\d+\s+(.*)', output)
-    if iprod_match: data['iProduct'] = iprod_match.group(1).strip()
-    iserial_match = re.search(r'iSerial\s+\d+\s+(.*)', output)
-    if iserial_match: data['iSerial'] = iserial_match.group(1).strip()
+    # Reconstruct the headers for parsing within each section if needed (or parse based on content)
+    # Alternative: Process the whole output line by line, switching context when "Device Descriptor:" is found?
+    # Let's stick to splitting for now, assuming each relevant part starts after the split point
 
-    # Use the text descriptions from idVendor/idProduct lines as fallbacks if iManufacturer/iProduct aren't found
-    if 'iManufacturer' not in data and 'iManufacturer_desc' in data:
-        data['iManufacturer'] = data['iManufacturer_desc']
-    if 'iProduct' not in data and 'iProduct_desc' in data:
-        data['iProduct'] = data['iProduct_desc']
+    # Simpler Approach: Find all Device Descriptors and parse data relative to them
+    device_descriptor_matches = list(re.finditer(r'Device Descriptor:', output))
 
-    # Clean up temporary description fields
-    data.pop('iManufacturer_desc', None)
-    data.pop('iProduct_desc', None)
+    if not device_descriptor_matches:
+        # Fallback if Device Descriptor isn't found but maybe other info is? Unlikely.
+        # Try parsing the whole block once if no descriptors split found
+        # This part might need refinement if lsusb -v output varies significantly
+        # For now, assume if no 'Device Descriptor:', no usable device info
+         return []
 
-    # pprint(data) # Debugging
-    return data
+
+    for i, match_obj in enumerate(device_descriptor_matches):
+        start_pos = match_obj.start()
+        # Determine end position: start of next descriptor or end of string
+        end_pos = device_descriptor_matches[i+1].start() if i + 1 < len(device_descriptor_matches) else len(output)
+        device_output = output[start_pos:end_pos]
+
+        # Now parse this specific device_output section
+        data = {}
+        # Use regex with re.IGNORECASE | re.MULTILINE
+
+        # --- Standard Descriptor Fields ---
+        bcd_match = re.search(r'bcdUSB\s+([\d\.xXa-fA-F]+)', device_output, re.IGNORECASE)
+        if bcd_match: data['bcdUSB'] = bcd_match.group(1).strip()
+
+        bcd_dev_match = re.search(r'bcdDevice\s+([\d\.xXa-fA-F]+)', device_output, re.IGNORECASE)
+        if bcd_dev_match: data['bcdDevice'] = bcd_dev_match.group(1).strip()
+
+        # idVendor and idProduct - we already know these from the input vid/pid
+        data['idVendor'] = f"{vid}" # Store consistently without 0x ? Let's keep vid/pid as passed
+        data['idProduct'] = f"{pid}"
+        # Try to find text descriptions associated with them within this device's section
+        id_vendor_match = re.search(r'idVendor\s+0x' + vid + r'\s+(.*)', device_output, re.IGNORECASE)
+        if id_vendor_match and id_vendor_match.group(1).strip(): data['iManufacturer_desc'] = id_vendor_match.group(1).strip()
+        id_product_match = re.search(r'idProduct\s+0x' + pid + r'\s+(.*)', device_output, re.IGNORECASE)
+        if id_product_match and id_product_match.group(1).strip(): data['iProduct_desc'] = id_product_match.group(1).strip()
+
+        # --- String Descriptor Fields (iManufacturer, iProduct, iSerial) ---
+        # Use re.MULTILINE here
+        imanu_match = re.search(r'^\s*iManufacturer\s+\d+\s+(.+)$', device_output, re.MULTILINE | re.IGNORECASE)
+        if imanu_match and imanu_match.group(1).strip(): data['iManufacturer'] = imanu_match.group(1).strip()
+
+        iprod_match = re.search(r'^\s*iProduct\s+\d+\s+(.+)$', device_output, re.MULTILINE | re.IGNORECASE)
+        if iprod_match and iprod_match.group(1).strip(): data['iProduct'] = iprod_match.group(1).strip()
+
+        iserial_match = re.search(r'^\s*iSerial\s+\d+\s+([^\s]+(?: [^\s]+)*)$', device_output, re.MULTILINE | re.IGNORECASE) # Allow spaces in serial? No, lsusb doesn't usually show them. Use original regex.
+        iserial_match = re.search(r'^\s*iSerial\s+\d+\s+([^\s]+)$', device_output, re.MULTILINE | re.IGNORECASE) # Original
+        if iserial_match and iserial_match.group(1).strip(): data['iSerial'] = iserial_match.group(1).strip()
+
+        # --- Fallbacks and Cleanup ---
+        if 'iManufacturer' not in data and data.get('iManufacturer_desc'):
+            data['iManufacturer'] = data['iManufacturer_desc']
+        if 'iProduct' not in data and data.get('iProduct_desc'):
+            data['iProduct'] = data['iProduct_desc']
+
+        data.pop('iManufacturer_desc', None)
+        data.pop('iProduct_desc', None)
+
+        # Only add if we found the essential serial number for correlation
+        if data.get("iSerial"):
+            devices_found.append(data)
+        # else: # Debugging if a device section is parsed but no serial found
+        #      print(f"Debug: Parsed device section for {vid}:{pid} but found no iSerial.")
+        #      pprint(data)
+
+
+    # --- Debugging Print ---
+    # print(f"lsusb -v Parsed Data List for {vid}:{pid}:")
+    # pprint(devices_found)
+    # print("-" * 20)
+    # --- End Debugging Print ---
+    return devices_found
+
 
 # ------------------------------------------------------
-# Enumerate "lsusb", filter for Apricorn, gather details
+# Enumerate "lsusb", filter for Apricorn, gather details - MODIFIED
 # ------------------------------------------------------
-def find_apricorn_device() -> Optional[List[LinuxUsbDeviceInfo]]:
+def find_apricorn_device() -> List[LinuxUsbDeviceInfo]: # Return List, never None
     """
     Enumerates USB devices using 'lsusb', filters for Apricorn devices (VID 0984),
     and gathers detailed information using 'lsusb -v', 'lshw', and 'lsblk'.
-    Correlates information based on serial numbers.
+    Correlates information primarily based on block device name, using serial
+    number as the link to lsusb data. Handles multiple devices sharing VID:PID.
 
     Returns a list of LinuxUsbDeviceInfo objects for detected Apricorn devices.
     Excludes known non-target devices (PID 0221, 0301).
-    Returns None if critical commands fail or no devices are found.
+    Returns an empty list if no devices are found or critical commands fail.
     """
+    import shutil # Ensure shutil is available
     closest_values = {
         # PID: [Product Name Hint, [Sizes in GB]] - Use integers for sizes
+        # Ensure PIDs are lowercase hex strings without 0x prefix
         "0310": ["Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
         "0315": ["Padlock DT", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
         "0351": ["Aegis Portable", [128, 256, 500, 1000, 2000, 4000, 8000, 12000, 16000]],
         "1400": ["Fortress", [256, 500, 1000, 2000, 4000, 8000, 16000]],
         "1405": ["Padlock SSD", [240, 480, 1000, 2000, 4000]],
         "1406": ["Padlock DT FIPS", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
-        "1407": ["Secure Key 3.0", [16, 30, 60, 120, 240, 480, 1000, 2000, 4000]],
+        "1407": ["Secure Key 3.0", [16, 30, 60, 120, 240, 480, 1000, 2000, 4000]], # Covers multiple ASK variants
         "1408": ["Fortress L3", [500, 512, 1000, 2000, 4000, 5000, 8000, 16000, 20000]],
-        "1409": ["Secure Key 3.0", [16, 32, 64, 128]], # Assume ASK 3NXC (often reports as 1409)
+        "1409": ["Secure Key 3NXC", [16, 32, 64, 128, 256, 500, 1000, 2000, 4000]], # Combined ASK 3NXC / 3NX - may share PID
         "1410": ["Secure Key 3Z", [4, 8, 16, 32, 64, 128, 256, 512]],
-        "1413": ["Padlock NVX", [500, 1000, 2000]]
+        "1413": ["Padlock NVX", [500, 1000, 2000, 4000]]
     }
-
     # --- Collect info from system tools ---
-    # lshw is generally preferred for matching serial to block device
-    lshw_apricorn_info = parse_uasp_info() # List of dicts {'serial': '...', 'logicalname': '/dev/sdx', 'driver': 'uas'/...}
-    lsblk_drives = list_usb_drives() # List of dicts {'name': '/dev/sdx', 'serial': '...', 'size_gb': ...}
+    lshw_data_map_by_name = parse_uasp_info() # Returns Dict[name, {info}]
+    lsblk_drives = list_usb_drives() # Returns List[Dict]
+    # fdisk_drives = list_disk_partitions() # Less critical
+    # print()
 
-    # Create lookup maps for easier correlation
-    lshw_map = {info['serial']: info for info in lshw_apricorn_info if info.get('serial')}
-    lsblk_map = {info['serial']: info for info in lsblk_drives if info.get('serial')}
+    # CHANGE: Create lookup map for lsblk based on name (block path)
+    lsblk_map_by_name = {info['name']: info for info in lsblk_drives if info.get('name')}
 
     # --- Run basic lsusb to find Apricorn VID ---
-    lsusb_path = "/usr/bin/lsusb"
-    if not os.path.exists(lsusb_path):
-        print("Error: 'lsusb' command not found. Cannot list USB devices.", file=sys.stderr)
-        return None
+    lsusb_path = shutil.which("lsusb")
+    if not lsusb_path:
+        # Try common fallback
+        if os.path.exists("/usr/bin/lsusb"):
+            lsusb_path = "/usr/bin/lsusb"
+        else:
+            print("Error: 'lsusb' command not found. Cannot list USB devices.", file=sys.stderr)
+            return [] # Return empty list
 
     try:
         lsusb_cmd = [lsusb_path]
-        result = subprocess.run(lsusb_cmd, capture_output=True, text=True, check=True) # Check for success
+        result = subprocess.run(lsusb_cmd, capture_output=True, text=True, check=True)
     except FileNotFoundError:
-         print("Error: 'lsusb' command not found.", file=sys.stderr)
-         return None
+         print("Error: 'lsusb' command not found (should have been caught earlier).", file=sys.stderr)
+         return []
     except subprocess.CalledProcessError as e:
          print(f"Error running 'lsusb': {e}. Stderr: {e.stderr.strip()}", file=sys.stderr)
-         return None
+         return []
     except Exception as e:
          print(f"Unexpected error running 'lsusb': {e}", file=sys.stderr)
-         return None
+         return []
 
-    # --- Process lsusb output ---
+    # --- Process lsusb output to find Apricorn VID:PIDs and get detailed lsusb -v data ---
     all_found_devices = []
-    processed_serials = set() # Track serials processed to avoid duplicates if lsusb shows multiple lines for same device
+    processed_vid_pid = set()
+    # CHANGE: Store lsusb -v results mapped by serial number for later lookup
+    lsusb_details_map_by_serial: Dict[str, Dict[str, str]] = {}
 
     for line in result.stdout.splitlines():
-        # Match: Bus 001 Device 002: ID 0984:1408 Apricorn Corp. Fortress L3
-        match = re.match(r'Bus\s+(\d+)\s+Device\s+(\d+):\s+ID\s+([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\s+(.*)', line.strip(), re.IGNORECASE)
+        match = re.match(r'Bus\s+\d+\s+Device\s+\d+:\s+ID\s+([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\s*(.*)', line.strip(), re.IGNORECASE)
         if not match:
             continue
 
-        bus_num, dev_num, vid, pid, description = match.groups()
+        vid, pid, description_part = match.groups()
         vid_lower = vid.lower()
         pid_lower = pid.lower()
+        description = description_part.strip()
 
-        # Filter: Apricorn VID, exclude specific PIDs
         if vid_lower != "0984" or pid_lower in ["0221", "0301"]:
             continue
 
-        # --- Get detailed info using lsusb -v ---
-        # This dict might be partially populated if lsusb -v fails (e.g., permissions)
-        lsusb_v_info = parse_lsusb_output(vid_lower, pid_lower)
-
-        # Extract best available info, prioritizing lsusb -v
-        iSerial_str = lsusb_v_info.get("iSerial", "").strip()
-        iManufacturer_str = lsusb_v_info.get("iManufacturer", description.split(" ", 1)[0] if description else "Apricorn").strip() # Fallback manufacturer
-        iProduct_str = lsusb_v_info.get("iProduct", "").strip() # Get product from lsusb -v if possible
-        bcdUSB_str = lsusb_v_info.get("bcdUSB", "0") # Raw string from lsusb -v
-        bcdDevice_str = lsusb_v_info.get("bcdDevice", "0x0000") # Raw string from lsusb -v
-
-        # If serial wasn't found via lsusb -v, try to find a match in lshw/lsblk based on PID
-        # This is less reliable but a potential fallback
-        matched_lshw = None
-        matched_lsblk = None
-
-        if not iSerial_str:
-             # Attempt to find matching device in lshw based on PID (less reliable)
-             # This requires lshw providing product ID info, which it often doesn't reliably
-             pass # Skip serial-less devices for now, main matching relies on serial
-
-        # Skip if we've already processed this serial number
-        if iSerial_str and iSerial_str in processed_serials:
+        if (vid_lower, pid_lower) in processed_vid_pid:
             continue
-        if not iSerial_str:
-            # If no serial, we cannot reliably correlate. Log and skip.
-            # print(f"Warning: Skipping device VID={vid_lower}, PID={pid_lower} (Bus {bus_num} Dev {dev_num}) - could not determine serial number.", file=sys.stderr)
+        processed_vid_pid.add((vid_lower, pid_lower))
+
+        lsusb_v_results = parse_lsusb_output(vid_lower, pid_lower) # Returns a list
+
+        if not lsusb_v_results:
+            print(f"  Warning: 'lsusb -v' yielded no parsable device details for {vid_lower}:{pid_lower}.")
             continue
 
-        # Mark this serial as processed
-        processed_serials.add(iSerial_str)
+        # Populate the map keyed by serial
+        for device_details in lsusb_v_results:
+            iSerial = device_details.get("iSerial")
+            if iSerial and iSerial not in lsusb_details_map_by_serial: # Avoid overwriting if serial conflict (unlikely but possible)
+                lsusb_details_map_by_serial[iSerial] = device_details
+            elif iSerial:
+                 print(f"  Warning: Duplicate serial '{iSerial}' found in lsusb -v results for different devices/VID:PIDs. Using first entry.")
 
-        # --- Correlate with lshw and lsblk using the serial number ---
-        matched_lshw = lshw_map.get(iSerial_str)
-        matched_lsblk = lsblk_map.get(iSerial_str)
 
-        # --- Determine Block Device Path ---
-        blockDevice_str = "N/A"
-        if matched_lshw and matched_lshw.get('logicalname'):
-            blockDevice_str = matched_lshw['logicalname']
-        elif matched_lsblk and matched_lsblk.get('name'):
-            # Fallback to lsblk name if lshw didn't provide it
-            blockDevice_str = matched_lsblk['name']
-        # else: Remains "N/A"
+    processed_block_devices = set() # Avoid processing the same block device multiple times if listed differently
 
-        # --- Determine UASP Status ---
-        SCSIDevice_bool = False # Default to False (not UASP)
-        if matched_lshw and matched_lshw.get('driver') == 'uas':
-            SCSIDevice_bool = True
+    for block_path, lsblk_info in lsblk_map_by_name.items():
+        if block_path in processed_block_devices:
+            continue
 
-        # --- Determine Drive Size ---
-        driveSize_val = "N/A (OOB Mode)" # Use string "N/A" for consistency with Windows OOB
-        size_gb_float = 0.0
-        if matched_lsblk:
-             size_gb_float = matched_lsblk.get('size_gb', 0.0)
-        elif matched_lshw:
-             # lshw sometimes has size info too, less common than lsblk
-             # Check 'size' attribute (usually in bytes)
-             size_bytes = matched_lshw.get('size')
-             if isinstance(size_bytes, (int, float)):
-                 size_gb_float = bytes_to_gb(size_bytes)
+        # --- Get Serial from lsblk/lshw for this block device ---
+        serial_str = lsblk_info.get("serial")
+        matched_lshw_data = lshw_data_map_by_name.get(block_path) # Look up by path
+
+        # Use lshw serial if lsblk serial is missing or '-', prefer lshw if both exist? Let's prefer lshw if available.
+        if matched_lshw_data and matched_lshw_data.get('serial'):
+            serial_str = matched_lshw_data['serial']
+        else:
+            processed_block_devices.add(block_path)
+            continue # Cannot correlate without serial
+
+        # --- Find corresponding lsusb -v details using the serial ---
+        lsusb_v_info = lsusb_details_map_by_serial.get(serial_str)
+
+        if not lsusb_v_info:
+            processed_block_devices.add(block_path)
+            continue # Cannot proceed without lsusb info for VID/PID etc.
+
+        # Now we have lsblk_info, matched_lshw_data (maybe), and lsusb_v_info linked
+
+        # Mark this device as processed (using both path and serial to be safe)
+        processed_block_devices.add(block_path)
+        # Note: We might still add the same logical device if it appears under different paths,
+        # but this prevents reprocessing the exact same block_path entry from lsblk.
+        # We also rely on lsusb_details_map_by_serial using unique serials.
+
+        # --- Extract Primary Information (Prioritize lsusb -v) ---
+        # Get VID/PID from lsusb data; re-check filter in case lsusb -v matched a filtered PID via serial
+        vid_lower = lsusb_v_info.get("idVendor", "").lower()
+        pid_lower = lsusb_v_info.get("idProduct", "").lower()
+        if vid_lower != "0984" or pid_lower in ["0221", "0301"]:
+             print(f"  Info: Skipping {block_path} (Serial: {serial_str}) as its lsusb data indicates excluded VID/PID {vid_lower}:{pid_lower}.")
+             continue
+
+        iManufacturer_str = lsusb_v_info.get("iManufacturer", "").strip()
+        iProduct_str = lsusb_v_info.get("iProduct", "").strip()
+        bcdUSB_str = lsusb_v_info.get("bcdUSB", "0")
+        bcdUSB_float = parse_usb_version(bcdUSB_str)
+        bcdDevice_str = lsusb_v_info.get("bcdDevice", "0x0000")
+        cleaned_bcdDevice_str = bcdDevice_str.lower().replace('0x', '').replace('.', '').zfill(4)
+
+        # --- Determine Block Device Path (we already have it) ---
+        blockDevice_str = block_path # This is our primary key now
+
+        # --- Determine UASP Status (from lshw data) ---
+        SCSIDevice_bool = False
+        driver = "N/A"
+        if matched_lshw_data:
+            driver = matched_lshw_data.get('driver')
+            if driver == 'uas':
+                SCSIDevice_bool = True
+
+        # --- Determine Drive Size (from lsblk data) ---
+        driveSize_val: Any = "N/A (OOB Mode)"
+        size_gb_float = lsblk_info.get('size_gb', 0.0)
+        lsblk_size_source = f"lsblk ({block_path})"
 
         # Find closest standard size if size > 0
         if size_gb_float > 0:
-            size_options = closest_values.get(pid_lower, [None, []])[1] # Get size list for PID
-            closest_size_int = find_closest(size_gb_float, size_options)
-            if closest_size_int is not None:
-                driveSize_val = closest_size_int # Store as int if found
-            else:
-                # If no match found, maybe report raw GB? Or stick to N/A?
-                # Stick to N/A if lookup fails, indicates unusual size or missing PID in map
-                driveSize_val = "N/A (OOB Mode)" # Fallback if closest match fails
-        # If size_gb_float is 0 or less, it remains "N/A"
+            pid_for_lookup = pid_lower
+            size_options_pid = closest_values.get(pid_for_lookup, [None, []])[1]
+            size_options_bcd = closest_values.get(cleaned_bcdDevice_str, [None, []])[1]
+            size_options = size_options_pid
+            lookup_key = pid_for_lookup
+            if not size_options and size_options_bcd:
+                size_options = size_options_bcd
+                lookup_key = cleaned_bcdDevice_str
+            elif not size_options and not size_options_bcd:
+                 driveSize_val = round(size_gb_float)
 
-        # --- Refine Product Name ---
-        # Use lsusb -v product name first, fallback to lshw product, then description hint
-        if not iProduct_str and matched_lshw:
-             iProduct_str = matched_lshw.get('product', '').strip()
+            if size_options:
+                closest_size_int = find_closest(size_gb_float, size_options)
+                if closest_size_int is not None:
+                    driveSize_val = closest_size_int
+                else:
+                    driveSize_val = round(size_gb_float)
+                    print(f"    Reporting Raw Size: {driveSize_val} GB (No standard match found for key '{lookup_key}')")
+        else: # If lsblk had size 0 or missing
+            driveSize_val = "N/A (OOB Mode)"
+
+
+        # --- Refine Product & Manufacturer Name (using fallbacks) ---
+        # Priority: lsusb -> lshw -> PID/bcdDevice map -> Default
+        if not iProduct_str and matched_lshw_data:
+             lshw_product = matched_lshw_data.get('product', '').strip()
+             if lshw_product: iProduct_str = lshw_product
         if not iProduct_str:
-             # Use the hint from our closest_values map
-             iProduct_str = closest_values.get(pid_lower, ["Unknown Product", []])[0]
+             pid_for_lookup = pid_lower
+             product_hint_key = pid_lower
+             product_hint_pid = closest_values.get(pid_for_lookup, [None, []])[0]
+             product_hint_bcd = closest_values.get(cleaned_bcdDevice_str, [None, []])[0]
+             if product_hint_pid: iProduct_str = product_hint_pid
+             elif product_hint_bcd: iProduct_str = product_hint_bcd; product_hint_key = cleaned_bcdDevice_str
+             else: iProduct_str = f"Unknown Product ({pid_lower}/{cleaned_bcdDevice_str})"
 
-        # --- Parse USB/Device Versions ---
-        bcdUSB_float = parse_usb_version(bcdUSB_str)
-        # Clean bcdDevice string (remove 0x, ensure 4 hex digits if possible)
-        bcdDevice_str = bcdDevice_str.lower().replace('0x', '').replace('.', '').zfill(4)
+        if not iManufacturer_str and matched_lshw_data:
+             lshw_vendor = matched_lshw_data.get('vendor', '').strip() # Use vendor field added to lshw map
+             if lshw_vendor: iManufacturer_str = lshw_vendor
+        if not iManufacturer_str:
+            # Attempt to get from basic lsusb description (stored in lsusb_v_info?) - No, not easily available here.
+            # Default to Apricorn
+            iManufacturer_str = "Apricorn"
 
         # --- Create Device Info Object ---
         dev_info = LinuxUsbDeviceInfo(
             bcdUSB=bcdUSB_float,
             idVendor=vid_lower,
             idProduct=pid_lower,
-            bcdDevice=bcdDevice_str,
+            bcdDevice=cleaned_bcdDevice_str,
             iManufacturer=iManufacturer_str,
             iProduct=iProduct_str,
-            iSerial=iSerial_str,
+            iSerial=serial_str, # Use the serial we derived from lsblk/lshw
             SCSIDevice=SCSIDevice_bool,
-            driveSizeGB=driveSize_val, # Can be int or "N/A"
+            driveSizeGB=driveSize_val,
             blockDevice=blockDevice_str
         )
         all_found_devices.append(dev_info)
+        # --- End of loop for block_path in lsblk_map_by_name ---
 
-    return all_found_devices if all_found_devices else None
+    # --- Final Check for Duplicates based on Serial? (Optional) ---
+    # The current logic might add duplicates if the same serial maps to different block paths
+    # or if lsusb -v reported the same serial for different VID:PIDs (less likely).
+    # We can add a final filtering step if needed.
+    final_devices_by_serial = {}
+    for dev in all_found_devices:
+        if dev.iSerial not in final_devices_by_serial:
+             final_devices_by_serial[dev.iSerial] = dev
+        else:
+             # Handle conflict - e.g., prefer the one with a more specific block path? Or just keep first.
+             print(f"Warning: Multiple entries found for serial {dev.iSerial}. Keeping the first one found.")
+
+    return list(final_devices_by_serial.values()) # Return list (potentially empty, filtered for unique serials)
 
 # ---------------
 # Example Usage
@@ -593,24 +792,32 @@ def main(find_apricorn_device_func):
     Args:
         find_apricorn_device_func (callable): The function to call to get devices.
     """
-    # Note: This script needs permissions (sudo) for some commands (lshw, fdisk, lsusb -v)
-    # Check if running as root, warn if not
+    import shutil # Import here for fdisk/lshw/lsusb path finding
+    # global shutil # Make available globally if helper functions need it - not needed if imported in main
+
+    # Note: This script often needs permissions (sudo) for lshw, fdisk, lsusb -v
     if os.geteuid() != 0:
         print("Warning: This script may require root privileges (sudo) for full functionality (lshw, fdisk, lsusb -v).", file=sys.stderr)
+        if not shutil.which("sudo"):
+             print("Warning: 'sudo' command not found. Root access may be required manually.", file=sys.stderr)
         print("Attempting to run with current privileges...", file=sys.stderr)
+        print("-" * 30, file=sys.stderr)
 
-    devices = find_apricorn_device_func()
+
+    devices = find_apricorn_device_func() # Should now return a list
     if not devices:
-        print("\nNo Apricorn devices found.")
+        print("\nNo Apricorn devices found or failed to gather sufficient info.")
     else:
-        print(f"\nFound {len(devices)} Apricorn device(s):")
+        print(f"Found {len(devices)} Apricorn device(s):")
+        # Sort devices maybe? By block device? Optional.
+        # devices.sort(key=lambda d: d.blockDevice if d.blockDevice != "N/A" else "zzz")
         for idx, dev in enumerate(devices, start=1):
             print(f"\n=== Apricorn Device #{idx} ===")
-            # Use vars() to dynamically access attributes from the dataclass instance
             attributes = vars(dev)
             for field_name, value in attributes.items():
-                print(f"  {field_name}: {value}")
-        print() # Add a final newline for clarity
+                print(f"  {field_name:<15}: {value}")
+        print()
 
 if __name__ == "__main__":
+    import shutil # Ensure shutil is available for path finding
     main(find_apricorn_device)
