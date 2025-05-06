@@ -224,35 +224,29 @@ def list_disk_partitions():
     return target_disk_info
 
 
-def parse_uasp_info() -> Dict[str, Dict[str, Optional[str]]]: # Return type changed conceptually, but signature kept for now
-    """
-    Uses 'lshw' (requires sudo) to get info about disk/storage devices in JSON.
-    Extracts serial, logical name (block device), driver (uas/usb-storage), and product
-    for devices potentially related to Apricorn, correlating by block device name.
-
-    Returns a dictionary where keys are block device logical names (e.g., '/dev/sda')
-    and values are dictionaries containing 'serial', 'driver', and 'product'.
-    Returns empty dict on error.
-    """
+def parse_uasp_info() -> Dict[str, Dict[str, Optional[str]]]:
     import shutil # Moved import here as it's only used here and in fdisk
-    lshw_path = shutil.which("lshw") # Find lshw reliably
+    lshw_path = shutil.which("lshw")
     if not lshw_path:
-        # Try common fallback
-         if os.path.exists("/usr/bin/lshw"):
-             lshw_path = "/usr/bin/lshw"
-         else:
+        if os.path.exists("/usr/bin/lshw"): # Common fallback path
+            lshw_path = "/usr/bin/lshw"
+        else:
             print("Error: 'lshw' command not found. Cannot get detailed hardware info.", file=sys.stderr)
             return {}
 
     sudo_path = shutil.which("sudo")
     if not sudo_path:
-        print("Error: 'sudo' command not found. Cannot run lshw.", file=sys.stderr)
-        return {}
+        # Try common fallback for sudo if not in PATH (less likely for sudo but good to check)
+        if os.path.exists("/usr/bin/sudo"):
+            sudo_path = "/usr/bin/sudo"
+        else:
+            print("Error: 'sudo' command not found. Cannot run lshw.", file=sys.stderr)
+            return {}
 
     cmd = [sudo_path, lshw_path, "-class", "disk", "-class", "storage", "-json"]
     try:
-        # Increased timeout slightly
         result = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=20)
+        # print(result.stdout) # Keep for debugging if needed, but remove for final
     except subprocess.TimeoutExpired:
         print(f"Warning: '{' '.join(cmd)}' timed out.", file=sys.stderr)
         return {}
@@ -262,96 +256,140 @@ def parse_uasp_info() -> Dict[str, Dict[str, Optional[str]]]: # Return type chan
 
     if result.returncode != 0:
         if "must be root" in result.stderr.lower() or "permission denied" in result.stderr.lower():
-             print(f"Warning: Permission error running '{' '.join(cmd)}'. Check sudo setup. Detailed hardware info may be incomplete.", file=sys.stderr)
-             # Proceed if there's still output, might be partial info
-             if not result.stdout.strip(): return {}
+            print(f"Warning: Permission error running '{' '.join(cmd)}'. Check sudo setup. Detailed hardware info may be incomplete.", file=sys.stderr)
+            if not result.stdout.strip(): return {}
         else:
-             print(f"Warning: '{' '.join(cmd)}' failed (code {result.returncode}). Stderr: {result.stderr.strip()}", file=sys.stderr)
-             # Proceed if there's still output
-             if not result.stdout.strip(): return {}
+            print(f"Warning: '{' '.join(cmd)}' failed (code {result.returncode}). Stderr: {result.stderr.strip()}", file=sys.stderr)
+            if not result.stdout.strip(): return {}
 
     if not result.stdout.strip():
-         # print("Warning: 'lshw' command returned no JSON output.", file=sys.stderr)
-         return {}
-
-    try:
-        # lshw sometimes returns a single dict, sometimes a list
-        raw_data = json.loads(result.stdout)
-        if isinstance(raw_data, dict):
-            all_devices = [raw_data] # Wrap single device in a list
-        elif isinstance(raw_data, list):
-            all_devices = raw_data
-        else:
-             print("Warning: Unexpected JSON format from 'lshw' (expected list or dict).", file=sys.stderr)
-             return {}
-    except json.JSONDecodeError:
-        print("Error: Failed to parse JSON output from 'lshw'. Output was:", file=sys.stderr)
-        print(result.stdout[:500] + "...", file=sys.stderr) # Print beginning of output
         return {}
 
-    # CHANGE: Key data by logicalname (block device path) instead of serial
-    lshw_data_by_name: Dict[str, Dict[str, Optional[str]]] = {}
+    try:
+        raw_data = json.loads(result.stdout)
+        if isinstance(raw_data, dict):
+            all_devices_from_lshw = [raw_data]
+        elif isinstance(raw_data, list):
+            all_devices_from_lshw = raw_data
+        else:
+            print("Warning: Unexpected JSON format from 'lshw' (expected list or dict).", file=sys.stderr)
+            return {}
+    except json.JSONDecodeError:
+        print("Error: Failed to parse JSON output from 'lshw'. Output was:", file=sys.stderr)
+        print(result.stdout[:500] + "...", file=sys.stderr)
+        return {}
 
+    # This will be the final map returned by the function
+    lshw_data_by_name: Dict[str, Dict[str, Optional[str]]] = {}
+    
+    # Temporary storage during parsing
+    # Keyed by device path (e.g., /dev/sda)
+    temp_disk_node_info: Dict[str, Dict[str, Optional[str]]] = {}
+    # Keyed by serial number
+    temp_controller_node_info: Dict[str, Dict[str, Optional[str]]] = {}
+
+    # Inner helper to find /dev/sdX or /dev/nvmeXnY (as it was)
     def find_dev_path(logicalname: Any) -> Optional[str]:
-        """Extracts /dev/sdX or /dev/nvmeXnY path from lshw logicalname field."""
         if isinstance(logicalname, str):
-            if logicalname.startswith('/dev/sd') or logicalname.startswith('/dev/nvme'):
-                 # Basic validation: Ensure it's not just '/dev/sd' or '/dev/nvme'
-                 if len(logicalname) > len('/dev/sd') and logicalname[-1].isalpha(): # e.g. /dev/sda
-                      return logicalname
-                 if len(logicalname) > len('/dev/nvme') and logicalname[-1].isdigit(): # e.g. /dev/nvme0n1
-                      return logicalname
+            if logicalname.startswith('/dev/sd') and len(logicalname) > len('/dev/sd') and logicalname[-1].isalpha():
+                 return logicalname
+            if logicalname.startswith('/dev/nvme') and len(logicalname) > len('/dev/nvme') and logicalname[-1].isdigit():
+                 return logicalname
         elif isinstance(logicalname, list):
             for item in logicalname:
-                path = find_dev_path(item) # Recurse for strings within the list
+                path = find_dev_path(item)
                 if path:
                     return path
         return None
 
-    def process_device_node(device: Dict[str, Any]):
-        """Recursively processes a device node and its children."""
-        nonlocal lshw_data_by_name # Allow modification of the outer scope dictionary
-        if not isinstance(device, dict):
+    # Recursive function to collect information from lshw nodes
+    def collect_lshw_info_recursive(device_node: Dict[str, Any]):
+        nonlocal temp_disk_node_info, temp_controller_node_info # Ensure modification of outer scope maps
+        if not isinstance(device_node, dict):
             return
 
-        # Check if it's potentially a disk/storage with a logicalname and serial
-        # Use .get() with default to avoid KeyErrors
-        dev_path = find_dev_path(device.get('logicalname'))
-        serial = device.get('serial', None) # Serial is still needed to link to lsusb later
-        driver = device.get('configuration', {}).get('driver')
-        product = device.get('product')
-        vendor = device.get('vendor') # Get vendor too
-
-        # If we found a valid block device path, store info keyed by it
+        # Extract common fields from the current node
+        node_logicalname = device_node.get('logicalname')
+        node_serial = device_node.get('serial')
+        node_driver = device_node.get('configuration', {}).get('driver')
+        node_product = device_node.get('product')
+        node_vendor = device_node.get('vendor')
+        
+        # Attempt to find a block device path (/dev/sdX, /dev/nvmeXnY)
+        dev_path = find_dev_path(node_logicalname)
+        
+        # If it's a disk node with a recognized path, store its info
         if dev_path:
-            if dev_path not in lshw_data_by_name:
-                lshw_data_by_name[dev_path] = {'serial': None, 'driver': None, 'product': None, 'vendor': None} # Add vendor
+            if dev_path not in temp_disk_node_info: # Store if new
+                temp_disk_node_info[dev_path] = {
+                    'serial': node_serial,
+                    'product': node_product,
+                    'vendor': node_vendor,
+                    'driver': None # Driver to be filled by correlation later
+                }
+            else: # If already exists, update missing fields
+                entry = temp_disk_node_info[dev_path]
+                if node_serial and not entry.get('serial'): entry['serial'] = node_serial
+                if node_product and not entry.get('product'): entry['product'] = node_product
+                if node_vendor and not entry.get('vendor'): entry['vendor'] = node_vendor
+        
+        # If it's a storage controller with a relevant driver ('uas' or 'usb-storage') and serial
+        if node_serial and node_driver and node_driver in ('uas', 'usb-storage'):
+            should_update_controller = False
+            if node_serial not in temp_controller_node_info:
+                should_update_controller = True
+            else:
+                existing_controller_driver = temp_controller_node_info[node_serial].get('driver')
+                if not existing_controller_driver: # No driver stored yet
+                    should_update_controller = True
+                elif existing_controller_driver == 'usb-storage' and node_driver == 'uas': # Prefer 'uas'
+                    should_update_controller = True
+            
+            if should_update_controller:
+                temp_controller_node_info[node_serial] = {
+                    'driver': node_driver,
+                    'product': node_product, # Store controller's product/vendor too
+                    'vendor': node_vendor
+                }
 
-            # Update fields if they are not already set or if new info is found
-            if serial and not lshw_data_by_name[dev_path]['serial']:
-                lshw_data_by_name[dev_path]['serial'] = serial
-            if driver and driver in ('uas', 'usb-storage') and not lshw_data_by_name[dev_path]['driver']:
-                lshw_data_by_name[dev_path]['driver'] = driver
-            if product and not lshw_data_by_name[dev_path]['product']:
-                lshw_data_by_name[dev_path]['product'] = product
-            if vendor and not lshw_data_by_name[dev_path]['vendor']:
-                 lshw_data_by_name[dev_path]['vendor'] = vendor # Store vendor
-
-        # Recursively process children nodes if they exist
-        children = device.get('children')
+        # Recursively process children
+        children = device_node.get('children')
         if isinstance(children, list):
-            for child in children:
-                process_device_node(child) # Recurse
+            for child_node in children:
+                collect_lshw_info_recursive(child_node)
 
-    # Process all top-level devices found
-    for dev in all_devices:
-        process_device_node(dev)
+    # --- Pass 1: Collect information by recursively processing all devices ---
+    for top_level_dev_node in all_devices_from_lshw:
+        collect_lshw_info_recursive(top_level_dev_node)
+
+    # --- Pass 2: Correlate and build the final lshw_data_by_name map ---
+    for path, disk_data in temp_disk_node_info.items():
+        final_entry = {
+            'serial': disk_data.get('serial'),
+            'product': disk_data.get('product'),
+            'vendor': disk_data.get('vendor'),
+            'driver': None # Initialize driver to None
+        }
+        
+        disk_serial_num = disk_data.get('serial')
+        if disk_serial_num and disk_serial_num in temp_controller_node_info:
+            controller_data = temp_controller_node_info[disk_serial_num]
+            final_entry['driver'] = controller_data.get('driver') # Assign driver from controller
+            
+            # Use controller's product/vendor as fallback if disk node's info was missing
+            if not final_entry.get('product') and controller_data.get('product'):
+                final_entry['product'] = controller_data.get('product')
+            if not final_entry.get('vendor') and controller_data.get('vendor'):
+                final_entry['vendor'] = controller_data.get('vendor')
+        
+        lshw_data_by_name[path] = final_entry
 
     # --- Debugging Print ---
-    # CHANGE: Print data keyed by name
-    filtered_lshw_data = {k: v for k, v in lshw_data_by_name.items() if v.get('serial') or v.get('driver')} # Filter slightly differently
-    # pprint(filtered_lshw_data)
-    # print()
+    # Filter for relevant entries to make debug output cleaner if desired
+    # filtered_lshw_data = {k: v for k, v in lshw_data_by_name.items() if v.get('serial') or v.get('driver')}
+    # pprint(filtered_lshw_data) # Or print the full lshw_data_by_name
+    # pprint(lshw_data_by_name) 
+    # print() # For spacing
     # --- End Debugging Print ---
 
     return lshw_data_by_name
