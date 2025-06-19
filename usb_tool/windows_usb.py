@@ -122,6 +122,7 @@ class WinUsbDeviceInfo:
     deviceAddress: int = 0
     physicalDriveNum: int = 0
     mediaType: str = "Unknown"
+    readOnly: bool = False
 
 # ==================================
 # Gathering Apricorn Device Info
@@ -326,6 +327,50 @@ def get_physical_drive_number():
     except Exception as e:
         print(f"Error getting physical drive number(s): {e}")
         return None
+    
+def get_usb_readonly_status_map():
+    """
+    Uses a robust PowerShell command to build a map of physical USB disk
+    numbers to their read-only status.
+
+    Returns:
+        dict: A dictionary where keys are integer disk numbers and the value
+              is a boolean (True if read-only, False otherwise).
+              Example: {1: True, 2: False}
+    """
+
+    # This simple script gets all USB disks and selects just their number
+    # and their read-only state, then outputs as clean JSON.
+    ps_script = r"""
+    Get-Disk | Where-Object { $_.Bustype -eq 'USB' } |
+    Select-Object -Property Number, IsReadOnly |
+    ConvertTo-Json -Compress
+    """
+
+    readonly_map = {}
+    try:
+        # Execute the command, hiding the PowerShell window.
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            capture_output=True, text=True, check=True, creationflags=0x08000000 # CREATE_NO_WINDOW
+        )
+
+        if not result.stdout.strip():
+            return {}
+
+        data = json.loads(result.stdout)
+        if isinstance(data, dict): data = [data] # Handle single-item case
+
+        for item in data:
+            disk_number = int(item['Number'])
+            is_readonly = bool(item['IsReadOnly'])
+            readonly_map[disk_number] = is_readonly
+
+    except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError, KeyError):
+        # On any failure, return an empty map, assuming no disks are read-only.
+        return {}
+
+    return readonly_map
 
 # ==================================
 # Process Apricorn Device Info
@@ -595,7 +640,7 @@ def sort_libusb_data(wmi_usb_devices, libusb_data):
     # pprint(libusb_data)
     return libusb_data
 
-def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data, physical_drives):
+def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data, physical_drives, readonly_map):
     devices = []
     closest_values = {
         "0310": ["Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
@@ -649,6 +694,8 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
             if key == iSerial:
                 drive_number = value
 
+        isReadOnly = readonly_map.get(drive_number, False)
+
         if wmi_usb_drives[item]["size_gb"] == 0.0:
             driveSizeGB = "N/A (OOB Mode)"
         else:
@@ -669,7 +716,8 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
             busNumber=bus_number,
             deviceAddress=dev_address,
             physicalDriveNum=drive_number,
-            mediaType=mediaType
+            mediaType=mediaType,
+            readOnly=isReadOnly
         )
         devices.append(dev_info)
     return devices if devices else None
@@ -688,12 +736,13 @@ def find_apricorn_device():
     usb_controllers = get_all_usb_controller_names()
     libusb_data = get_apricorn_libusb_data()
     physical_drives = get_physical_drive_number()
+    readonly_map = get_usb_readonly_status_map()
 
     wmi_usb_drives = sort_wmi_drives(wmi_usb_devices, wmi_usb_drives)
     usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
     libusb_data = sort_libusb_data(wmi_usb_devices, libusb_data)
 
-    apricorn_devices = instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data, physical_drives)
+    apricorn_devices = instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data, physical_drives, readonly_map)
     return apricorn_devices
 
 def main():
