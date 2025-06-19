@@ -121,6 +121,7 @@ class WinUsbDeviceInfo:
     busNumber: int = 0
     deviceAddress: int = 0
     physicalDriveNum: int = 0
+    mediaType: str = "Unknown"
 
 # ==================================
 # Gathering Apricorn Device Info
@@ -192,7 +193,15 @@ def get_wmi_usb_drives():
             
             pnp = drive.PNPDeviceID
             if not pnp:
-                continue            
+                continue           
+
+            media_type_wmi = getattr(drive, "MediaType", "Unknown type")
+            media_type = "Unknown"
+            if "External hard disk media" in media_type_wmi:
+                media_type = "Basic Disk"
+            elif "Removable" in media_type_wmi:
+                media_type = "Removable Media"
+
             try:
                 if 'USBSTOR' in pnp:
                     i_product = pnp[pnp.index("PROD_") + 5 : pnp.index("&REV")].replace('_', ' ').title()
@@ -211,7 +220,8 @@ def get_wmi_usb_drives():
                 "caption": drive.Caption,
                 "size_gb": size_gb,
                 "iProduct": i_product,
-                "pnpdeviceid": pnp
+                "pnpdeviceid": pnp,
+                "mediaType": media_type
             })
 
     # print("wmi_usb_drives:")
@@ -626,6 +636,7 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
         usbController = usb_controllers[item]['ControllerName']
         bus_number = libusb_data[item]['bus_number']
         dev_address = libusb_data[item]['dev_address']
+        mediaType = wmi_usb_drives[item].get('mediaType', 'Unknown')
 
         if wmi_usb_devices[item]['serial'].startswith('MSFT30'):
             SCSIDevice = True
@@ -657,7 +668,8 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
             usbController=usbController,
             busNumber=bus_number,
             deviceAddress=dev_address,
-            physicalDriveNum=drive_number
+            physicalDriveNum=drive_number,
+            mediaType=mediaType
         )
         devices.append(dev_info)
     return devices if devices else None

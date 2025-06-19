@@ -26,6 +26,7 @@ class LinuxUsbDeviceInfo:
     driveSizeGB: Any = "N/A (OOB Mode)" # Changed type hint to Any, updated default
     # usbController: str = "" # Removed, not easily available/reliable on Linux
     blockDevice: str = "N/A" # Added block device path (e.g., /dev/sdx), updated default
+    mediaType: str = "Unknown"
 
 # ----------------
 # Size Conversions
@@ -131,12 +132,12 @@ def list_usb_drives():
         if not line:
             continue
         # Expecting NAME SERIAL SIZE format
-        parts = line.split(None, 2)
-        if len(parts) < 3:
+        parts = line.split(None, 3)
+        if len(parts) < 4:
             # print(f"Warning: Skipping malformed lsblk line: '{line}'") # Debugging
             continue
 
-        name, serial, size_str = parts
+        name, serial, size_str, rm_flag = parts
         # Check if serial looks potentially valid (not None, not '-', reasonable length maybe?)
         # Rely more on matching via lshw/lsusb later.
         if not serial or serial == '-':
@@ -146,11 +147,18 @@ def list_usb_drives():
         if serial in processed_serials:
             continue
 
+        media_type = "Unknown"
+        if rm_flag == '1':
+            media_type = "Removable Media"
+        elif rm_flag == '0':
+            media_type = "Basic Disk"
+
         size_gb = parse_lsblk_size(size_str)
         drives_info.append({
             "name": name, # Full path like /dev/sda
             "serial": serial,
-            "size_gb": size_gb
+            "size_gb": size_gb,
+            "mediaType": media_type
         })
         processed_serials.add(serial) # Mark serial as seen
 
@@ -767,6 +775,8 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]: # Return List, never Non
         else: # If lsblk had size 0 or missing
             driveSize_val = "N/A (OOB Mode)"
 
+        mediaType_str = lsblk_info.get('mediaType', 'Unknown')
+
 
         # --- Refine Product & Manufacturer Name (using fallbacks) ---
         # Priority: lsusb -> lshw -> PID/bcdDevice map -> Default
@@ -801,7 +811,8 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]: # Return List, never Non
             iSerial=serial_str, # Use the serial we derived from lsblk/lshw
             SCSIDevice=SCSIDevice_bool,
             driveSizeGB=driveSize_val,
-            blockDevice=blockDevice_str
+            blockDevice=blockDevice_str,
+            mediaType=mediaType_str
         )
         all_found_devices.append(dev_info)
         # --- End of loop for block_path in lsblk_map_by_name ---

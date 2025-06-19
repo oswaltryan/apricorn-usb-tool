@@ -235,6 +235,18 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                 iSerial_str = drive['serial_num']
                 SCSIDevice_str = value
                 drive_size_str = find_closest(bytes_to_gb(drive['Media'][0]['size_in_bytes']), closest_values[idProduct_str][1])
+                # Safely get the removable_media value from the nested dictionary
+                removable_val = "unknown"
+                try:
+                    removable_val = drive['Media'][0].get('removable_media', 'unknown')
+                except (IndexError, KeyError, TypeError):
+                    pass # Ignore if Media key or list is missing
+                
+                media_type = "Unknown"
+                if removable_val == "yes":
+                    media_type = "Removable Media"
+                elif removable_val == "no":
+                    media_type = "Basic Disk"
 
         dev_info = macOSUsbDeviceInfo(
             bcdUSB=bcdUSB_str,
@@ -246,6 +258,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
             iSerial=iSerial_str,
             SCSIDevice=SCSIDevice_str,
             driveSizeGB=drive_size_str,
+            mediaType=media_type
         )
         apricorn_devices.append(dev_info)
 
