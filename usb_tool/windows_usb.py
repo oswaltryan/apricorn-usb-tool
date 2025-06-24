@@ -121,6 +121,7 @@ class WinUsbDeviceInfo:
     busNumber: int = 0
     deviceAddress: int = 0
     physicalDriveNum: int = 0
+    driveLetter: str = "N/A"
     mediaType: str = "Unknown"
     readOnly: bool = False
 
@@ -130,6 +131,65 @@ class WinUsbDeviceInfo:
 
 locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
 service = locator.ConnectServer(".", "root\\cimv2")
+
+# Location: usb_tool/windows_usb.py
+# Add this function after the WinUsbDeviceInfo dataclass.
+
+def get_drive_letter_via_ps(drive_index: int) -> str:
+    """
+    Executes a targeted PowerShell script (based on user-provided logic) to
+    find the drive letter(s) for a specific physical disk index.
+
+    This is a highly reliable method that avoids previous WMI/COM issues.
+
+    Args:
+        drive_index (int): The physical drive number (e.g., 1).
+
+    Returns:
+        str: A comma-separated string of drive letters (e.g., "E:, F:") or "N/A".
+    """
+    import subprocess
+
+    # A drive index less than 0 is invalid.
+    if drive_index < 0:
+        return "N/A"
+
+    # This is your PowerShell script, slightly modified to collect and output
+    # all drive letters on a single line for easy parsing by Python.
+    ps_script = f"""
+    $driveLetters = Get-WmiObject -Query "SELECT * FROM Win32_DiskDrive WHERE Index = {drive_index}" |
+    ForEach-Object {{
+        $drive = $_
+        $partitions = Get-WmiObject -Query "ASSOCIATORS OF {{Win32_DiskDrive.DeviceID='$($drive.DeviceID)'}} WHERE AssocClass = Win32_DiskDriveToDiskPartition"
+        foreach ($partition in $partitions) {{
+            $logicalDisks = Get-WmiObject -Query "ASSOCIATORS OF {{Win32_DiskPartition.DeviceID='$($partition.DeviceID)'}} WHERE AssocClass = Win32_LogicalDiskToPartition"
+            foreach ($logical in $logicalDisks) {{
+                $logical.DeviceID
+            }}
+        }}
+    }}
+    # Join multiple letters (e.g., for a partitioned drive) into one string
+    $driveLetters -join ', '
+    """
+
+    try:
+        # Execute the script, hiding the console window.
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            check=True,
+            creationflags=0x08000000  # CREATE_NO_WINDOW
+        )
+        
+        # Get the output and remove any leading/trailing whitespace.
+        output = result.stdout.strip()
+        
+        return output if output else "N/A"
+
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # If the script fails for any reason, return "N/A".
+        return "N/A"
 
 def get_wmi_usb_devices():
     """
@@ -696,6 +756,8 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
 
         isReadOnly = readonly_map.get(drive_number, False)
 
+        drive_letter = get_drive_letter_via_ps(drive_number)
+
         if wmi_usb_drives[item]["size_gb"] == 0.0:
             driveSizeGB = "N/A (OOB Mode)"
         else:
@@ -716,6 +778,7 @@ def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, 
             busNumber=bus_number,
             deviceAddress=dev_address,
             physicalDriveNum=drive_number,
+            driveLetter=drive_letter,
             mediaType=mediaType,
             readOnly=isReadOnly
         )
