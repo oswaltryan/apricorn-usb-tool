@@ -10,6 +10,7 @@ import os  # Added for path checks
 import sys  # Added missing import
 
 from .device_config import closest_values
+from .utils import bytes_to_gb, find_closest, parse_usb_version
 
 # -----------------------------
 # Same Dataclass as on Windows
@@ -30,15 +31,25 @@ class LinuxUsbDeviceInfo:
     blockDevice: str = "N/A" # Added block device path (e.g., /dev/sdx), updated default
     mediaType: str = "Unknown"
 
-# ----------------
-# Size Conversions
-# ----------------
-def bytes_to_gb(bytes_value: float) -> float:
-    """Convert a value in bytes to gigabytes."""
-    # Handle potential None or non-numeric input gracefully
-    if not isinstance(bytes_value, (int, float)) or bytes_value <= 0:
-        return 0.0
-    return bytes_value / (1024 ** 3)
+
+def sort_devices(devices: list) -> list:
+    """Sort devices by block device path.
+
+    Args:
+        devices: List of ``LinuxUsbDeviceInfo`` instances.
+
+    Returns:
+        Devices ordered alphabetically by the ``blockDevice`` attribute with
+        unknown paths placed at the end.
+    """
+    if not devices:
+        return []
+
+    def _key(dev):
+        block_dev = getattr(dev, "blockDevice", "")
+        return block_dev if isinstance(block_dev, str) and block_dev.startswith("/dev/") else "~~~~~"
+
+    return sorted(devices, key=_key)
 
 def parse_lsblk_size(size_str: str) -> float:
     """
@@ -75,22 +86,6 @@ def parse_lsblk_size(size_str: str) -> float:
     else:
         # Assume bytes if no unit or unrecognized unit
         return bytes_to_gb(val)
-
-def find_closest(target: float, options: List[int]) -> Optional[int]:
-    """
-    Find the integer value in the list `options` that is closest to the float `target`.
-    Returns the closest integer or None if target or options are invalid.
-    """
-    if not isinstance(target, (int, float)) or target <= 0 or not options:
-        return None
-    try:
-        # Filter out non-numeric options if any crept in
-        numeric_options = [opt for opt in options if isinstance(opt, (int, float))]
-        if not numeric_options:
-            return None
-        return min(numeric_options, key=lambda x: abs(x - target))
-    except (TypeError, ValueError): # Catch issues if options are not numbers
-        return None
 
 # -----------------------------------------------------------
 # Gather block device info: name, serial, size (converted to GB)
@@ -404,48 +399,6 @@ def parse_uasp_info() -> Dict[str, Dict[str, Optional[str]]]:
 
     return lshw_data_by_name
 
-
-# ---------------------------------------
-# Helpers: parse USB version & placeholders
-# ---------------------------------------
-def parse_usb_version(usb_str: str) -> float:
-    """
-    Parses a USB version string (e.g., '3.20' or BCD '0x0320') into a float (e.g., 3.2).
-    Handles variations like '3.00', '0210'. Returns 0.0 on failure.
-    """
-    if not usb_str: return 0.0
-    usb_str = str(usb_str).strip() # Ensure string
-
-    # Handle direct version like "3.0", "2.10", "3.20"
-    match_decimal = re.match(r'^(\d+)\.(\d+)$', usb_str)
-    if match_decimal:
-        try:
-             major = int(match_decimal.group(1))
-             minor_sub = match_decimal.group(2) # Keep as string "00", "10", "20"
-             # Represent 3.00 as 3.0, 3.10 as 3.1, 3.20 as 3.2
-             float_val = float(f"{major}.{minor_sub[0]}") # Take first digit of minor version
-             return float_val
-        except (ValueError, IndexError):
-             pass # Fall through to BCD check
-
-    # Handle BCD format like "0x0300", "0210", "320" (assumed hex)
-    try:
-        # Remove "0x" prefix if present
-        if usb_str.lower().startswith('0x'):
-            bcd_val = int(usb_str[2:], 16)
-        else:
-            # Try interpreting as hex directly if not decimal format
-            bcd_val = int(usb_str, 16)
-
-        major = (bcd_val >> 8) & 0xFF
-        minor = (bcd_val >> 4) & 0x0F
-        subminor = bcd_val & 0x0F
-        # Format as float major.minor (e.g., 0x0310 -> 3.1, 0x0200 -> 2.0)
-        float_val = float(f"{major}.{minor}")
-        return float_val
-    except ValueError:
-        # print(f"Warning: Could not parse USB version '{usb_str}'") # Debugging
-        return 0.0 # Indicate failure
 
 # -----------------------------
 # Parse "lsusb -v -d <vid:pid>"

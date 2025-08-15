@@ -9,31 +9,10 @@ import subprocess
 import win32com.client
 
 from .device_config import closest_values
+from .utils import bytes_to_gb, find_closest, parse_usb_version
 
 # Configure libusb to use the included libusb-1.0.dll
 usb.config(LIBUSB=None)
-
-# ==================================
-# Helper Functions
-# ==================================
-
-def bytes_to_gb(bytes_value):
-    """Convert bytes to gigabytes."""
-    return bytes_value / (1024 ** 3)
-
-def find_closest(target, options):
-    """Find the closest value in 'options' to 'target'."""
-    closest = min(options, key=lambda x: abs(x - target))
-    return int(closest)
-
-def parse_usb_version(bcd):
-    """Convert a BCD USB version to a human-readable string (e.g., '2.0', '3.1')."""
-    major = (bcd & 0xFF00) >> 8
-    minor = (bcd & 0x00F0) >> 4
-    subminor = bcd & 0x000F
-    if subminor:
-        return f"{major}.{minor}{subminor}"
-    return f"{major}.{minor}"
 
 def read_string_descriptor_ascii(handle, index):
     """Read a string descriptor from a USB device and return it as ASCII."""
@@ -126,6 +105,25 @@ class WinUsbDeviceInfo:
     driveLetter: str = "N/A"
     mediaType: str = "Unknown"
     readOnly: bool = False
+
+
+def sort_devices(devices: list) -> list:
+    """Sort devices by physical drive number.
+
+    Args:
+        devices: List of ``WinUsbDeviceInfo`` instances.
+
+    Returns:
+        Devices ordered by ``physicalDriveNum`` with unknown values placed last.
+    """
+    if not devices:
+        return []
+
+    def _key(dev):
+        p_num = getattr(dev, "physicalDriveNum", -1)
+        return p_num if isinstance(p_num, int) and p_num >= 0 else float("inf")
+
+    return sorted(devices, key=_key)
 
 # ==================================
 # Gathering Apricorn Device Info

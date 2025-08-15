@@ -20,31 +20,13 @@ Activate the virtual environment:
   venv\Scripts\activate
   ```
 
-### 2. Install Dependencies (development)
-To ensure compatibility, install dependencies from `requirements.txt`:
+### 2. Install the Package
+Install the tool and its dependencies directly using `pyproject.toml`:
 ```sh
-pip install -r requirements.txt
+pip install .
 ```
 
-
-### 3. Install Globally as a Module (Offline Mode)
-```sh
-python -m pip install --no-index --find-links wheels usb-tool
-```
-
-### 4. Install as a Module for Global Access
-For global installation:
-LINUX ONLY:
-```sh
-sudo python3 -m pip install .
-```
-
-```
-python3 -m pip install .
-```
-
-
-### 6. Invoke the USB Detection Script
+### 3. Invoke the USB Detection Script
 Run the script anywhere:
 ```sh
 usb
@@ -96,3 +78,13 @@ else:
     print("Device not found.")
 
 ```
+
+## Development Notes
+
+The source code is organised under the `usb_tool` package:
+
+* `cross_usb.py` – command-line entry point and argument handling.
+* `windows_usb.py`, `linux_usb.py`, `mac_usb.py` – platform specific device discovery and sorting logic.
+* `utils.py` – shared helpers such as size conversion and USB version parsing.
+
+All packaging metadata resides in `pyproject.toml` and the project can be installed in editable mode with `pip install -e .` for development.
