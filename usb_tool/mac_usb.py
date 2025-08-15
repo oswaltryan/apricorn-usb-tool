@@ -7,6 +7,8 @@ from typing import List, Optional
 import json
 from pprint import pprint
 
+from .device_config import closest_values
+
 # -----------------------------
 # Same Dataclass as on Windows
 # -----------------------------
@@ -197,18 +199,6 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                                              Apricorn devices are detected or if
                                              necessary commands fail.
     """
-    closest_values = {
-        "0310": ["padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
-        "0315": ["padlock dt", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
-        "0351": ["aegis portable", [128, 256, 500, 1000, 2000, 4000, 8000, 12000, 16000]],
-        "1400": ["fortress", [256, 500, 1000, 2000, 4000, 8000, 16000]],
-        "1405": ["padlock ssd", [240, 480, 1000, 2000, 4000]],
-        "1406": ["padlock dt fips", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
-        "1407": ["secure key 3.0", [16, 30, 60, 120, 240, 480, 1000, 2000, 4000]],
-        "1408": ["fortress l3", [500, 512, 1000, 2000, 4000, 5000, 8000, 16000, 20000]],
-        "1409": ["secure key 3.0", [16, 32, 64, 128]],
-        "1410": ["secure key 3.0", [4, 8, 16, 32, 64, 128, 256, 512]],
-        "1413": ["padlock nvx", [500, 1000, 2000]]}
     # Collect drive info once
     all_drives = list_usb_drives() # lsblk
     # target_disk = list_disk_partitions() #fdisk

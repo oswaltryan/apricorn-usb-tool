@@ -3,11 +3,13 @@
 import subprocess
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any # Added Dict, Any
+from typing import List, Optional, Dict, Any  # Added Dict, Any
 import json
 from pprint import pprint
-import os # Added for path checks
-import sys # Added missing import
+import os  # Added for path checks
+import sys  # Added missing import
+
+from .device_config import closest_values
 
 # -----------------------------
 # Same Dataclass as on Windows
@@ -604,21 +606,6 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]: # Return List, never Non
     Returns an empty list if no devices are found or critical commands fail.
     """
     import shutil # Ensure shutil is available
-    closest_values = {
-        # PID: [Product Name Hint, [Sizes in GB]] - Use integers for sizes
-        # Ensure PIDs are lowercase hex strings without 0x prefix
-        "0310": ["Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
-        "0315": ["Padlock DT", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
-        "0351": ["Aegis Portable", [128, 256, 500, 1000, 2000, 4000, 8000, 12000, 16000]],
-        "1400": ["Fortress", [256, 500, 1000, 2000, 4000, 8000, 16000]],
-        "1405": ["Padlock SSD", [240, 480, 1000, 2000, 4000]],
-        "1406": ["Padlock DT FIPS", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
-        "1407": ["Secure Key 3.0", [16, 30, 60, 120, 240, 480, 1000, 2000, 4000]], # Covers multiple ASK variants
-        "1408": ["Fortress L3", [500, 512, 1000, 2000, 4000, 5000, 8000, 16000, 20000]],
-        "1409": ["Secure Key 3NXC", [16, 32, 64, 128, 256, 500, 1000, 2000, 4000]], # Combined ASK 3NXC / 3NX - may share PID
-        "1410": ["Secure Key 3Z", [4, 8, 16, 32, 64, 128, 256, 512]],
-        "1413": ["Padlock NVX", [500, 1000, 2000, 4000]]
-    }
     # --- Collect info from system tools ---
     lshw_data_map_by_name = parse_uasp_info() # Returns Dict[name, {info}]
     lsblk_drives = list_usb_drives() # Returns List[Dict]

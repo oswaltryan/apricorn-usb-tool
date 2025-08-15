@@ -8,6 +8,8 @@ import re
 import subprocess
 import win32com.client
 
+from .device_config import closest_values
+
 # Configure libusb to use the included libusb-1.0.dll
 usb.config(LIBUSB=None)
 
@@ -702,18 +704,6 @@ def sort_libusb_data(wmi_usb_devices, libusb_data):
 
 def instantiate_class_objects(wmi_usb_devices, wmi_usb_drives, usb_controllers, libusb_data, physical_drives, readonly_map):
     devices = []
-    closest_values = {
-        "0310": ["Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]],
-        "0315": ["Padlock DT", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
-        "0351": ["Aegis Portable", [128, 256, 500, 1000, 2000, 4000, 8000, 12000, 16000]],
-        "1400": ["Fortress", [256, 500, 1000, 2000, 4000, 8000, 16000]],
-        "1405": ["Padlock SSD", [240, 480, 1000, 2000, 4000]],
-        "1406": ["Padlock DT FIPS", [2000, 4000, 6000, 8000, 10000, 12000, 16000, 18000, 20000, 22000, 24000]],
-        "1407": ["Secure Key 3.0", [16, 30, 60, 120, 240, 480, 1000, 2000, 4000]],
-        "1408": ["Fortress L3", [500, 512, 1000, 2000, 4000, 5000, 8000, 16000, 20000]],
-        "1409": ["Secure Key 3.0", [16, 32, 64, 128]],
-        "1410": ["Secure Key 3.0", [4, 8, 16, 32, 64, 128, 256, 512]],
-        "1413": ["Padlock NVX", [500, 1000, 2000]]}
 
     # print()
     # print("----------")
