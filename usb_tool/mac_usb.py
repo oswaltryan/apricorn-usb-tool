@@ -8,6 +8,7 @@ import json
 from pprint import pprint
 
 from .device_config import closest_values
+from .utils import bytes_to_gb, find_closest
 
 # -----------------------------
 # Same Dataclass as on Windows
@@ -39,33 +40,27 @@ class macOSUsbDeviceInfo:
     driveSizeGB: int = 0
     # usbController: str = ""
     # blockDevice: str = ""
+    mediaType: str = "Unknown"
 
-# ----------------
-# Size Conversions
-# ----------------
-def bytes_to_gb(bytes_value: float) -> float:
-    """Convert a size value in bytes to gigabytes.
 
-    Args:
-        bytes_value (float): The size in bytes.
-
-    Returns:
-        float: The size in gigabytes.
-    """
-    return bytes_value / (1024 ** 3)
-
-def find_closest(target, options):
-    """Find the closest value in a list of options to a given target value.
+def sort_devices(devices: list) -> list:
+    """Return devices sorted by serial number.
 
     Args:
-        target (int or float): The target value to find the closest match for.
-        options (List[int]): A list of numerical options to search within.
+        devices: List of ``macOSUsbDeviceInfo`` instances.
 
     Returns:
-        int: The closest value from the options list to the target.
+        Devices ordered by their ``iSerial`` attribute. Devices lacking a
+        serial number are placed at the end.
     """
-    closest = min(options, key=lambda x: abs(x - target))
-    return int(closest)
+    if not devices:
+        return []
+
+    def _key(dev):
+        serial = getattr(dev, "iSerial", "")
+        return serial or "~~~~~"
+
+    return sorted(devices, key=_key)
 
 def parse_lsblk_size(size_str: str) -> float:
     """
