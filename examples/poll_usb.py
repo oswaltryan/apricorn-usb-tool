@@ -6,6 +6,7 @@ usb_enum_counter.py  interactive Apricorn enumeration tracker
 • Prints full WinUsbDeviceInfo dump plus bcdUSB / bcdDevice on first sighting
 • Works interactively (default) or on a timer (i N)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,24 +20,35 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 try:
-    from usb_tool import find_apricorn_device   # provided library
+    from usb_tool import find_apricorn_device  # provided library
 except ImportError as exc:
     sys.stderr.write(f"fatal: usb_tool import failed  {exc}\n")
     sys.exit(1)
 
-USB2_THRESHOLD = 3.0                     # < 3.0 → USB2
-DevKey        = Tuple[str, int, int]     # (serial, bus, address)
+USB2_THRESHOLD = 3.0  # < 3.0 → USB2
+DevKey = Tuple[str, int, int]  # (serial, bus, address)
 
 
 # ────────────────────────────────── CLI / LOG ──────────────────────────────────
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Apricorn enumeration counter")
-    p.add_argument("-i", "--interval", type=float, default=1.0,
-                   help="seconds between scans (0 = wait for <Enter>)")
-    p.add_argument("-o", "--out", type=Path, default=Path("counts.json"),
-                   help="JSON stats path")
-    p.add_argument("-l", "--log", type=Path, default=Path("usb_enum_counter.log"),
-                   help="log file path")
+    p.add_argument(
+        "-i",
+        "--interval",
+        type=float,
+        default=1.0,
+        help="seconds between scans (0 = wait for <Enter>)",
+    )
+    p.add_argument(
+        "-o", "--out", type=Path, default=Path("counts.json"), help="JSON stats path"
+    )
+    p.add_argument(
+        "-l",
+        "--log",
+        type=Path,
+        default=Path("usb_enum_counter.log"),
+        help="log file path",
+    )
     return p.parse_args()
 
 
@@ -45,8 +57,10 @@ def setup_logging(path: Path) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(message)s",
-        handlers=[logging.FileHandler(path, encoding="utf-8"),
-                  logging.StreamHandler(sys.stdout)],
+        handlers=[
+            logging.FileHandler(path, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
     )
 
 
@@ -55,7 +69,7 @@ def safe_scan() -> list:
     try:
         return find_apricorn_device() or []
     except Exception:
-        return []                         # silence  no log clutter
+        return []  # silence  no log clutter
 
 
 def atomic_write(path: Path, data: Dict) -> None:
@@ -83,8 +97,13 @@ class EnumStats:
                 self.totals["total"] += 1
                 logging.info(
                     "ENUM %-4s serial=%s bus=%d addr=%d bcdUSB=%s bcdDevice=%s\n%s",
-                    speed.upper(), dev.iSerial, dev.busNumber, dev.deviceAddress,
-                    dev.bcdUSB, dev.bcdDevice, dev
+                    speed.upper(),
+                    dev.iSerial,
+                    dev.busNumber,
+                    dev.deviceAddress,
+                    dev.bcdUSB,
+                    dev.bcdDevice,
+                    dev,
                 )
 
         self.prev = now

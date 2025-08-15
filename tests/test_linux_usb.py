@@ -13,9 +13,10 @@ import usb_tool.linux_usb as linux_usb
 # Utility Function Tests
 # ---------------------------
 
+
 def test_bytes_to_gb_handles_invalid_input():
     """bytes_to_gb should gracefully handle invalid values."""
-    assert linux_usb.bytes_to_gb(1024 ** 3) == 1.0
+    assert linux_usb.bytes_to_gb(1024**3) == 1.0
     assert linux_usb.bytes_to_gb(-1) == 0.0
     assert linux_usb.bytes_to_gb("bad") == 0.0
 
@@ -40,6 +41,7 @@ def test_find_closest_handles_edge_cases():
 # ---------------------------
 # lsblk Parsing Tests
 # ---------------------------
+
 
 def test_list_usb_drives_parses_lsblk_output():
     """list_usb_drives should parse lsblk output into structured data."""

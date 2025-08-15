@@ -1,6 +1,6 @@
 # --- pyproject.toml ---
 
-# Configuration for building and packaging ``usb-tool``.
+# Configuration for building and packaging ``apricorn-usb-tool``.
 #
 # All packaging metadata lives in this single file so the project no longer
 # relies on ``setup.py`` or ``requirements.txt``.
@@ -26,9 +26,8 @@ dependencies = [
     "pygments==2.19.1; sys_platform == 'win32'",
 ]
 
-# Optional: Author, license, URL, etc. (Good practice for sharing)
-# authors = [
-#    { name="Your Name", email="your.email@example.com" },
+# author = [
+#    { name="Ryan Oswalt", email="roswalt@apricorn.com" },
 # ]
 # license = { text="MIT" }
 # urls = { Homepage = "https://github.com/oswaltryan/apricorn-usb-tool" }
@@ -37,6 +36,13 @@ dependencies = [
 [project.scripts]
 usb = "usb_tool.cross_usb:main"
 usb-update = "usb_tool.update:main"
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "black",
+    "ruff",
+]
 
 # Explicitly specify which packages are included to avoid picking up the
 # ``wheels`` directory used for vendored dependencies.

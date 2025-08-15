@@ -3,7 +3,7 @@ from usb_tool import utils
 
 def test_bytes_to_gb():
     """bytes_to_gb converts bytes to gigabytes and handles bad input."""
-    assert utils.bytes_to_gb(1024 ** 3) == 1.0
+    assert utils.bytes_to_gb(1024**3) == 1.0
     assert utils.bytes_to_gb(-1) == 0.0
 
 

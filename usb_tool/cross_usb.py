@@ -10,10 +10,15 @@ from typing import List, Tuple
 # --- Platform check and conditional import ---
 _SYSTEM = platform.system().lower()
 
-if _SYSTEM.startswith("win") or _SYSTEM.startswith("linux") or _SYSTEM.startswith("darwin"):
+if (
+    _SYSTEM.startswith("win")
+    or _SYSTEM.startswith("linux")
+    or _SYSTEM.startswith("darwin")
+):
     try:
         # Use relative import for package structure
         from .poke_device import send_scsi_read10, ScsiError
+
         POKE_AVAILABLE = True
     except ImportError:
         print("Warning: Could not import poke_device module.", file=sys.stderr)
@@ -24,12 +29,18 @@ if _SYSTEM.startswith("win") or _SYSTEM.startswith("linux") or _SYSTEM.startswit
 else:
     POKE_AVAILABLE = False
 
+
 # --- Helper for Admin Check (Windows Only) ---
 def is_admin_windows():
-    if not _SYSTEM.startswith("win"): return False
-    try: return ctypes.windll.shell32.IsUserAnAdmin() != 0
-    except AttributeError: return False
-    except Exception: return False
+    if not _SYSTEM.startswith("win"):
+        return False
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except AttributeError:
+        return False
+    except Exception:
+        return False
+
 
 # --- Helper Function Definition ---
 def print_help():
@@ -186,6 +197,7 @@ EXAMPLES
 """
     print(help_text)
 
+
 # --- Synchronous Helper for Poking ---
 def sync_poke_drive(device_identifier):
     """
@@ -197,7 +209,7 @@ def sync_poke_drive(device_identifier):
         return False
     try:
         # Call the cross-platform function
-        read_data = send_scsi_read10(device_identifier)
+        send_scsi_read10(device_identifier)
         # If successful, the function returns data, but we just need success status here
         # Mimic Windows output format
         # print(f"  Device {device_identifier}: Poke SUCCEEDED.") # Success message handled by caller loop
@@ -210,33 +222,40 @@ def sync_poke_drive(device_identifier):
     except PermissionError as e:
         # Mimic Windows output format (adjusting message slightly)
         privilege = "Admin (Windows)" if _SYSTEM.startswith("win") else "root (Linux)"
-        print(f"  Device {device_identifier}: Poke FAILED (PermissionError - Run as {privilege})")
+        print(
+            f"  Device {device_identifier}: Poke FAILED (PermissionError - Run as {privilege})"
+        )
         print(f"    Details: {e}")
         return False
-    except FileNotFoundError as e: # Specific error for Linux/macOS paths
-        print(f"  Device {device_identifier}: Poke FAILED (FileNotFoundError - Path valid?)")
+    except FileNotFoundError as e:  # Specific error for Linux/macOS paths
+        print(
+            f"  Device {device_identifier}: Poke FAILED (FileNotFoundError - Path valid?)"
+        )
         print(f"    Details: {e}")
         return False
     except OSError as e:
         # General OS error, could be invalid handle/fd, device not ready, etc.
         # Mimic Windows output format
-        err_type = "Drive valid?" if _SYSTEM.startswith("win") else "Device valid/ready?"
+        err_type = (
+            "Drive valid?" if _SYSTEM.startswith("win") else "Device valid/ready?"
+        )
         print(f"  Device {device_identifier}: Poke FAILED (OSError - {err_type})")
         print(f"    Details: {e}")
         return False
-    except ValueError as e: # e.g., invalid input to send_scsi_read10
-         print(f"  Device {device_identifier}: Poke FAILED (ValueError)")
-         print(f"    Details: {e}")
-         return False
-    except NotImplementedError as e: # If poke isn't supported on this OS
-         print(f"  Device {device_identifier}: Poke FAILED (NotImplementedError)")
-         print(f"    Details: {e}")
-         return False
+    except ValueError as e:  # e.g., invalid input to send_scsi_read10
+        print(f"  Device {device_identifier}: Poke FAILED (ValueError)")
+        print(f"    Details: {e}")
+        return False
+    except NotImplementedError as e:  # If poke isn't supported on this OS
+        print(f"  Device {device_identifier}: Poke FAILED (NotImplementedError)")
+        print(f"    Details: {e}")
+        return False
     except Exception as e:
         # Catch-all for unexpected issues
         print(f"  Device {device_identifier}: Poke FAILED (Unexpected Error)")
         print(f"    Details: {e}")
         return False
+
 
 def _handle_list_action(devices: list) -> None:
     """Print the details of all discovered devices."""
@@ -251,7 +270,7 @@ def _handle_list_action(devices: list) -> None:
     for idx, dev in enumerate(devices, start=1):
         print(f"\n=== Apricorn Device #{idx} ===")
         try:
-            attributes = vars(dev) if hasattr(dev, '__dataclass_fields__') else dev
+            attributes = vars(dev) if hasattr(dev, "__dataclass_fields__") else dev
         except TypeError:
             attributes = dev if isinstance(dev, dict) else {}
 
@@ -270,7 +289,9 @@ def _handle_list_action(devices: list) -> None:
     print()
 
 
-def _parse_poke_targets(poke_input: str, devices: list) -> Tuple[List[Tuple[str, object]], List[str]]:
+def _parse_poke_targets(
+    poke_input: str, devices: list
+) -> Tuple[List[Tuple[str, object]], List[str]]:
     """Parse the ``--poke`` argument into validated targets.
 
     Returns a tuple containing the targets to poke and any device identifiers
@@ -305,7 +326,7 @@ def _parse_poke_targets(poke_input: str, devices: list) -> Tuple[List[Tuple[str,
             else:
                 targets_to_poke.append((user_id, os_identifier))
     else:
-        elements = [s.strip() for s in poke_input.split(',') if s.strip()]
+        elements = [s.strip() for s in poke_input.split(",") if s.strip()]
         if not elements:
             raise ValueError("No device identifiers provided for --poke argument.")
         unique_targets = set()
@@ -333,11 +354,15 @@ def _parse_poke_targets(poke_input: str, devices: list) -> Tuple[List[Tuple[str,
                         else:
                             unique_targets.add((f"#{idx}", os_id))
                     else:
-                        invalid_inputs.append(f"{element} (Index valid, failed to get OS ID)")
+                        invalid_inputs.append(
+                            f"{element} (Index valid, failed to get OS ID)"
+                        )
                 else:
-                    invalid_inputs.append(f"{element} (Index out of range 1-{num_devices})")
+                    invalid_inputs.append(
+                        f"{element} (Index out of range 1-{num_devices})"
+                    )
             except ValueError:
-                if _SYSTEM.startswith("linux") and element.startswith('/dev/'):
+                if _SYSTEM.startswith("linux") and element.startswith("/dev/"):
                     found = None
                     for i, dev in enumerate(devices, start=1):
                         if getattr(dev, "blockDevice", "") == element:
@@ -351,25 +376,36 @@ def _parse_poke_targets(poke_input: str, devices: list) -> Tuple[List[Tuple[str,
                         else:
                             unique_targets.add((element, element))
                     else:
-                        invalid_inputs.append(f"{element} (Path not found for detected Apricorn device)")
+                        invalid_inputs.append(
+                            f"{element} (Path not found for detected Apricorn device)"
+                        )
                 else:
-                    invalid_inputs.append(f"{element} (Invalid format - expected index" +
-                                           (" or /dev/ path" if _SYSTEM.startswith("linux") else "") + ")")
+                    invalid_inputs.append(
+                        f"{element} (Invalid format - expected index"
+                        + (" or /dev/ path" if _SYSTEM.startswith("linux") else "")
+                        + ")"
+                    )
         targets_to_poke = list(unique_targets)
 
     if invalid_inputs:
         raise ValueError("Invalid value(s) for --poke: " + ", ".join(invalid_inputs))
     if not targets_to_poke:
-        raise ValueError("No valid, non-OOB Apricorn devices specified or found to poke.")
+        raise ValueError(
+            "No valid, non-OOB Apricorn devices specified or found to poke."
+        )
     return targets_to_poke, skipped_oob
 
 
 def _handle_poke_action(args: argparse.Namespace, devices: list) -> None:
     """Execute the poke workflow."""
     if not (_SYSTEM.startswith("win") or _SYSTEM.startswith("linux")):
-        raise ValueError(f"--poke option is only available on Windows and Linux (current: {_SYSTEM}).")
+        raise ValueError(
+            f"--poke option is only available on Windows and Linux (current: {_SYSTEM})."
+        )
     if not POKE_AVAILABLE:
-        raise ValueError("Poke functionality could not be loaded (poke_device import failed).")
+        raise ValueError(
+            "Poke functionality could not be loaded (poke_device import failed)."
+        )
 
     if _SYSTEM.startswith("win"):
         if not is_admin_windows():
@@ -377,12 +413,18 @@ def _handle_poke_action(args: argparse.Namespace, devices: list) -> None:
     elif _SYSTEM.startswith("linux"):
         try:
             if os.geteuid() != 0:
-                print("\nWarning: --poke on Linux typically requires root privileges (use sudo).")
+                print(
+                    "\nWarning: --poke on Linux typically requires root privileges (use sudo)."
+                )
         except AttributeError:
-            print("\nWarning: Cannot determine user privileges. --poke on Linux typically requires root.")
+            print(
+                "\nWarning: Cannot determine user privileges. --poke on Linux typically requires root."
+            )
 
     if devices is None:
-        raise ValueError("Device scan failed or yielded no results; cannot validate poke targets.")
+        raise ValueError(
+            "Device scan failed or yielded no results; cannot validate poke targets."
+        )
     if not devices:
         print("No Apricorn devices found. Nothing to poke.")
         sys.exit(0)
@@ -398,7 +440,7 @@ def _handle_poke_action(args: argparse.Namespace, devices: list) -> None:
 
     def sort_key(target_tuple):
         user_id = target_tuple[0]
-        if isinstance(user_id, str) and user_id.startswith('#'):
+        if isinstance(user_id, str) and user_id.startswith("#"):
             try:
                 return (0, int(user_id[1:]))
             except ValueError:
@@ -424,7 +466,9 @@ def main():
         description="USB tool for Apricorn devices.",
         add_help=False,
     )
-    parser.add_argument("-h", "--help", action="store_true", help="Show detailed help/manpage.")
+    parser.add_argument(
+        "-h", "--help", action="store_true", help="Show detailed help/manpage."
+    )
     poke_help = (
         "Windows: Poke by device index number shown in list (e.g., 1) or 'all'. "
         "Linux: Poke by index OR block device path (e.g., 1 or /dev/sda) or 'all'. "
@@ -467,19 +511,22 @@ def main():
             parser.error(str(exc))
     else:
         _handle_list_action(devices)
+
+
 # --- Entry Point for direct execution ---
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
         print("\nOperation cancelled by user.")
-        sys.exit(130) # Standard exit code for Ctrl+C
+        sys.exit(130)  # Standard exit code for Ctrl+C
     except SystemExit as e:
         # Catch SystemExit to prevent it being caught by the generic Exception handler
         # sys.exit() calls raise SystemExit
-        sys.exit(e.code) # Propagate the intended exit code
+        sys.exit(e.code)  # Propagate the intended exit code
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}", file=sys.stderr)
         import traceback
+
         traceback.print_exc()
-        sys.exit(1) # Generic error exit code
+        sys.exit(1)  # Generic error exit code

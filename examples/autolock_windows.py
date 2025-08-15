@@ -3,6 +3,8 @@ import asyncio
 import time
 import logging
 from usb_tool import find_apricorn_device
+
+
 class UsbAutoLockTest:
     def __init__(self, poll_interval=10):
         self.poll_interval = poll_interval
@@ -11,22 +13,26 @@ class UsbAutoLockTest:
     async def select_device(self):
         logging.info("Searching for Apricorn device...")
         devices = find_apricorn_device()  # Now returns a list
-        
+
         if not devices:
             logging.error("No Apricorn devices found.")
             sys.exit(1)
-            
+
         # Select first device by default (maintain original behavior)
         self.target_device = devices[0]
-        
+
         if len(devices) > 1:
             logging.warning(f"Found {len(devices)} devices. Using first one:")
             for idx, dev in enumerate(devices):
                 logging.warning(f"{idx+1}. {dev.iProduct} (SN: {dev.iSerial})")
-        
-        logging.info(f"Target device selected: {self.target_device.iProduct} "
-                     f"({self.target_device.idVendor}:{self.target_device.idProduct})")
-        logging.info(f"Device Serial: {self.target_device.iSerial}, Protocol: {self.target_device.bcdUSB}")
+
+        logging.info(
+            f"Target device selected: {self.target_device.iProduct} "
+            f"({self.target_device.idVendor}:{self.target_device.idProduct})"
+        )
+        logging.info(
+            f"Device Serial: {self.target_device.iSerial}, Protocol: {self.target_device.bcdUSB}"
+        )
         logging.info("Press ENTER to start the test.")
         await asyncio.to_thread(input)
 
@@ -34,9 +40,11 @@ class UsbAutoLockTest:
         # Lightweight check using WMI only.
         usb_devices = find_apricorn_device()
         for dev in usb_devices:
-            if (dev['vid'] == self.target_device.idVendor and 
-                dev['pid'] == self.target_device.idProduct and 
-                dev['serial'] == self.target_device.iSerial):
+            if (
+                dev["vid"] == self.target_device.idVendor
+                and dev["pid"] == self.target_device.idProduct
+                and dev["serial"] == self.target_device.iSerial
+            ):
                 return True
         return False
 
@@ -47,7 +55,9 @@ class UsbAutoLockTest:
         while time.time() < end:
             if not self.check_device_presence():
                 elapsed = int(time.time() - start)
-                logging.error(f"Device removed too early at {elapsed}s; expected ~{minutes}m.")
+                logging.error(
+                    f"Device removed too early at {elapsed}s; expected ~{minutes}m."
+                )
                 return False
             elapsed = int(time.time() - start)
             logging.info(f"Time Elapsed: {elapsed}s | Device is present.")
@@ -79,6 +89,7 @@ class UsbAutoLockTest:
         all_pass = all(results)
         logging.info(f"Overall test result: {'PASS' if all_pass else 'FAIL'}")
         return all_pass
+
 
 if __name__ == "__main__":
     test = UsbAutoLockTest()

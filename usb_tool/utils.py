@@ -16,7 +16,7 @@ def bytes_to_gb(bytes_value: float) -> float:
     """
     if not isinstance(bytes_value, (int, float)) or bytes_value <= 0:
         return 0.0
-    return bytes_value / (1024 ** 3)
+    return bytes_value / (1024**3)
 
 
 def find_closest(target: float, options: List[int]) -> Optional[int]:
@@ -54,4 +54,3 @@ def parse_usb_version(bcd: int) -> str:
     minor = (bcd & 0x00F0) >> 4
     subminor = bcd & 0x000F
     return f"{major}.{minor}{subminor}" if subminor else f"{major}.{minor}"
-

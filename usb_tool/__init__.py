@@ -8,6 +8,7 @@ if platform.system().lower().startswith("win"):
         main,
         WinUsbDeviceInfo,
     )
+
     __all__ = [
         "find_apricorn_device",
         "main",
@@ -19,17 +20,15 @@ elif platform.system().lower().startswith("darwin"):
         main,
         macOSUsbDeviceInfo,
     )
+
     __all__ = [
         "find_apricorn_device",
         "main",
-        "WinUsbDeviceInfo",
+        "macOSUsbDeviceInfo",
     ]
 else:
-    from .linux_usb import (
-        find_apricorn_device,
-        main,
-        LinuxUsbDeviceInfo
-    )
+    from .linux_usb import find_apricorn_device, main, LinuxUsbDeviceInfo
+
     __all__ = [
         "find_apricorn_device",
         "main",

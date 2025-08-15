@@ -14,9 +14,10 @@ import usb_tool.mac_usb as mac_usb
 # Utility Function Tests
 # ---------------------------
 
+
 def test_bytes_to_gb_converts_bytes_to_gigabytes():
     """Confirm basic byte-to-GB conversion."""
-    assert mac_usb.bytes_to_gb(1024 ** 3) == 1.0
+    assert mac_usb.bytes_to_gb(1024**3) == 1.0
 
 
 def test_parse_lsblk_size_understands_units():
@@ -36,6 +37,7 @@ def test_find_closest_picks_nearest_value():
 # system_profiler Parsing Tests
 # ---------------------------
 
+
 def test_list_usb_drives_filters_apricorn_devices():
     """list_usb_drives should return only Apricorn devices."""
     profiler_data = {
@@ -49,7 +51,9 @@ def test_list_usb_drives_filters_apricorn_devices():
             },
             {
                 "_name": "Root",
-                "_items": [{"manufacturer": "SomeoneElse", "Media": {}, "serial_num": "ABC"}],
+                "_items": [
+                    {"manufacturer": "SomeoneElse", "Media": {}, "serial_num": "ABC"}
+                ],
             },
         ]
     }

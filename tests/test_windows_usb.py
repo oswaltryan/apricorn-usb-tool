@@ -4,7 +4,6 @@ Stubs are used to stand in for Windows-specific dependencies so the tests
 can run on any platform.
 """
 
-
 import sys
 import types
 from types import SimpleNamespace
@@ -21,29 +20,33 @@ sys.modules["libusb"] = libusb_stub
 win32com_stub = types.ModuleType("win32com")
 client_stub = types.ModuleType("win32com.client")
 
+
 class _DummyService:
     def ExecQuery(self, query):
         return []
 
+
 class _DummyLocator:
     def ConnectServer(self, *args, **kwargs):
         return _DummyService()
+
 
 client_stub.Dispatch = lambda name: _DummyLocator()
 win32com_stub.client = client_stub
 sys.modules["win32com"] = win32com_stub
 sys.modules["win32com.client"] = client_stub
 
-import usb_tool.windows_usb as windows_usb
+import usb_tool.windows_usb as windows_usb  # noqa: E402
 
 
 # ---------------------------
 # Utility Function Tests
 # ---------------------------
 
+
 def test_bytes_to_gb_converts_bytes_to_gigabytes():
     """Simple sanity check for byte conversion."""
-    assert windows_usb.bytes_to_gb(1024 ** 3) == 1.0
+    assert windows_usb.bytes_to_gb(1024**3) == 1.0
 
 
 def test_find_closest_returns_expected_value():
@@ -60,6 +63,7 @@ def test_parse_usb_version_decodes_bcd_numbers():
 # ---------------------------
 # PowerShell helper tests
 # ---------------------------
+
 
 def test_get_drive_letter_via_ps_handles_invalid_index():
     """A negative drive index should yield 'N/A'."""
