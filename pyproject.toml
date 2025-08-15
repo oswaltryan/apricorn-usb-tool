@@ -1,11 +1,9 @@
 # --- pyproject.toml ---
 
-"""
-Configuration for building and packaging ``usb-tool``.
-
-All packaging metadata lives in this single file so the project no longer
-relies on ``setup.py`` or ``requirements.txt``.
-"""
+# Configuration for building and packaging ``usb-tool``.
+#
+# All packaging metadata lives in this single file so the project no longer
+# relies on ``setup.py`` or ``requirements.txt``.
 
 [build-system]
 # Setuptools is used to build the package
@@ -15,7 +13,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Package metadata
 name = "usb-tool"
-version = "0.2.0"
+version = "0.2.1"
 description = "Cross-platform USB tool for Apricorn devices"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,11 +31,16 @@ dependencies = [
 #    { name="Your Name", email="your.email@example.com" },
 # ]
 # license = { text="MIT" }
-# urls = { Homepage = "https://github.com/yourusername/usb-tool" }
+# urls = { Homepage = "https://github.com/oswaltryan/apricorn-usb-tool" }
 
 # --- This section defines the command-line script ---
 [project.scripts]
 usb = "usb_tool.cross_usb:main"
 usb-update = "usb_tool.update:main"
+
+# Explicitly specify which packages are included to avoid picking up the
+# ``wheels`` directory used for vendored dependencies.
+[tool.setuptools]
+packages = ["usb_tool"]
 
 # --- End of pyproject.toml ---
