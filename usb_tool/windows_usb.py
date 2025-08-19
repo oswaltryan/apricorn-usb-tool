@@ -6,6 +6,7 @@ import libusb as usb
 from pprint import pprint
 import subprocess
 import win32com.client
+from typing import Any
 
 from .device_config import closest_values
 from .utils import bytes_to_gb, find_closest, parse_usb_version
@@ -109,7 +110,7 @@ class WinUsbDeviceInfo:
     iProduct: str
     iSerial: str
     SCSIDevice: bool = False
-    driveSizeGB: int = 0
+    driveSizeGB: Any = 0
     usbController: str = ""
     busNumber: int = 0
     deviceAddress: int = 0
@@ -273,6 +274,7 @@ def get_wmi_usb_drives():
             if not pnp:
                 continue
 
+            i_product = ""
             media_type_wmi = getattr(drive, "MediaType", "Unknown type")
             media_type = "Unknown"
             if "External hard disk media" in media_type_wmi:
@@ -841,9 +843,12 @@ def instantiate_class_objects(
             SCSIDevice = False
             iSerial = wmi_usb_devices[item]["serial"]
 
-        for key, value in physical_drives.items():
-            if key == iSerial:
-                drive_number = value
+        drive_number = -1
+        if physical_drives:  # Check if physical_drives is not None
+            for key, value in physical_drives.items():
+                if key == iSerial:
+                    drive_number = value
+                    break
 
         isReadOnly = readonly_map.get(drive_number, False)
 

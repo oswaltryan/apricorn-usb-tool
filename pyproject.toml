@@ -42,6 +42,7 @@ dev = [
     "pre-commit",
     "black",
     "ruff",
+    "pytest"
 ]
 
 # Explicitly specify which packages are included to avoid picking up the

@@ -38,12 +38,17 @@ class UsbAutoLockTest:
 
     def check_device_presence(self):
         # Lightweight check using WMI only.
+        if self.target_device is None:
+            return False
+
         usb_devices = find_apricorn_device()
+        if not usb_devices:
+            return False
         for dev in usb_devices:
             if (
-                dev["vid"] == self.target_device.idVendor
-                and dev["pid"] == self.target_device.idProduct
-                and dev["serial"] == self.target_device.iSerial
+                dev.idVendor == self.target_device.idVendor
+                and dev.idProduct == self.target_device.idProduct
+                and dev.iSerial == self.target_device.iSerial
             ):
                 return True
         return False

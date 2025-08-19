@@ -13,8 +13,8 @@ from unittest.mock import patch
 # Provide light‑weight stand‑ins for Windows-only dependencies before import.
 # ---------------------------------------------------------------------------
 libusb_stub = types.ModuleType("libusb")
-libusb_stub.config = lambda **kwargs: None
-libusb_stub.get_string_descriptor_ascii = lambda *a, **k: 0
+libusb_stub.config = lambda **kwargs: None  # type: ignore
+libusb_stub.get_string_descriptor_ascii = lambda *a, **k: 0  # type: ignore
 sys.modules["libusb"] = libusb_stub
 
 win32com_stub = types.ModuleType("win32com")
@@ -31,8 +31,8 @@ class _DummyLocator:
         return _DummyService()
 
 
-client_stub.Dispatch = lambda name: _DummyLocator()
-win32com_stub.client = client_stub
+client_stub.Dispatch = lambda name: _DummyLocator()  # type: ignore
+win32com_stub.client = client_stub  # type: ignore
 sys.modules["win32com"] = win32com_stub
 sys.modules["win32com.client"] = client_stub
 

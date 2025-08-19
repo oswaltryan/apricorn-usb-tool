@@ -239,19 +239,19 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                 elif removable_val == "no":
                     media_type = "Basic Disk"
 
-        dev_info = macOSUsbDeviceInfo(
-            bcdUSB=bcdUSB_str,
-            idVendor=idVendor_str,
-            idProduct=idProduct_str,
-            bcdDevice=f"0{bcdDevice_str}",
-            iManufacturer=iManufacturer_str,
-            iProduct=iProduct_str,
-            iSerial=iSerial_str,
-            SCSIDevice=SCSIDevice_str,
-            driveSizeGB=drive_size_str,
-            mediaType=media_type,
-        )
-        apricorn_devices.append(dev_info)
+                dev_info = macOSUsbDeviceInfo(
+                    bcdUSB=bcdUSB_str,
+                    idVendor=idVendor_str,
+                    idProduct=idProduct_str,
+                    bcdDevice=f"0{bcdDevice_str}",
+                    iManufacturer=iManufacturer_str,
+                    iProduct=iProduct_str,
+                    iSerial=iSerial_str,
+                    SCSIDevice=SCSIDevice_str,
+                    driveSizeGB=drive_size_str or 0,
+                    mediaType=media_type,
+                )
+                apricorn_devices.append(dev_info)
 
     return apricorn_devices if apricorn_devices else None
 

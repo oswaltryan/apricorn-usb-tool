@@ -10,24 +10,34 @@ from typing import List, Tuple
 # --- Platform check and conditional import ---
 _SYSTEM = platform.system().lower()
 
-if (
-    _SYSTEM.startswith("win")
-    or _SYSTEM.startswith("linux")
-    or _SYSTEM.startswith("darwin")
-):
+POKE_AVAILABLE = False
+
+
+def send_scsi_read10(device_identifier):
+    """Placeholder function when poke_device is not available."""
+    raise NotImplementedError("poke_device module could not be loaded.")
+
+
+class ScsiError(Exception):
+    """Placeholder exception to ensure static type compatibility."""
+
+    def __init__(self, message, scsi_status=None, sense_data=None, **kwargs):
+        super().__init__(message)
+        self.scsi_status = scsi_status
+        # The only attribute accessed on the exception is sense_hex.
+        # Define it so the static analyzer is satisfied.
+        self.sense_hex = "N/A"
+
+
+# On supported platforms, attempt to import the real implementations.
+if _SYSTEM.startswith(("win", "linux", "darwin")):
     try:
         # Use relative import for package structure
-        from .poke_device import send_scsi_read10, ScsiError
+        from .poke_device import send_scsi_read10, ScsiError  # type: ignore
 
         POKE_AVAILABLE = True
-    except ImportError:
-        print("Warning: Could not import poke_device module.", file=sys.stderr)
-        POKE_AVAILABLE = False
     except Exception as e:
         print(f"Warning: Error importing poke_device: {e}", file=sys.stderr)
-        POKE_AVAILABLE = False
-else:
-    POKE_AVAILABLE = False
 
 
 # --- Helper for Admin Check (Windows Only) ---
@@ -44,8 +54,9 @@ def is_admin_windows():
 
 # --- Helper Function Definition ---
 def print_help():
+    help_text = ""
     if _SYSTEM.startswith("win"):
-        help_text = """
+        help_text = r"""
 NAME
        usb - Cross-platform USB tool for Apricorn devices
        usb-update - Update the usb-tool installation (if installed from Git)
@@ -116,7 +127,7 @@ EXAMPLES
               Attempt to update the tool from the Git repository.
 """
     elif _SYSTEM.startswith("linux"):
-        help_text = """
+        help_text = r"""
 NAME
        usb - Cross-platform USB tool for Apricorn devices
        usb-update - Update the usb-tool installation (if installed from Git)
@@ -217,7 +228,7 @@ def sync_poke_drive(device_identifier):
     except ScsiError as e:
         # Mimic Windows output format
         print(f"  Device {device_identifier}: Poke FAILED (SCSI Error)")
-        print(f"    Status: 0x{e.scsi_status:02X}, Sense: {e.sense_hex}")
+        print(f"    Status: 0x{e.scsi_status:02X}, Sense: {e.sense_hex}")  # type: ignore
         return False
     except PermissionError as e:
         # Mimic Windows output format (adjusting message slightly)
@@ -411,15 +422,16 @@ def _handle_poke_action(args: argparse.Namespace, devices: list) -> None:
         if not is_admin_windows():
             raise ValueError("--poke requires Administrator privileges on Windows.")
     elif _SYSTEM.startswith("linux"):
-        try:
-            if os.geteuid() != 0:
+        if sys.platform != "win32":
+            try:
+                if hasattr(os, "geteuid") and os.geteuid() != 0:
+                    print(
+                        "\nWarning: --poke on Linux typically requires root privileges (use sudo)."
+                    )
+            except AttributeError:
                 print(
-                    "\nWarning: --poke on Linux typically requires root privileges (use sudo)."
+                    "\nWarning: Cannot determine user privileges. --poke on Linux typically requires root."
                 )
-        except AttributeError:
-            print(
-                "\nWarning: Cannot determine user privileges. --poke on Linux typically requires root."
-            )
 
     if devices is None:
         raise ValueError(
@@ -498,11 +510,14 @@ def main():
         print(f"Error during device scan: {e}", file=sys.stderr)
         devices = None
 
-    if devices:
-        try:
-            devices = os_usb.sort_devices(devices)
-        except Exception as e:
-            print(f"Warning: Could not sort devices: {e}", file=sys.stderr)
+    if devices is None:
+        print("Device scan failed. Exiting.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        devices = os_usb.sort_devices(devices)
+    except Exception as e:
+        print(f"Warning: Could not sort devices: {e}", file=sys.stderr)
 
     if args.poke:
         try:

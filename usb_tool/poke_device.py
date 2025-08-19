@@ -12,10 +12,20 @@ import sys
 import os
 import platform
 import errno
+import types
 import time  # Used only in example
 
 # --- Platform Specific Setup ---
 _SYSTEM = platform.system()
+
+# Create a dummy wintypes object for static analysis. This ensures the name is
+# always bound. On Windows, this placeholder is overwritten by the real import.
+wintypes = types.SimpleNamespace(
+    USHORT=ctypes.c_ushort,
+    BYTE=ctypes.c_byte,
+    ULONG=ctypes.c_ulong,
+    DWORD=ctypes.c_ulong,
+)
 
 # --- Constants ---
 # SCSI Opcodes
@@ -214,269 +224,274 @@ def _build_read10_cdb(lba=0, blocks=1):
 
 # --- Internal Platform Implementations ---
 
+if _SYSTEM == "Windows":
 
-def _windows_read10(
-    drive_num, lba, blocks, block_size, timeout_sec, path_id, target_id, lun
-):
-    drive_path = rf"\\.\PhysicalDrive{drive_num}"
-    h_drive = INVALID_HANDLE_VALUE
+    def _windows_read10(
+        drive_num, lba, blocks, block_size, timeout_sec, path_id, target_id, lun
+    ):
+        drive_path = rf"\\.\PhysicalDrive{drive_num}"
+        h_drive = INVALID_HANDLE_VALUE
 
-    try:
-        h_drive = ctypes.windll.kernel32.CreateFileW(
-            drive_path,
-            GENERIC_READ | GENERIC_WRITE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE,
-            None,
-            OPEN_EXISTING,
-            0,
-            None,
-        )
-        if h_drive == INVALID_HANDLE_VALUE:
-            win_error = ctypes.GetLastError()
-            if win_error == errno.EACCES:  # ERROR_ACCESS_DENIED = 5
-                raise PermissionError(
-                    f"Permission denied accessing {drive_path}. Requires Administrator privileges."
-                )
-            # Raise ctypes.WinError for other errors
-            raise ctypes.WinError(win_error)
-
-        sptd_sense = SPTD_WITH_SENSE()
-        ctypes.memset(ctypes.byref(sptd_sense), 0, ctypes.sizeof(sptd_sense))
-        sptd = sptd_sense.sptd
-        sense_buffer = sptd_sense.ucSenseBuf
-
-        # Build CDB
-        cdb = _build_read10_cdb(lba, blocks)
-        cdb_len = len(cdb)
-        buffer_size = blocks * block_size
-        data_buffer = ctypes.create_string_buffer(buffer_size)
-
-        # Setup SPTD structure
-        sptd.Length = ctypes.sizeof(SCSI_PASS_THROUGH_DIRECT)
-        sptd.PathId = path_id
-        sptd.TargetId = target_id
-        sptd.Lun = lun
-        sptd.CdbLength = cdb_len
-        sptd.SenseInfoLength = len(sense_buffer)
-        sptd.DataIn = SCSI_IOCTL_DATA_IN
-        sptd.DataTransferLength = buffer_size
-        sptd.TimeOutValue = timeout_sec
-        sptd.DataBuffer = ctypes.cast(ctypes.pointer(data_buffer), ctypes.c_void_p)
-        sptd.SenseInfoOffset = (
-            sptd.Length
-        )  # Sense buffer follows immediately in our combined struct
-
-        ctypes.memmove(sptd.Cdb, (ctypes.c_ubyte * cdb_len)(*cdb), cdb_len)
-
-        returned_bytes_struct = wintypes.DWORD(0)
-        status = ctypes.windll.kernel32.DeviceIoControl(
-            h_drive,
-            IOCTL_SCSI_PASS_THROUGH_DIRECT,
-            ctypes.byref(sptd_sense),
-            ctypes.sizeof(sptd_sense),
-            ctypes.byref(sptd_sense),
-            ctypes.sizeof(sptd_sense),
-            ctypes.byref(returned_bytes_struct),
-            None,
-        )
-
-        sense_data_bytes = bytes(sense_buffer[: sptd.SenseInfoLength])
-
-        if status == 0:
-            win_error = ctypes.GetLastError()
-            # Raise WinError here for consistency
-            raise ctypes.WinError(win_error)
-
-        if sptd.ScsiStatus == 0x00:
-            # Calculate actual bytes read
-            bytes_read = min(
-                buffer_size, sptd.DataTransferLength
-            )  # Use the transfer length from SPTD
-            return data_buffer.raw[:bytes_read]
-        else:
-            raise ScsiError(
-                "SCSI command READ(10) failed", sptd.ScsiStatus, sense_data_bytes
-            )
-
-    finally:
-        if h_drive != INVALID_HANDLE_VALUE:
-            ctypes.windll.kernel32.CloseHandle(h_drive)
-
-
-def _linux_read10(device_path, lba, blocks, block_size, timeout_ms):
-    fd = -1
-    if not ioctl:
-        raise NotImplementedError(
-            "ioctl function not loaded (likely libc issue on Linux)."
-        )
-    try:
         try:
-            fd = os.open(device_path, O_RDWR)
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                raise FileNotFoundError(f"Device path not found: {device_path}")
-            elif e.errno == errno.EACCES:
-                raise PermissionError(
-                    f"Permission denied opening {device_path}. Requires root privileges."
-                )
+            h_drive = ctypes.windll.kernel32.CreateFileW(
+                drive_path,
+                GENERIC_READ | GENERIC_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                None,
+                OPEN_EXISTING,
+                0,
+                None,
+            )
+            if h_drive == INVALID_HANDLE_VALUE:
+                win_error = ctypes.GetLastError()
+                if win_error == errno.EACCES:  # ERROR_ACCESS_DENIED = 5
+                    raise PermissionError(
+                        f"Permission denied accessing {drive_path}. Requires Administrator privileges."
+                    )
+                # Raise ctypes.WinError for other errors
+                raise ctypes.WinError(win_error)
+
+            sptd_sense = SPTD_WITH_SENSE()
+            ctypes.memset(ctypes.byref(sptd_sense), 0, ctypes.sizeof(sptd_sense))
+            sptd = sptd_sense.sptd
+            sense_buffer = sptd_sense.ucSenseBuf
+
+            # Build CDB
+            cdb = _build_read10_cdb(lba, blocks)
+            cdb_len = len(cdb)
+            buffer_size = blocks * block_size
+            data_buffer = ctypes.create_string_buffer(buffer_size)
+
+            # Setup SPTD structure
+            sptd.Length = ctypes.sizeof(SCSI_PASS_THROUGH_DIRECT)
+            sptd.PathId = path_id
+            sptd.TargetId = target_id
+            sptd.Lun = lun
+            sptd.CdbLength = cdb_len
+            sptd.SenseInfoLength = len(sense_buffer)
+            sptd.DataIn = SCSI_IOCTL_DATA_IN
+            sptd.DataTransferLength = buffer_size
+            sptd.TimeOutValue = timeout_sec
+            sptd.DataBuffer = ctypes.cast(ctypes.pointer(data_buffer), ctypes.c_void_p)
+            sptd.SenseInfoOffset = (
+                sptd.Length
+            )  # Sense buffer follows immediately in our combined struct
+
+            ctypes.memmove(sptd.Cdb, (ctypes.c_ubyte * cdb_len)(*cdb), cdb_len)
+
+            returned_bytes_struct = wintypes.DWORD(0)
+            status = ctypes.windll.kernel32.DeviceIoControl(
+                h_drive,
+                IOCTL_SCSI_PASS_THROUGH_DIRECT,
+                ctypes.byref(sptd_sense),
+                ctypes.sizeof(sptd_sense),
+                ctypes.byref(sptd_sense),
+                ctypes.sizeof(sptd_sense),
+                ctypes.byref(returned_bytes_struct),
+                None,
+            )
+
+            sense_data_bytes = bytes(sense_buffer[: sptd.SenseInfoLength])
+
+            if status == 0:
+                win_error = ctypes.GetLastError()
+                # Raise WinError here for consistency
+                raise ctypes.WinError(win_error)
+
+            if sptd.ScsiStatus == 0x00:
+                # Calculate actual bytes read
+                bytes_read = min(
+                    buffer_size, sptd.DataTransferLength
+                )  # Use the transfer length from SPTD
+                return data_buffer.raw[:bytes_read]
             else:
-                raise  # Re-raise other OS errors
-
-        # Prepare buffers and structures
-        cdb = _build_read10_cdb(lba, blocks)
-        cdb_len = len(cdb)
-        buffer_size = blocks * block_size
-        data_buffer = ctypes.create_string_buffer(buffer_size)
-        sense_buffer = ctypes.create_string_buffer(32)  # Recommended sense size
-        cdb_buffer = (ctypes.c_ubyte * cdb_len)(*cdb)
-
-        sg_hdr = SG_IO_HDR()
-        ctypes.memset(ctypes.byref(sg_hdr), 0, ctypes.sizeof(sg_hdr))
-
-        sg_hdr.interface_id = ord("S")  # Standard 'S' for SCSI generic
-        sg_hdr.dxfer_direction = SG_DXFER_FROM_DEV
-        sg_hdr.cmd_len = cdb_len
-        sg_hdr.mx_sb_len = ctypes.sizeof(sense_buffer)
-        sg_hdr.iovec_count = 0  # Not using iovec
-        sg_hdr.dxfer_len = buffer_size
-        sg_hdr.dxferp = ctypes.cast(ctypes.pointer(data_buffer), ctypes.c_void_p)
-        sg_hdr.cmdp = ctypes.cast(ctypes.pointer(cdb_buffer), ctypes.c_void_p)
-        sg_hdr.sbp = ctypes.cast(ctypes.pointer(sense_buffer), ctypes.c_void_p)
-        sg_hdr.timeout = timeout_ms  # Timeout in milliseconds
-
-        # Send IOCTL
-        ret = ioctl(fd, SG_IO, ctypes.byref(sg_hdr))
-        current_errno = ctypes.get_errno()  # Get errno immediately after the call
-
-        if ret != 0:
-            # Check errno for specifics
-            if current_errno == errno.EPERM or current_errno == errno.EACCES:
-                raise PermissionError(
-                    f"Permission denied for ioctl on {device_path}. Requires root privileges."
+                raise ScsiError(
+                    "SCSI command READ(10) failed", sptd.ScsiStatus, sense_data_bytes
                 )
-            # Include errno in the general OSError
-            raise OSError(
-                f"ioctl(SG_IO) failed on {device_path}", None, None, current_errno
+
+        finally:
+            if h_drive != INVALID_HANDLE_VALUE:
+                ctypes.windll.kernel32.CloseHandle(h_drive)
+
+elif _SYSTEM == "Linux":
+
+    def _linux_read10(device_path, lba, blocks, block_size, timeout_ms):
+        fd = -1
+        if not ioctl:
+            raise NotImplementedError(
+                "ioctl function not loaded (likely libc issue on Linux)."
             )
-
-        # Check SCSI status and other statuses from sg_hdr
-        # See sg_io_v3 documentation for status interpretation
-        # Check the info field first - this indicates if other fields are valid
-        ok_info = (sg_hdr.info & SG_INFO_OK_MASK) == SG_INFO_OK
-
-        # Treat success as: OK info, host status 0, driver status 0, and SCSI status 0
-        success = (
-            ok_info
-            and sg_hdr.host_status == 0
-            and sg_hdr.driver_status == 0
-            and sg_hdr.status == 0x00
-        )
-
-        sense_data_bytes = sense_buffer.raw[: sg_hdr.sb_len_wr]
-
-        if success:
-            # Calculate actual data transferred (total - residual)
-            bytes_returned = buffer_size - sg_hdr.resid
-            return data_buffer.raw[:bytes_returned]
-        else:
-            # Include errno in the ScsiError if ioctl didn't fail but statuses did
-            os_err_val = (
-                current_errno if ret != 0 else None
-            )  # Only use errno if ioctl failed
-            raise ScsiError(
-                "SCSI command READ(10) failed (Linux SG_IO)",
-                scsi_status=sg_hdr.status,
-                sense_data=sense_data_bytes,
-                os_errno=os_err_val,  # Pass errno if relevant
-                driver_status=sg_hdr.driver_status,
-                host_status=sg_hdr.host_status,
-            )
-
-    finally:
-        if fd >= 0:
-            os.close(fd)
-
-
-def _macos_read10(device_path, lba, blocks, block_size, timeout_ms):
-    # macOS often requires the raw device path
-    if device_path.startswith("/dev/disk"):
-        raw_device_path = device_path.replace("/dev/disk", "/dev/rdisk", 1)
-    else:
-        raw_device_path = (
-            device_path  # Assume user provided raw path if not standard /dev/disk
-        )
-
-    fd = -1
-    if not ioctl:
-        raise NotImplementedError(
-            "ioctl function not loaded (likely libc issue on macOS)."
-        )
-    try:
         try:
-            fd = os.open(raw_device_path, O_RDWR)
-        except OSError as e:
-            if e.errno == errno.ENOENT:
-                raise FileNotFoundError(f"Device path not found: {raw_device_path}")
-            elif e.errno == errno.EACCES:
-                raise PermissionError(
-                    f"Permission denied opening {raw_device_path}. Requires root privileges."
+            try:
+                fd = os.open(device_path, O_RDWR)
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    raise FileNotFoundError(f"Device path not found: {device_path}")
+                elif e.errno == errno.EACCES:
+                    raise PermissionError(
+                        f"Permission denied opening {device_path}. Requires root privileges."
+                    )
+                else:
+                    raise  # Re-raise other OS errors
+
+            # Prepare buffers and structures
+            cdb = _build_read10_cdb(lba, blocks)
+            cdb_len = len(cdb)
+            buffer_size = blocks * block_size
+            data_buffer = ctypes.create_string_buffer(buffer_size)
+            sense_buffer = ctypes.create_string_buffer(32)  # Recommended sense size
+            cdb_buffer = (ctypes.c_ubyte * cdb_len)(*cdb)
+
+            sg_hdr = SG_IO_HDR()
+            ctypes.memset(ctypes.byref(sg_hdr), 0, ctypes.sizeof(sg_hdr))
+
+            sg_hdr.interface_id = ord("S")  # Standard 'S' for SCSI generic
+            sg_hdr.dxfer_direction = SG_DXFER_FROM_DEV
+            sg_hdr.cmd_len = cdb_len
+            sg_hdr.mx_sb_len = ctypes.sizeof(sense_buffer)
+            sg_hdr.iovec_count = 0  # Not using iovec
+            sg_hdr.dxfer_len = buffer_size
+            sg_hdr.dxferp = ctypes.cast(ctypes.pointer(data_buffer), ctypes.c_void_p)
+            sg_hdr.cmdp = ctypes.cast(ctypes.pointer(cdb_buffer), ctypes.c_void_p)
+            sg_hdr.sbp = ctypes.cast(ctypes.pointer(sense_buffer), ctypes.c_void_p)
+            sg_hdr.timeout = timeout_ms  # Timeout in milliseconds
+
+            # Send IOCTL
+            ret = ioctl(fd, SG_IO, ctypes.byref(sg_hdr))
+            current_errno = ctypes.get_errno()  # Get errno immediately after the call
+
+            if ret != 0:
+                # Check errno for specifics
+                if current_errno == errno.EPERM or current_errno == errno.EACCES:
+                    raise PermissionError(
+                        f"Permission denied for ioctl on {device_path}. Requires root privileges."
+                    )
+                # Include errno in the general OSError
+                raise OSError(
+                    f"ioctl(SG_IO) failed on {device_path}", None, None, current_errno
                 )
-            else:
-                raise  # Re-raise other OS errors
 
-        # Prepare buffers and structure
-        cdb = _build_read10_cdb(lba, blocks)
-        cdb_len = len(cdb)
-        buffer_size = blocks * block_size
-        data_buffer = ctypes.create_string_buffer(buffer_size)
+            # Check SCSI status and other statuses from sg_hdr
+            # See sg_io_v3 documentation for status interpretation
+            # Check the info field first - this indicates if other fields are valid
+            ok_info = (sg_hdr.info & SG_INFO_OK_MASK) == SG_INFO_OK
 
-        dk_req = DK_SCSI_REQ()
-        ctypes.memset(ctypes.byref(dk_req), 0, ctypes.sizeof(dk_req))
-
-        # Populate DK_SCSI_REQ
-        ctypes.memmove(dk_req.dsr_cmd, (ctypes.c_ubyte * cdb_len)(*cdb), cdb_len)
-        dk_req.dsr_cmdlen = cdb_len
-        dk_req.dsr_databuf = ctypes.cast(ctypes.pointer(data_buffer), ctypes.c_void_p)
-        dk_req.dsr_datalen = buffer_size
-        dk_req.dsr_flags = DK_SCSI_READ  # Direction: Read
-        dk_req.dsr_timeout = timeout_ms  # Timeout in milliseconds
-        dk_req.dsr_senselen = ctypes.sizeof(dk_req.dsr_sense)  # Max sense length
-
-        # Send IOCTL
-        ret = ioctl(fd, DKIOCSCSIUSERCMD, ctypes.byref(dk_req))
-        current_errno = ctypes.get_errno()
-
-        if ret != 0:
-            if current_errno == errno.EPERM or current_errno == errno.EACCES:
-                raise PermissionError(
-                    f"Permission denied for ioctl on {raw_device_path}. Requires root."
-                )
-            raise OSError(
-                f"ioctl(DKIOCSCSIUSERCMD) failed on {raw_device_path}",
-                None,
-                None,
-                current_errno,
+            # Treat success as: OK info, host status 0, driver status 0, and SCSI status 0
+            success = (
+                ok_info
+                and sg_hdr.host_status == 0
+                and sg_hdr.driver_status == 0
+                and sg_hdr.status == 0x00
             )
 
-        # Check SCSI status
-        # Note: dsr_senselen might be max length, not actual written. Check headers if available.
-        # Assuming sense buffer contains valid data up to dsr_senselen if status is not 0.
-        sense_data_bytes = bytes(dk_req.dsr_sense[: dk_req.dsr_senselen])
+            sense_data_bytes = sense_buffer.raw[: sg_hdr.sb_len_wr]
 
-        if dk_req.dsr_status == 0x00:
-            bytes_returned = buffer_size - dk_req.dsr_resid
-            return data_buffer.raw[:bytes_returned]
+            if success:
+                # Calculate actual data transferred (total - residual)
+                bytes_returned = buffer_size - sg_hdr.resid
+                return data_buffer.raw[:bytes_returned]
+            else:
+                # Include errno in the ScsiError if ioctl didn't fail but statuses did
+                os_err_val = (
+                    current_errno if ret != 0 else None
+                )  # Only use errno if ioctl failed
+                raise ScsiError(
+                    "SCSI command READ(10) failed (Linux SG_IO)",
+                    scsi_status=sg_hdr.status,
+                    sense_data=sense_data_bytes,
+                    os_errno=os_err_val,  # Pass errno if relevant
+                    driver_status=sg_hdr.driver_status,
+                    host_status=sg_hdr.host_status,
+                )
+
+        finally:
+            if fd >= 0:
+                os.close(fd)
+
+elif _SYSTEM == "Darwin":
+
+    def _macos_read10(device_path, lba, blocks, block_size, timeout_ms):
+        # macOS often requires the raw device path
+        if device_path.startswith("/dev/disk"):
+            raw_device_path = device_path.replace("/dev/disk", "/dev/rdisk", 1)
         else:
-            raise ScsiError(
-                "SCSI command READ(10) failed (macOS DKIOCSCSIUSERCMD)",
-                scsi_status=dk_req.dsr_status,
-                sense_data=sense_data_bytes,
-                os_errno=current_errno if ret != 0 else None,
-            )  # Pass errno if ioctl failed
+            raw_device_path = (
+                device_path  # Assume user provided raw path if not standard /dev/disk
+            )
 
-    finally:
-        if fd >= 0:
-            os.close(fd)
+        fd = -1
+        if not ioctl:
+            raise NotImplementedError(
+                "ioctl function not loaded (likely libc issue on macOS)."
+            )
+        try:
+            try:
+                fd = os.open(raw_device_path, O_RDWR)
+            except OSError as e:
+                if e.errno == errno.ENOENT:
+                    raise FileNotFoundError(f"Device path not found: {raw_device_path}")
+                elif e.errno == errno.EACCES:
+                    raise PermissionError(
+                        f"Permission denied opening {raw_device_path}. Requires root privileges."
+                    )
+                else:
+                    raise  # Re-raise other OS errors
+
+            # Prepare buffers and structure
+            cdb = _build_read10_cdb(lba, blocks)
+            cdb_len = len(cdb)
+            buffer_size = blocks * block_size
+            data_buffer = ctypes.create_string_buffer(buffer_size)
+
+            dk_req = DK_SCSI_REQ()
+            ctypes.memset(ctypes.byref(dk_req), 0, ctypes.sizeof(dk_req))
+
+            # Populate DK_SCSI_REQ
+            ctypes.memmove(dk_req.dsr_cmd, (ctypes.c_ubyte * cdb_len)(*cdb), cdb_len)
+            dk_req.dsr_cmdlen = cdb_len
+            dk_req.dsr_databuf = ctypes.cast(
+                ctypes.pointer(data_buffer), ctypes.c_void_p
+            )
+            dk_req.dsr_datalen = buffer_size
+            dk_req.dsr_flags = DK_SCSI_READ  # Direction: Read
+            dk_req.dsr_timeout = timeout_ms  # Timeout in milliseconds
+            dk_req.dsr_senselen = ctypes.sizeof(dk_req.dsr_sense)  # Max sense length
+
+            # Send IOCTL
+            ret = ioctl(fd, DKIOCSCSIUSERCMD, ctypes.byref(dk_req))
+            current_errno = ctypes.get_errno()
+
+            if ret != 0:
+                if current_errno == errno.EPERM or current_errno == errno.EACCES:
+                    raise PermissionError(
+                        f"Permission denied for ioctl on {raw_device_path}. Requires root."
+                    )
+                raise OSError(
+                    f"ioctl(DKIOCSCSIUSERCMD) failed on {raw_device_path}",
+                    None,
+                    None,
+                    current_errno,
+                )
+
+            # Check SCSI status
+            # Note: dsr_senselen might be max length, not actual written. Check headers if available.
+            # Assuming sense buffer contains valid data up to dsr_senselen if status is not 0.
+            sense_data_bytes = bytes(dk_req.dsr_sense[: dk_req.dsr_senselen])
+
+            if dk_req.dsr_status == 0x00:
+                bytes_returned = buffer_size - dk_req.dsr_resid
+                return data_buffer.raw[:bytes_returned]
+            else:
+                raise ScsiError(
+                    "SCSI command READ(10) failed (macOS DKIOCSCSIUSERCMD)",
+                    scsi_status=dk_req.dsr_status,
+                    sense_data=sense_data_bytes,
+                    os_errno=current_errno if ret != 0 else None,
+                )  # Pass errno if ioctl failed
+
+        finally:
+            if fd >= 0:
+                os.close(fd)
 
 
 # --- Public Cross-Platform Function ---
@@ -597,18 +612,16 @@ if __name__ == "__main__":
         print(f"ERROR: Unsupported operating system: {_SYSTEM}")
         sys.exit(1)
 
-    # Check privileges (best effort)
+    # We use sys.platform here as it's the idiomatic way that static
+    # analyzers like Pyright use to perform platform-aware analysis.
     has_perms = False
-    if _SYSTEM == "Windows":
+    if sys.platform == "win32":
         try:
             has_perms = ctypes.windll.shell32.IsUserAnAdmin() != 0
         except Exception:
             pass  # Ignore errors checking admin status
-    elif _SYSTEM == "Linux" or _SYSTEM == "Darwin":
-        try:
-            has_perms = os.geteuid() == 0
-        except AttributeError:
-            pass  # Ignore if function doesn't exist (e.g. Jython)
+    elif sys.platform in ("linux", "darwin"):
+        has_perms = os.geteuid() == 0
 
     if not has_perms:
         print(

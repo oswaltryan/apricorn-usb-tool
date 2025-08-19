@@ -9,7 +9,7 @@ import os  # Added for path checks
 import sys  # Added missing import
 
 from .device_config import closest_values
-from .utils import bytes_to_gb, find_closest, parse_usb_version
+from .utils import bytes_to_gb, find_closest
 
 
 # -----------------------------
@@ -339,6 +339,15 @@ def parse_uasp_info() -> Dict[str, Dict[str, Optional[str]]]:
         print(result.stdout[:500] + "...", file=sys.stderr)
         return {}
 
+    # Helper function to normalize lshw values that can be str or list
+    def _normalize_lshw_value(value: Any) -> Optional[str]:
+        if isinstance(value, list) and value:
+            # If it's a list, take the first element and convert to string
+            return str(value[0])
+        if isinstance(value, str):
+            return value
+        return None
+
     # This will be the final map returned by the function
     lshw_data_by_name: Dict[str, Dict[str, Optional[str]]] = {}
 
@@ -377,11 +386,13 @@ def parse_uasp_info() -> Dict[str, Dict[str, Optional[str]]]:
             return
 
         # Extract common fields from the current node
-        node_logicalname = device_node.get("logicalname")
-        node_serial = device_node.get("serial")
-        node_driver = device_node.get("configuration", {}).get("driver")
-        node_product = device_node.get("product")
-        node_vendor = device_node.get("vendor")
+        node_logicalname = device_node.get("logicalname")  # Keep raw for find_dev_path
+        node_serial = _normalize_lshw_value(device_node.get("serial"))
+        node_driver = _normalize_lshw_value(
+            device_node.get("configuration", {}).get("driver")
+        )
+        node_product = _normalize_lshw_value(device_node.get("product"))
+        node_vendor = _normalize_lshw_value(device_node.get("vendor"))
 
         # Attempt to find a block device path (/dev/sdX, /dev/nvmeXnY)
         dev_path = find_dev_path(node_logicalname)
@@ -498,7 +509,7 @@ def parse_lsusb_output(
 
     # Use sudo if available and needed (heuristic: check if we are not root)
     sudo_prefix = []
-    if os.geteuid() != 0:
+    if os.geteuid() != 0:  # type: ignore
         sudo_path = shutil.which("sudo")
         if sudo_path:
             sudo_prefix = [sudo_path]
@@ -770,7 +781,8 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
         # Use lshw serial if lsblk serial is missing or '-', prefer lshw if both exist? Let's prefer lshw if available.
         if matched_lshw_data and matched_lshw_data.get("serial"):
             serial_str = matched_lshw_data["serial"]
-        else:
+
+        if not serial_str:
             processed_block_devices.add(block_path)
             continue  # Cannot correlate without serial
 
@@ -802,7 +814,10 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
         iManufacturer_str = lsusb_v_info.get("iManufacturer", "").strip()
         iProduct_str = lsusb_v_info.get("iProduct", "").strip()
         bcdUSB_str = lsusb_v_info.get("bcdUSB", "0")
-        bcdUSB_float = parse_usb_version(bcdUSB_str)
+        try:
+            bcdUSB_float = float(bcdUSB_str)
+        except (ValueError, TypeError):
+            bcdUSB_float = 0.0
         bcdDevice_str = lsusb_v_info.get("bcdDevice", "0x0000")
         cleaned_bcdDevice_str = (
             bcdDevice_str.lower().replace("0x", "").replace(".", "").zfill(4)
@@ -853,9 +868,20 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
         # --- Refine Product & Manufacturer Name (using fallbacks) ---
         # Priority: lsusb -> lshw -> PID/bcdDevice map -> Default
         if not iProduct_str and matched_lshw_data:
-            lshw_product = matched_lshw_data.get("product", "").strip()
-            if lshw_product:
-                iProduct_str = lshw_product
+            lshw_product_val = matched_lshw_data.get("product")
+            if lshw_product_val:
+                if lshw_product_val:
+                    lshw_product = lshw_product_val.strip()
+                    processed_product = ""
+                    if isinstance(lshw_product_val, list) and lshw_product_val:
+                        # Take the first item if it's a list
+                        processed_product = str(lshw_product_val[0])
+                    elif isinstance(lshw_product_val, str):
+                        # Use the string directly
+                        processed_product = lshw_product_val
+                    lshw_product = processed_product.strip()
+                    if lshw_product:
+                        iProduct_str = lshw_product
         if not iProduct_str:
             pid_for_lookup = pid_lower
             product_hint_pid = closest_values.get(pid_for_lookup, [None, []])[0]
@@ -868,15 +894,36 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
                 iProduct_str = f"Unknown Product ({pid_lower}/{cleaned_bcdDevice_str})"
 
         if not iManufacturer_str and matched_lshw_data:
-            lshw_vendor = matched_lshw_data.get(
-                "vendor", ""
-            ).strip()  # Use vendor field added to lshw map
-            if lshw_vendor:
-                iManufacturer_str = lshw_vendor
+            lshw_vendor_val = matched_lshw_data.get("vendor")
+            vendor_name = ""
+            if isinstance(lshw_vendor_val, list) and lshw_vendor_val:
+                vendor_name = str(lshw_vendor_val[0]).strip()
+            elif isinstance(lshw_vendor_val, str):
+                vendor_name = lshw_vendor_val.strip()
+            if vendor_name:
+                iManufacturer_str = vendor_name
         if not iManufacturer_str:
             # Attempt to get from basic lsusb description (stored in lsusb_v_info?) - No, not easily available here.
             # Default to Apricorn
             iManufacturer_str = "Apricorn"
+
+        # --- Final Type Coercion ---
+        # The lshw command can return product/vendor as a list. This block
+        # guarantees that iProduct_str and iManufacturer_str are strings
+        # before being passed to the dataclass constructor.
+        if isinstance(iProduct_str, list):
+            iProduct_str = str(iProduct_str[0]) if iProduct_str else "Unknown Product"
+        if not isinstance(iProduct_str, str):
+            iProduct_str = str(iProduct_str)
+
+        if isinstance(iManufacturer_str, list):
+            iManufacturer_str = (
+                str(iManufacturer_str[0])
+                if iManufacturer_str
+                else "Unknown Manufacturer"
+            )
+        if not isinstance(iManufacturer_str, str):
+            iManufacturer_str = str(iManufacturer_str)
 
         # --- Create Device Info Object ---
         dev_info = LinuxUsbDeviceInfo(
@@ -929,7 +976,7 @@ def main(find_apricorn_device_func):
     # global shutil # Make available globally if helper functions need it - not needed if imported in main
 
     # Note: This script often needs permissions (sudo) for lshw, fdisk, lsusb -v
-    if os.geteuid() != 0:
+    if os.geteuid() != 0:  # type: ignore
         print(
             "Warning: This script may require root privileges (sudo) for full functionality (lshw, fdisk, lsusb -v).",
             file=sys.stderr,
