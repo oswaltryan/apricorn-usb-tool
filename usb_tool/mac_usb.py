@@ -259,7 +259,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
 # ---------------
 # Example Usage
 # ---------------
-def main(find_apricorn_device):
+def main(find_apricorn_device=None):
     """
     Main function to find and display information about connected Apricorn devices.
 
@@ -268,7 +268,12 @@ def main(find_apricorn_device):
                                          macOSUsbDeviceInfo objects representing
                                          connected Apricorn devices.
     """
-    devices = find_apricorn_device()
+    finder = (
+        find_apricorn_device
+        if find_apricorn_device is not None
+        else globals().get("find_apricorn_device")
+    )
+    devices = finder() if callable(finder) else None
     if not devices:
         print("No Apricorn devices found.")
     else:

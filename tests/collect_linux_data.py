@@ -21,7 +21,7 @@ def _geteuid() -> int:
     This keeps type checkers happy on Windows, where os.geteuid is absent,
     while preserving correct behavior on Linux at runtime.
     """
-    get_euid: Callable[[], int] | None = getattr(os, "geteuid", None)  # type: ignore[attr-defined]
+    get_euid: Callable[[], int] | None = getattr(os, "geteuid", None)
     if callable(get_euid):
         try:
             return int(get_euid())

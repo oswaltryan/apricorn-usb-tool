@@ -12,20 +12,15 @@ import sys
 import os
 import platform
 import errno
-import types
+from typing import Any, Optional
 import time  # Used only in example
 
 # --- Platform Specific Setup ---
 _SYSTEM = platform.system()
 
-# Create a dummy wintypes object for static analysis. This ensures the name is
-# always bound. On Windows, this placeholder is overwritten by the real import.
-wintypes = types.SimpleNamespace(
-    USHORT=ctypes.c_ushort,
-    BYTE=ctypes.c_byte,
-    ULONG=ctypes.c_ulong,
-    DWORD=ctypes.c_ulong,
-)
+# Forward declarations for libc/ioctl so assignments to None type-check.
+libc: Optional[ctypes.CDLL] = None
+ioctl: Optional[Any] = None
 
 # --- Constants ---
 # SCSI Opcodes

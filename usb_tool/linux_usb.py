@@ -828,7 +828,7 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
 
         # --- Determine UASP Status (from lshw data) ---
         SCSIDevice_bool = False
-        driver = "N/A"
+        driver: Optional[str] = "N/A"
         if matched_lshw_data:
             driver = matched_lshw_data.get("driver")
             if driver == "uas":
@@ -841,8 +841,8 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
         # Find closest standard size if size > 0
         if size_gb_float > 0:
             pid_for_lookup = pid_lower
-            size_options_pid = closest_values.get(pid_for_lookup, [None, []])[1]
-            size_options_bcd = closest_values.get(cleaned_bcdDevice_str, [None, []])[1]
+            size_options_pid = closest_values.get(pid_for_lookup, (None, []))[1]
+            size_options_bcd = closest_values.get(cleaned_bcdDevice_str, (None, []))[1]
             size_options = size_options_pid
             lookup_key = pid_for_lookup
             if not size_options and size_options_bcd:
@@ -884,8 +884,12 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
                         iProduct_str = lshw_product
         if not iProduct_str:
             pid_for_lookup = pid_lower
-            product_hint_pid = closest_values.get(pid_for_lookup, [None, []])[0]
-            product_hint_bcd = closest_values.get(cleaned_bcdDevice_str, [None, []])[0]
+            product_hint_pid: Optional[str] = closest_values.get(
+                pid_for_lookup, (None, [])
+            )[0]
+            product_hint_bcd: Optional[str] = closest_values.get(
+                cleaned_bcdDevice_str, (None, [])
+            )[0]
             if product_hint_pid:
                 iProduct_str = product_hint_pid
             elif product_hint_bcd:
@@ -964,7 +968,7 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
 # ---------------
 # Example Usage
 # ---------------
-def main(find_apricorn_device_func):
+def main(find_apricorn_device_func=None):
     """
     Main function to find and display information about connected Apricorn devices.
 
@@ -976,7 +980,7 @@ def main(find_apricorn_device_func):
     # global shutil # Make available globally if helper functions need it - not needed if imported in main
 
     # Note: This script often needs permissions (sudo) for lshw, fdisk, lsusb -v
-    if os.geteuid() != 0:  # type: ignore
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
         print(
             "Warning: This script may require root privileges (sudo) for full functionality (lshw, fdisk, lsusb -v).",
             file=sys.stderr,
@@ -989,7 +993,12 @@ def main(find_apricorn_device_func):
         print("Attempting to run with current privileges...", file=sys.stderr)
         print("-" * 30, file=sys.stderr)
 
-    devices = find_apricorn_device_func()  # Should now return a list
+    finder = (
+        find_apricorn_device
+        if find_apricorn_device_func is None
+        else find_apricorn_device_func
+    )
+    devices = finder()  # Should now return a list
     if not devices:
         print("\nNo Apricorn devices found or failed to gather sufficient info.")
     else:

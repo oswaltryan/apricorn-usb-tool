@@ -86,11 +86,11 @@ class EnumStats:
         active_devices: Dict[DeviceKey, float] = {}
 
         for dev in safe_scan():
-            serial = getattr(dev, "serial_num", None) or getattr(
-                dev, "iSerial", "unknown"
+            serial: str = str(
+                getattr(dev, "serial_num", None) or getattr(dev, "iSerial", "unknown")
             )
-            location = getattr(dev, "location_id", "unknown").split()[0]
-            key = (serial, location)
+            location: str = str(getattr(dev, "location_id", "unknown")).split()[0]
+            key: DeviceKey = (serial, location)
             bcdUSB = float(getattr(dev, "bcdUSB", 0.0))
             speed = "usb3" if bcdUSB >= USB2_THRESHOLD else "usb2"
 

@@ -18,7 +18,7 @@ def test_bytes_to_gb_handles_invalid_input():
     """bytes_to_gb should gracefully handle invalid values."""
     assert linux_usb.bytes_to_gb(1024**3) == 1.0
     assert linux_usb.bytes_to_gb(-1) == 0.0
-    assert linux_usb.bytes_to_gb("bad") == 0.0  # type: ignore
+    assert linux_usb.bytes_to_gb("bad") == 0.0
 
 
 def test_parse_lsblk_size_parses_various_units():

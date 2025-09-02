@@ -228,7 +228,10 @@ def sync_poke_drive(device_identifier):
     except ScsiError as e:
         # Mimic Windows output format
         print(f"  Device {device_identifier}: Poke FAILED (SCSI Error)")
-        print(f"    Status: 0x{e.scsi_status:02X}, Sense: {e.sense_hex}")  # type: ignore
+        status_str = (
+            f"0x{int(e.scsi_status):02X}" if isinstance(e.scsi_status, int) else "N/A"
+        )
+        print(f"    Status: {status_str}, Sense: {getattr(e, 'sense_hex', 'N/A')}")
         return False
     except PermissionError as e:
         # Mimic Windows output format (adjusting message slightly)
@@ -316,7 +319,7 @@ def _parse_poke_targets(
     if poke_input.lower() == "all":
         for i, dev in enumerate(devices, start=1):
             user_id = f"#{i}"
-            os_identifier = None
+            os_identifier: object | None = None
             is_oob = False
             size_attr = getattr(dev, "driveSizeGB", "Unknown")
             if str(size_attr).strip().upper().startswith("N/A"):
@@ -340,13 +343,13 @@ def _parse_poke_targets(
         elements = [s.strip() for s in poke_input.split(",") if s.strip()]
         if not elements:
             raise ValueError("No device identifiers provided for --poke argument.")
-        unique_targets = set()
+        unique_targets: set[tuple[str, object]] = set()
         for element in elements:
             try:
                 idx = int(element)
                 if 1 <= idx <= num_devices:
                     dev = devices[idx - 1]
-                    os_id = None
+                    os_id: object | None = None
                     is_oob = False
                     size_attr = getattr(dev, "driveSizeGB", "Unknown")
                     if str(size_attr).strip().upper().startswith("N/A"):
