@@ -366,7 +366,7 @@ def _parse_payload_best_effort(data: bytes) -> DeviceVersionInfo:
     - Bridge FW: bytes[1:3] rendered as two-byte hex (e.g., 0502)
     - SCB Part: first NN-NNNN pattern (e.g., 21-0010)
     - Model IDs: first two digits immediately after the part number
-    - Hardware Rev: presence of '2011' implies major=2, minor=1 (per sample)
+    - Hardware Rev: first two digits immediately after the Model IDs
     - MCU FW: last three digits following the part number, reversed → major.minor.sub
     """
     # Bridge FW: skip any leading printable ASCII, then take the two bytes
