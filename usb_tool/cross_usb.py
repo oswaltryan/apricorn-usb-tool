@@ -5,7 +5,16 @@ import sys
 import argparse
 import ctypes
 import os  # For path validation on Linux
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Callable, Any, Type
+
+# Optional: device version query (READ BUFFER 0x3C)
+query_device_version: Optional[Callable[..., Any]]
+try:
+    from .device_version import query_device_version as _query_device_version
+
+    query_device_version = _query_device_version
+except Exception:
+    query_device_version = None
 
 # --- Platform check and conditional import ---
 _SYSTEM = platform.system().lower()
@@ -13,31 +22,40 @@ _SYSTEM = platform.system().lower()
 POKE_AVAILABLE = False
 
 
-def send_scsi_read10(device_identifier):
-    """Placeholder function when poke_device is not available."""
-    raise NotImplementedError("poke_device module could not be loaded.")
-
-
-class ScsiError(Exception):
-    """Placeholder exception to ensure static type compatibility."""
-
-    def __init__(self, message, scsi_status=None, sense_data=None, **kwargs):
-        super().__init__(message)
-        self.scsi_status = scsi_status
-        # The only attribute accessed on the exception is sense_hex.
-        # Define it so the static analyzer is satisfied.
-        self.sense_hex = "N/A"
-
-
 # On supported platforms, attempt to import the real implementations.
 if _SYSTEM.startswith(("win", "linux", "darwin")):
+    # Alias type that will point to the real or placeholder ScsiError
+    PokeScsiError: Type[Exception]
     try:
         # Use relative import for package structure
-        from .poke_device import send_scsi_read10, ScsiError  # type: ignore
+        from .poke_device import send_scsi_read10, ScsiError as _ImportedScsiError
 
         POKE_AVAILABLE = True
+        PokeScsiError = _ImportedScsiError
     except Exception as e:
         print(f"Warning: Error importing poke_device: {e}", file=sys.stderr)
+
+        # Fallback placeholders when poke_device is not importable
+        class _LocalPokeScsiError(Exception):
+            """Placeholder exception to ensure static type compatibility."""
+
+            def __init__(self, message, scsi_status=None, sense_data=None, **kwargs):
+                super().__init__(message)
+                self.scsi_status = scsi_status
+                # The only attribute accessed on the exception is sense_hex.
+                self.sense_hex = "N/A"
+
+        def send_scsi_read10(
+            device_identifier: Any,
+            lba: Any = 0,
+            blocks: Any = 1,
+            block_size: Any = 512,
+            timeout: Any = 5,
+        ) -> Any:
+            """Placeholder function when poke_device is not available."""
+            raise NotImplementedError("poke_device module could not be loaded.")
+
+        PokeScsiError = _LocalPokeScsiError
 
 
 # --- Helper for Admin Check (Windows Only) ---
@@ -62,7 +80,7 @@ NAME
        usb-update - Update the usb-tool installation (if installed from Git)
 
 SYNOPSIS
-       usb [-h] [-p TARGETS]
+       usb [-h] [-p TARGETS] [--device-version TARGET]
        usb-update
 
 DESCRIPTION
@@ -76,6 +94,11 @@ DESCRIPTION
 OPTIONS
        -h, --help
               Show this help message and exit.
+
+       --device-version TARGET
+              Query device PIC/bridge/MCU version via READ BUFFER (6).
+              Windows: TARGET is a list index (e.g., 1).
+              Linux: TARGET is an sg path (e.g., /dev/sg0).
 
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
@@ -133,7 +156,7 @@ NAME
        usb-update - Update the usb-tool installation (if installed from Git)
 
 SYNOPSIS
-       usb [-h] [-p TARGETS]
+       usb [-h] [-p TARGETS] [--device-version TARGET]
        usb-update
 
 DESCRIPTION
@@ -153,6 +176,11 @@ DESCRIPTION
 OPTIONS
        -h, --help
               Show this help message and exit.
+
+       --device-version TARGET
+              Query device PIC/bridge/MCU version via READ BUFFER (6).
+              Linux: TARGET is an sg path (e.g., /dev/sg0).
+              Windows (if run on WSL/dual-boot): unsupported from Linux.
 
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
@@ -225,7 +253,7 @@ def sync_poke_drive(device_identifier):
         # Mimic Windows output format
         # print(f"  Device {device_identifier}: Poke SUCCEEDED.") # Success message handled by caller loop
         return True
-    except ScsiError as e:
+    except PokeScsiError as e:
         # Mimic Windows output format
         print(f"  Device {device_identifier}: Poke FAILED (SCSI Error)")
         status_str = (
@@ -484,6 +512,15 @@ def main():
     parser.add_argument(
         "-h", "--help", action="store_true", help="Show detailed help/manpage."
     )
+    parser.add_argument(
+        "--device-version",
+        type=str,
+        metavar="TARGET",
+        help=(
+            "Query device PIC/bridge/MCU version. Windows: index from list. "
+            "Linux: sg path (e.g., /dev/sg0)."
+        ),
+    )
     poke_help = (
         "Windows: Poke by device index number shown in list (e.g., 1) or 'all'. "
         "Linux: Poke by index OR block device path (e.g., 1 or /dev/sda) or 'all'. "
@@ -521,6 +558,75 @@ def main():
         devices = os_usb.sort_devices(devices)
     except Exception as e:
         print(f"Warning: Could not sort devices: {e}", file=sys.stderr)
+
+    if args.device_version:
+        if query_device_version is None:
+            parser.error("Device version query module failed to load.")
+        # Determine OS-specific target
+        tgt = args.device_version.strip()
+        try:
+            if _SYSTEM.startswith("win"):
+                # Windows: treat as list index -> physicalDriveNum
+                try:
+                    idx = int(tgt)
+                except ValueError:
+                    parser.error(
+                        "On Windows, --device-version expects a device index (e.g., 1)"
+                    )
+                if not (1 <= idx <= len(devices)):
+                    parser.error(f"Index out of range (1-{len(devices)})")
+                dev = devices[idx - 1]
+                pdn = getattr(dev, "physicalDriveNum", None)
+                if pdn is None:
+                    parser.error("Selected device missing physicalDriveNum")
+                info = query_device_version(int(pdn))
+            elif _SYSTEM.startswith("linux"):
+                # Linux: require sg path
+                if not (tgt.startswith("/dev/sg")):
+                    parser.error(
+                        "On Linux, --device-version requires an sg path like /dev/sg0"
+                    )
+                info = query_device_version(tgt)
+            else:
+                parser.error(
+                    "--device-version currently supported on Windows and Linux"
+                )
+        except (PermissionError, FileNotFoundError, OSError, ValueError) as e:
+            print(f"Error querying device version: {e}", file=sys.stderr)
+            sys.exit(1)
+
+        # Pretty-print (combine model IDs and hardware revs)
+        print("\nDevice Version Information:")
+        print(f"  SCB Part Num : {info.scb_part_number}")
+        # Prefer combined fields computed in device_version
+        model_id = getattr(info, "model_id", None)
+        if not model_id:
+            if (
+                getattr(info, "model_id1", None) is not None
+                and getattr(info, "model_id2", None) is not None
+            ):
+                model_id = f"{info.model_id1}{info.model_id2}"
+            else:
+                model_id = "N/A"
+        hw_ver = getattr(info, "hardware_version", None)
+        if not hw_ver:
+            if (
+                getattr(info, "hardware_major", None) is not None
+                and getattr(info, "hardware_minor", None) is not None
+            ):
+                hw_ver = f"{info.hardware_minor}{info.hardware_major}"
+            else:
+                hw_ver = "N/A"
+        print(f"  Hardware Ver : {hw_ver}")
+        print(f"  Model ID     : {model_id}")
+        mj, mn, sub = info.mcu_fw
+        print(
+            f"  MCU FW       : {mj}.{mn}.{sub}"
+            if mj is not None and mn is not None and sub is not None
+            else "  MCU FW       : N/A"
+        )
+        print(f"  Bridge FW    : {info.bridge_fw}")
+        sys.exit(0)
 
     if args.poke:
         try:
