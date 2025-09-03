@@ -7,6 +7,7 @@ from pprint import pprint
 import subprocess
 import win32com.client
 from typing import Any
+import re
 
 # Version query via READ BUFFER (6)
 try:
@@ -925,6 +926,32 @@ def instantiate_class_objects(
             mcuFW=mcu_fw_str,
             bridgeFW=bridge_fw,
         )
+        # Remove version fields if bridgeFW doesn't match bcdDevice (device can't report reliably)
+        try:
+
+            def _norm_hex4(s: Any) -> str | None:
+                if s is None:
+                    return None
+                ss = str(s).strip()
+                ss = ss.replace("0x", "").replace("0X", "").replace(".", "")
+                ss = re.sub(r"[^0-9a-fA-F]", "", ss)
+                if not ss:
+                    return None
+                if len(ss) > 4:
+                    ss = ss[-4:]
+                return ss.lower().zfill(4)
+
+            _bd = _norm_hex4(getattr(dev_info, "bcdDevice", None))
+            _bf = _norm_hex4(getattr(dev_info, "bridgeFW", None))
+            if _bd is None or _bf is None or _bd != _bf:
+                for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
+                    try:
+                        delattr(dev_info, _k)
+                    except Exception:
+                        pass
+        except Exception:
+            # If sanitization fails, leave object as-is
+            pass
         devices.append(dev_info)
     return devices if devices else None
 
@@ -974,7 +1001,9 @@ def main():
     if devices:
         for idx, dev in enumerate(devices, 1):
             print(f"\n=== Apricorn Device #{idx} ===")
-            pprint(vars(dev))
+            _d = dict(vars(dev))
+            _d.pop("bridgeFW", None)
+            pprint(_d)
         print()
     else:
         print("No Apricorn devices found.")

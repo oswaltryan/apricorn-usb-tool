@@ -1014,6 +1014,32 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
             mcuFW=mcu_fw_str,
             bridgeFW=bridge_fw,
         )
+        # Remove version fields if bridgeFW doesn't match bcdDevice (device can't report reliably)
+        try:
+
+            def _norm_hex4(s: Any) -> str | None:
+                if s is None:
+                    return None
+                ss = str(s).strip()
+                ss = ss.replace("0x", "").replace("0X", "").replace(".", "")
+                ss = re.sub(r"[^0-9a-fA-F]", "", ss)
+                if not ss:
+                    return None
+                if len(ss) > 4:
+                    ss = ss[-4:]
+                return ss.lower().zfill(4)
+
+            _bd = _norm_hex4(getattr(dev_info, "bcdDevice", None))
+            _bf = _norm_hex4(getattr(dev_info, "bridgeFW", None))
+            if _bd is None or _bf is None or _bd != _bf:
+                for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
+                    try:
+                        delattr(dev_info, _k)
+                    except Exception:
+                        pass
+        except Exception:
+            # If sanitization fails, leave object as-is
+            pass
         all_found_devices.append(dev_info)
         # --- End of loop for block_path in lsblk_map_by_name ---
 
@@ -1078,7 +1104,8 @@ def main(find_apricorn_device_func=None):
         # devices.sort(key=lambda d: d.blockDevice if d.blockDevice != "N/A" else "zzz")
         for idx, dev in enumerate(devices, start=1):
             print(f"\n=== Apricorn Device #{idx} ===")
-            attributes = vars(dev)
+            attributes = dict(vars(dev))
+            attributes.pop("bridgeFW", None)
             for field_name, value in attributes.items():
                 print(f"  {field_name:<15}: {value}")
         print()

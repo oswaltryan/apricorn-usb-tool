@@ -307,12 +307,43 @@ def _handle_list_action(devices: list) -> None:
             attributes = dev if isinstance(dev, dict) else {}
 
         if attributes and isinstance(attributes, dict):
+            # Work on a copy for printing to avoid mutating the dataclass
+            printable = dict(attributes)
+            # Sanitize version fields if bridgeFW does not match bcdDevice
+            try:
+
+                def _norm_hex4(val: object) -> str | None:
+                    if val is None:
+                        return None
+                    s = str(val).strip()
+                    s = s.replace("0x", "").replace("0X", "").replace(".", "")
+                    # Keep only hex digits
+                    import re as _re
+
+                    s = _re.sub(r"[^0-9a-fA-F]", "", s)
+                    if not s:
+                        return None
+                    if len(s) > 4:
+                        s = s[-4:]
+                    return s.lower().zfill(4)
+
+                _bd = _norm_hex4(printable.get("bcdDevice"))
+                _bf = _norm_hex4(printable.get("bridgeFW"))
+                if _bd is None or _bf is None or _bd != _bf:
+                    for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
+                        printable.pop(_k, None)
+            except Exception:
+                # If anything goes wrong, fall back to printing as-is
+                pass
+            # Always omit bridgeFW from final output (collected internally only)
+            printable.pop("bridgeFW", None)
+
             max_key_len = 0
             try:
-                max_key_len = max(len(str(k)) for k in attributes.keys())
+                max_key_len = max(len(str(k)) for k in printable.keys())
             except ValueError:
                 pass
-            for field_name, value in attributes.items():
+            for field_name, value in printable.items():
                 print(f"  {str(field_name):<{max_key_len}} : {value}")
         elif isinstance(dev, object) and not isinstance(dev, dict):
             print(f"  Device Info: {dev}")

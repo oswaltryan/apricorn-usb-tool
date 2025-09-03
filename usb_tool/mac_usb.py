@@ -266,6 +266,37 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                     mediaType=media_type,
                     # Leave version fields as N/A unless a safe disk mapping is added later
                 )
+                # Remove version fields if bridgeFW doesn't match bcdDevice (device can't report reliably)
+                try:
+
+                    def _norm_hex4(s: object) -> str | None:
+                        if s is None:
+                            return None
+                        ss = str(s).strip()
+                        ss = ss.replace("0x", "").replace("0X", "").replace(".", "")
+                        ss = re.sub(r"[^0-9a-fA-F]", "", ss)
+                        if not ss:
+                            return None
+                        if len(ss) > 4:
+                            ss = ss[-4:]
+                        return ss.lower().zfill(4)
+
+                    _bd = _norm_hex4(getattr(dev_info, "bcdDevice", None))
+                    _bf = _norm_hex4(getattr(dev_info, "bridgeFW", None))
+                    if _bd is None or _bf is None or _bd != _bf:
+                        for _k in (
+                            "scbPartNumber",
+                            "hardwareVersion",
+                            "modelID",
+                            "mcuFW",
+                        ):
+                            try:
+                                delattr(dev_info, _k)
+                            except Exception:
+                                pass
+                except Exception:
+                    # If sanitization fails, leave object as-is
+                    pass
                 apricorn_devices.append(dev_info)
 
     return apricorn_devices if apricorn_devices else None
@@ -294,7 +325,9 @@ def main(find_apricorn_device=None):
     else:
         for idx, dev in enumerate(devices, start=1):
             print(f"\n=== Apricorn Device #{idx} ===")
-            for field_name, value in dev.__dict__.items():
+            _printable = dict(dev.__dict__)
+            _printable.pop("bridgeFW", None)
+            for field_name, value in _printable.items():
                 print(f"  {field_name}: {value}")
 
 
