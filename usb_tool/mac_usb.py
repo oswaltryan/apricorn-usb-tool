@@ -9,6 +9,13 @@ import json
 from .device_config import closest_values
 from .utils import bytes_to_gb, find_closest
 
+# Version query (READ BUFFER 0x3C). On macOS, end-to-end permissions
+# and disk path resolution may limit availability; fields default to N/A.
+try:
+    from .device_version import query_device_version
+except Exception:
+    query_device_version = None  # type: ignore
+
 
 # -----------------------------
 # Same Dataclass as on Windows
@@ -42,6 +49,12 @@ class macOSUsbDeviceInfo:
     # usbController: str = ""
     # blockDevice: str = ""
     mediaType: str = "Unknown"
+    # Device version details (best-effort; typically not available without raw disk access)
+    scbPartNumber: str = "N/A"
+    hardwareVersion: str = "N/A"
+    modelID: str = "N/A"
+    mcuFW: str = "N/A"
+    bridgeFW: str = "N/A"
 
 
 def sort_devices(devices: list) -> list:
@@ -239,6 +252,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                 elif removable_val == "no":
                     media_type = "Basic Disk"
 
+                # Best-effort: version information is not resolved on macOS enumeration yet
                 dev_info = macOSUsbDeviceInfo(
                     bcdUSB=bcdUSB_str,
                     idVendor=idVendor_str,
@@ -250,6 +264,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                     SCSIDevice=SCSIDevice_str,
                     driveSizeGB=drive_size_str or 0,
                     mediaType=media_type,
+                    # Leave version fields as N/A unless a safe disk mapping is added later
                 )
                 apricorn_devices.append(dev_info)
 

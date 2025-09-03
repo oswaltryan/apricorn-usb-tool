@@ -80,7 +80,7 @@ NAME
        usb-update - Update the usb-tool installation (if installed from Git)
 
 SYNOPSIS
-       usb [-h] [-p TARGETS] [--device-version TARGET]
+       usb [-h] [-p TARGETS]
        usb-update
 
 DESCRIPTION
@@ -94,11 +94,6 @@ DESCRIPTION
 OPTIONS
        -h, --help
               Show this help message and exit.
-
-       --device-version TARGET
-              Query device PIC/bridge/MCU version via READ BUFFER (6).
-              Windows: TARGET is a list index (e.g., 1).
-              Linux: TARGET is an sg path (e.g., /dev/sg0).
 
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
@@ -156,7 +151,7 @@ NAME
        usb-update - Update the usb-tool installation (if installed from Git)
 
 SYNOPSIS
-       usb [-h] [-p TARGETS] [--device-version TARGET]
+       usb [-h] [-p TARGETS]
        usb-update
 
 DESCRIPTION
@@ -176,11 +171,6 @@ DESCRIPTION
 OPTIONS
        -h, --help
               Show this help message and exit.
-
-       --device-version TARGET
-              Query device PIC/bridge/MCU version via READ BUFFER (6).
-              Linux: TARGET is an sg path (e.g., /dev/sg0).
-              Windows (if run on WSL/dual-boot): unsupported from Linux.
 
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
@@ -512,15 +502,8 @@ def main():
     parser.add_argument(
         "-h", "--help", action="store_true", help="Show detailed help/manpage."
     )
-    parser.add_argument(
-        "--device-version",
-        type=str,
-        metavar="TARGET",
-        help=(
-            "Query device PIC/bridge/MCU version. Windows: index from list. "
-            "Linux: sg path (e.g., /dev/sg0)."
-        ),
-    )
+    # Removed --device-version: version details are now included per-device
+    # in the OS adapters and shown in the default listing output.
     poke_help = (
         "Windows: Poke by device index number shown in list (e.g., 1) or 'all'. "
         "Linux: Poke by index OR block device path (e.g., 1 or /dev/sda) or 'all'. "
@@ -559,74 +542,8 @@ def main():
     except Exception as e:
         print(f"Warning: Could not sort devices: {e}", file=sys.stderr)
 
-    if args.device_version:
-        if query_device_version is None:
-            parser.error("Device version query module failed to load.")
-        # Determine OS-specific target
-        tgt = args.device_version.strip()
-        try:
-            if _SYSTEM.startswith("win"):
-                # Windows: treat as list index -> physicalDriveNum
-                try:
-                    idx = int(tgt)
-                except ValueError:
-                    parser.error(
-                        "On Windows, --device-version expects a device index (e.g., 1)"
-                    )
-                if not (1 <= idx <= len(devices)):
-                    parser.error(f"Index out of range (1-{len(devices)})")
-                dev = devices[idx - 1]
-                pdn = getattr(dev, "physicalDriveNum", None)
-                if pdn is None:
-                    parser.error("Selected device missing physicalDriveNum")
-                info = query_device_version(int(pdn))
-            elif _SYSTEM.startswith("linux"):
-                # Linux: require sg path
-                if not (tgt.startswith("/dev/sg")):
-                    parser.error(
-                        "On Linux, --device-version requires an sg path like /dev/sg0"
-                    )
-                info = query_device_version(tgt)
-            else:
-                parser.error(
-                    "--device-version currently supported on Windows and Linux"
-                )
-        except (PermissionError, FileNotFoundError, OSError, ValueError) as e:
-            print(f"Error querying device version: {e}", file=sys.stderr)
-            sys.exit(1)
-
-        # Pretty-print (combine model IDs and hardware revs)
-        print("\nDevice Version Information:")
-        print(f"  SCB Part Num : {info.scb_part_number}")
-        # Prefer combined fields computed in device_version
-        model_id = getattr(info, "model_id", None)
-        if not model_id:
-            if (
-                getattr(info, "model_id1", None) is not None
-                and getattr(info, "model_id2", None) is not None
-            ):
-                model_id = f"{info.model_id1}{info.model_id2}"
-            else:
-                model_id = "N/A"
-        hw_ver = getattr(info, "hardware_version", None)
-        if not hw_ver:
-            if (
-                getattr(info, "hardware_major", None) is not None
-                and getattr(info, "hardware_minor", None) is not None
-            ):
-                hw_ver = f"{info.hardware_minor}{info.hardware_major}"
-            else:
-                hw_ver = "N/A"
-        print(f"  Hardware Ver : {hw_ver}")
-        print(f"  Model ID     : {model_id}")
-        mj, mn, sub = info.mcu_fw
-        print(
-            f"  MCU FW       : {mj}.{mn}.{sub}"
-            if mj is not None and mn is not None and sub is not None
-            else "  MCU FW       : N/A"
-        )
-        print(f"  Bridge FW    : {info.bridge_fw}")
-        sys.exit(0)
+    # Device version printing via --device-version removed; information is
+    # folded into each device's data and shown in the default list view.
 
     if args.poke:
         try:

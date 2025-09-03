@@ -8,6 +8,12 @@ import subprocess
 import win32com.client
 from typing import Any
 
+# Version query via READ BUFFER (6)
+try:
+    from .device_version import query_device_version
+except Exception:  # Fallback if module import fails
+    query_device_version = None  # type: ignore
+
 from .device_config import closest_values
 from .utils import bytes_to_gb, find_closest, parse_usb_version
 
@@ -118,6 +124,12 @@ class WinUsbDeviceInfo:
     driveLetter: str = "N/A"
     mediaType: str = "Unknown"
     readOnly: bool = False
+    # Device version details (populated best-effort during enumeration)
+    scbPartNumber: str = "N/A"
+    hardwareVersion: str = "N/A"
+    modelID: str = "N/A"
+    mcuFW: str = "N/A"
+    bridgeFW: str = "N/A"
 
 
 def sort_devices(devices: list) -> list:
@@ -861,7 +873,35 @@ def instantiate_class_objects(
                 wmi_usb_drives[item]["size_gb"], closest_values[idProduct][1]
             )
 
-        # Create device info without usbController for now
+        # Build best-effort device version info (safe, non-destructive)
+        scb_part = "N/A"
+        hw_ver = "N/A"
+        model_id = "N/A"
+        mcu_fw_str = "N/A"
+        bridge_fw = "N/A"
+        if (
+            query_device_version is not None
+            and isinstance(drive_number, int)
+            and drive_number >= 0
+        ):
+            try:
+                _ver = query_device_version(drive_number)
+                if getattr(_ver, "scb_part_number", ""):
+                    scb_part = _ver.scb_part_number
+                if getattr(_ver, "hardware_version", None):
+                    hw_ver = _ver.hardware_version or "N/A"
+                if getattr(_ver, "model_id", None):
+                    model_id = _ver.model_id or "N/A"
+                mj, mn, sb = getattr(_ver, "mcu_fw", (None, None, None))
+                if mj is not None and mn is not None and sb is not None:
+                    mcu_fw_str = f"{mj}.{mn}.{sb}"
+                if getattr(_ver, "bridge_fw", None):
+                    bridge_fw = _ver.bridge_fw or "N/A"
+            except Exception:
+                # Any failure (including PermissionError) leaves fields as N/A
+                pass
+
+        # Create device info with controller + version details
         dev_info = WinUsbDeviceInfo(
             bcdUSB=bcdUSB,
             idVendor=idVendor,
@@ -879,6 +919,11 @@ def instantiate_class_objects(
             driveLetter=drive_letter,
             mediaType=mediaType,
             readOnly=isReadOnly,
+            scbPartNumber=scb_part,
+            hardwareVersion=hw_ver,
+            modelID=model_id,
+            mcuFW=mcu_fw_str,
+            bridgeFW=bridge_fw,
         )
         devices.append(dev_info)
     return devices if devices else None

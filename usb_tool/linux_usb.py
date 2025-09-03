@@ -11,6 +11,12 @@ import sys  # Added missing import
 from .device_config import closest_values
 from .utils import bytes_to_gb, find_closest
 
+# Version query via READ BUFFER (6)
+try:
+    from .device_version import query_device_version
+except Exception:
+    query_device_version = None  # type: ignore
+
 
 # -----------------------------
 # Same Dataclass as on Windows
@@ -33,6 +39,40 @@ class LinuxUsbDeviceInfo:
         "N/A"  # Added block device path (e.g., /dev/sdx), updated default
     )
     mediaType: str = "Unknown"
+    # Device version details (best-effort; Linux requires sg path + root)
+    scbPartNumber: str = "N/A"
+    hardwareVersion: str = "N/A"
+    modelID: str = "N/A"
+    mcuFW: str = "N/A"
+    bridgeFW: str = "N/A"
+
+
+def _sg_path_for_block(block_device: str) -> Optional[str]:
+    """Derive /dev/sgX corresponding to a block device like /dev/sdX.
+
+    Uses sysfs: /sys/class/block/<name>/device/scsi_generic/* -> sgN.
+    Returns the absolute /dev/sgN path or None if not resolvable.
+    """
+    try:
+        if not (isinstance(block_device, str) and block_device.startswith("/dev/")):
+            return None
+        name = os.path.basename(block_device)
+        # Common sysfs locations
+        cand_dirs = [
+            f"/sys/class/block/{name}/device/scsi_generic",
+            f"/sys/block/{name}/device/scsi_generic",
+        ]
+        for d in cand_dirs:
+            if os.path.isdir(d):
+                try:
+                    entries = [e for e in os.listdir(d) if e.startswith("sg")]
+                except Exception:
+                    entries = []
+                if entries:
+                    return f"/dev/{entries[0]}"
+        return None
+    except Exception:
+        return None
 
 
 def sort_devices(devices: list) -> list:
@@ -930,6 +970,32 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
             iManufacturer_str = str(iManufacturer_str)
 
         # --- Create Device Info Object ---
+        # Best-effort device version (non-destructive; needs /dev/sgX + permissions)
+        scb_part = "N/A"
+        hw_ver = "N/A"
+        model_id = "N/A"
+        mcu_fw_str = "N/A"
+        bridge_fw = "N/A"
+        if query_device_version is not None and isinstance(blockDevice_str, str):
+            sg_path = _sg_path_for_block(blockDevice_str)
+            if sg_path:
+                try:
+                    _ver = query_device_version(sg_path)
+                    if getattr(_ver, "scb_part_number", ""):
+                        scb_part = _ver.scb_part_number
+                    if getattr(_ver, "hardware_version", None):
+                        hw_ver = _ver.hardware_version or "N/A"
+                    if getattr(_ver, "model_id", None):
+                        model_id = _ver.model_id or "N/A"
+                    mj, mn, sb = getattr(_ver, "mcu_fw", (None, None, None))
+                    if mj is not None and mn is not None and sb is not None:
+                        mcu_fw_str = f"{mj}.{mn}.{sb}"
+                    if getattr(_ver, "bridge_fw", None):
+                        bridge_fw = _ver.bridge_fw or "N/A"
+                except Exception:
+                    # Permission errors or IO failures leave fields as N/A
+                    pass
+
         dev_info = LinuxUsbDeviceInfo(
             bcdUSB=bcdUSB_float,
             idVendor=vid_lower,
@@ -942,6 +1008,11 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
             driveSizeGB=driveSize_val,
             blockDevice=blockDevice_str,
             mediaType=mediaType_str,
+            scbPartNumber=scb_part,
+            hardwareVersion=hw_ver,
+            modelID=model_id,
+            mcuFW=mcu_fw_str,
+            bridgeFW=bridge_fw,
         )
         all_found_devices.append(dev_info)
         # --- End of loop for block_path in lsblk_map_by_name ---
