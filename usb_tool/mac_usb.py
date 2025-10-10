@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 import json
+from pprint import pprint
 
 from .device_config import closest_values
 from .utils import bytes_to_gb, find_closest
@@ -138,21 +139,26 @@ def list_usb_drives():
         return []
     else:
         usb_drives = json.loads(result.stdout)
-        # pprint(usb_drives)
-        # print()
-        drives_info = []
-        for drive in range(len(usb_drives["SPUSBDataType"])):
-            if len(usb_drives["SPUSBDataType"][drive].keys()) < 3:
-                continue
-            if "Media" not in usb_drives["SPUSBDataType"][drive]["_items"][0].keys():
-                continue
-            if (
-                usb_drives["SPUSBDataType"][drive]["_items"][0]["manufacturer"]
-                == "Apricorn"
-            ):
-                drives_info.append(usb_drives["SPUSBDataType"][drive]["_items"][0])
-        # pprint(drives_info)
-        return drives_info
+        obj=usb_drives["SPUSBDataType"]
+        matches = []
+
+        def recurse(obj=usb_drives["SPUSBDataType"]):
+            if isinstance(obj, dict):
+                # Check vendor_id
+                vendor_id = obj.get('vendor_id', '')
+                if '0984' in vendor_id:
+                    matches.append(obj)
+                # Recurse into all dictionary values
+                for value in obj.values():
+                    recurse(value)
+            elif isinstance(obj, list):
+                # Recurse into list elements
+                for item in obj:
+                    recurse(item)
+
+        recurse()
+#        pprint(matches)
+        return matches
 
 
 def parse_uasp_info():
