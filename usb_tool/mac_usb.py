@@ -243,7 +243,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                     media_type = "Basic Disk"
                 bsd_name = media_info.get("bsd_name", "")
             else:
-                drive_size_gb = "OOB Mode"
+                drive_size_gb = "N/A (OOB Mode)"
                 media_type = "Unknown"
                 bsd_name = ""
 
