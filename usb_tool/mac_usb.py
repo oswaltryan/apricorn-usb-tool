@@ -47,8 +47,7 @@ class macOSUsbDeviceInfo:
     iSerial: str
     SCSIDevice: bool = False
     driveSizeGB: Union[int, str] = 0
-    # usbController: str = ""
-    # blockDevice: str = ""
+    blockDevice: str = ""
     mediaType: str = "Unknown"
     # Device version details (best-effort; typically not available without raw disk access)
     scbPartNumber: str = "N/A"
@@ -242,9 +241,11 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                     media_type = "Removable Media"
                 elif removable_val == "no":
                     media_type = "Basic Disk"
+                bsd_name = media_info.get("bsd_name", "")
             else:
                 drive_size_gb = "OOB Mode"
                 media_type = "Unknown"
+                bsd_name = ""
 
             dev_info = macOSUsbDeviceInfo(
                 bcdUSB=bcdUSB_str,
@@ -256,6 +257,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                 iSerial=iSerial_str,
                 SCSIDevice=is_uas,
                 driveSizeGB=drive_size_gb,
+                blockDevice=bsd_name,
                 mediaType=media_type,
             )
             # Version sanitization logic (from original code)
