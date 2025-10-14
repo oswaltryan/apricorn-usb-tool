@@ -3,7 +3,7 @@
 import subprocess
 import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Union
 import json
 from pprint import pprint
 
@@ -46,7 +46,7 @@ class macOSUsbDeviceInfo:
     iProduct: str
     iSerial: str
     SCSIDevice: bool = False
-    driveSizeGB: int = 0
+    driveSizeGB: Union[int, str] = 0
     # usbController: str = ""
     # blockDevice: str = ""
     mediaType: str = "Unknown"
@@ -243,7 +243,8 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                 elif removable_val == "no":
                     media_type = "Basic Disk"
             else:
-                media_type = "OOB Mode"
+                drive_size_gb = "OOB Mode"
+                media_type = "Unknown"
 
             dev_info = macOSUsbDeviceInfo(
                 bcdUSB=bcdUSB_str,
