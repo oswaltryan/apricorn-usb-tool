@@ -157,45 +157,35 @@ def list_usb_drives():
                     recurse(item)
 
         recurse()
-#        pprint(matches)
+        pprint(matches)
         return matches
 
 
 def parse_uasp_info():
-    """
-    Uses the 'ioreg' command to identify USB devices that are using the
-    USB Attached SCSI Protocol (UASP).
-
-    Returns:
-        dict: A dictionary where keys are the product names of USB devices
-              and values are boolean indicating whether the device is using UAS
-              (True) or not (False).
-    """
-    cmd = r"""
-ioreg -p IOUSB -w0 -l | awk '
-/"USB Product Name"/ { product=$0 }
-/"IOClass"/ {
-    if ($3 == "\"IOUSBAttachedSCSI\"") {
-        uas=1
-    } else {
-        uas=0
-    }
-    if (product && uas >= 0) {
-        gsub(/.*= /, "", product)
-        gsub(/"/, "", product)
-        print product ": " (uas ? "UAS" : "Not UAS")
-        product=""
-        uas=-1
-    }
-}' | sort
-"""
-    result = subprocess.run(["zsh", "-c", cmd], capture_output=True, text=True)
     uas_dict = {}
-    for line in result.stdout.strip().splitlines():
-        if ": " in line:
-            name, status = line.strip().split(": ")
-            uas_dict[name] = status == "UAS"
+    
+    # Get the list of all USB drives detected by system_profiler
+    all_drives = list_usb_drives()
 
+    for drive in all_drives:
+        product_name = drive.get('_name')
+        bsd_name = None
+        if 'Media' in drive and len(drive['Media']) > 0:
+            bsd_name = drive['Media'][0].get('bsd_name')
+
+        if product_name and bsd_name:
+            cmd = ["diskutil", "info", bsd_name]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            is_uas = False
+            if result.returncode == 0:
+                # Check for "Protocol: USB" and "Transport: UAS"
+                if "Protocol: USB" in result.stdout and "Transport: UAS" in result.stdout:
+                    is_uas = True
+            
+            uas_dict[product_name] = is_uas
+            
+    pprint(uas_dict)
     return uas_dict
 
 
