@@ -2,11 +2,11 @@
 
 This module issues a vendor-safe READ BUFFER (opcode 0x3C) with mode 0x01,
 host transfer length 1024 bytes, and parses the returned payload into a
-best-effort structure. Parsing offsets may need tuning against real devices.
+best-effort structure. Parsing offsets are tuned for Apricorn devices,
+handling both Standard and OOB (Out-of-Box) response formats.
 
-The implementation is self-contained and does not rely on external tools
-like sg_raw. It uses per-OS passthrough: SPTI (Windows), SG_IO (Linux), and
-DKIO (macOS; may be limited based on permissions/availability).
+The implementation is self-contained and uses per-OS passthrough:
+SPTI (Windows), SG_IO (Linux), and DKIO (macOS).
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ SYSTEM = platform.system()
 def _build_read_buffer_cdb() -> bytes:
     # READ BUFFER (6) - 0x3C
     # Per request: use CDB bytes [3C, 01, 00, 00, 00, 00], and set host
-    # transfer length to 1024 via the OS passthrough layer (not in the CDB).
+    # transfer length to 1024 via the OS passthrough layer.
     return bytes([0x3C, 0x01, 0x00, 0x00, 0x00, 0x00])
 
 
@@ -127,15 +127,7 @@ if SYSTEM == "Linux":
                     raise PermissionError("Permission denied (ioctl SG_IO)")
                 raise OSError(err, "ioctl SG_IO failed")
 
-            ok = (
-                (hdr.info & SG_INFO_OK_MASK) == SG_INFO_OK
-                and hdr.status == 0
-                and hdr.host_status == 0
-                and hdr.driver_status == 0
-            )
-            if not ok:
-                # Return whatever we got for debugging
-                return data_buf.raw[: data_len - max(0, hdr.resid)]
+            # Return whatever we got for debugging, even if status isn't perfect
             return data_buf.raw[: data_len - max(0, hdr.resid)]
         finally:
             if fd >= 0:
@@ -231,9 +223,8 @@ elif SYSTEM == "Windows":
             )
             if ok == 0:
                 raise ctypes.WinError(ctypes.GetLastError())
-            if sptd.ScsiStatus != 0:
-                # Return whatever was received (best-effort diagnostics)
-                return data_buf.raw
+            # We return the data buffer regardless of ScsiStatus to support OOB mode
+            # where the status might indicate a check condition but data is present.
             return data_buf.raw
         finally:
             if h != INVALID_HANDLE_VALUE:
@@ -311,8 +302,7 @@ elif SYSTEM == "Darwin":
                 if err in (errno.EPERM, errno.EACCES):
                     raise PermissionError("Permission denied (DKIO ioctl)")
                 raise OSError(err, "ioctl DKIOCSCSIUSERCMD failed")
-            if req.dsr_status != 0:
-                return data_buf.raw[: data_len - int(req.dsr_resid)]
+
             return data_buf.raw[: data_len - int(req.dsr_resid)]
         finally:
             if fd >= 0:
@@ -361,78 +351,69 @@ def query_device_version(target: str | int, *, timeout: int = 5) -> DeviceVersio
 
 
 def _parse_payload_best_effort(data: bytes) -> DeviceVersionInfo:
-    """Parse the payload to match expected fields without hard-coding values.
+    """Parse the payload to match expected fields for Apricorn devices.
 
-    - Bridge FW: bytes[1:3] rendered as two-byte hex (e.g., 0502)
-    - SCB Part: first NN-NNNN pattern (e.g., 21-0010)
-    - Model IDs: first two digits immediately after the part number
-    - Hardware Rev: first two digits immediately after the Model IDs
-    - MCU FW: last three digits following the part number, reversed → major.minor.sub
+    Logic mirrors known OOB (Out-of-Box) behavior where version info is
+    embedded in the raw stream even if standard parsing fails.
     """
-    # Bridge FW: skip any leading printable ASCII, then take the two bytes
-    # following the first non-printable header byte. This handles payloads
-    # that sometimes start with a printable banner byte.
     bridge_fw: Optional[str] = None
-    if data:
-        i = 0
-        while i < len(data) and 32 <= data[i] <= 126:
-            i += 1
-        if i + 2 < len(data):
-            bridge_fw = f"{data[i+1]:02X}{data[i+2]:02X}"
+    scb_part: str = ""
+    mcu_fw: Tuple[Optional[int], Optional[int], Optional[int]] = (None, None, None)
+    hw_ver: Optional[str] = None
+    model_id: Optional[str] = None
 
-    # ASCII view for scanning
-    ascii_view = "".join(chr(b) if 32 <= b <= 126 else " " for b in data)
+    # 1. Bridge FW Extraction
+    # Located at bytes 2 and 3 of the payload (e.g., Y\x17\x05\x02 -> 0502)
+    if data and len(data) >= 4:
+        # Format bytes 2 and 3 as a 4-character hex string
+        bridge_fw = f"{data[2]:02X}{data[3]:02X}"
 
-    # SCB Part Number: NN-NNNN
-    scb_part = ""
-    part_match = re.search(r"(\d{2}-\d{4})", ascii_view)
-    if part_match:
-        scb_part = part_match.group(1)
+    # 2. Part Number and Version Extraction
+    # Look for the signature: 2 digits, hyphen, 11 digits (e.g., 21-00100000001)
+    # This pattern exists in OOB mode data streams.
+    match = re.search(rb"(\d{2})-(\d{11})", data)
 
-    # Digits after the SCB part for model IDs and MCU FW
-    tail_digits: list[str] = []
-    if part_match:
-        tail = ascii_view[part_match.end() :]
-        tail_digits = re.findall(r"\d", tail)
+    if match:
+        try:
+            # Decode bytes to ASCII string
+            prefix_str = match.group(1).decode("ascii")
+            body_str = match.group(2).decode("ascii")
 
-    # Model IDs: first two digits in tail (in order)
-    model_id1: Optional[int] = None
-    model_id2: Optional[int] = None
-    if part_match and len(tail_digits) >= 2:
-        model_id1 = int(tail_digits[1])
-        model_id2 = int(tail_digits[0])
+            # SCB Part Number: Prefix + "-" + first 4 of body (e.g. 21-0010)
+            scb_part = f"{prefix_str}-{body_str[:4]}"
 
-    # Hardware rev: take the last two digits immediately preceding the SCB part
-    hardware_major: Optional[int] = None
-    hardware_minor: Optional[int] = None
-    if part_match and len(tail_digits) >= 4:
-        hardware_major = int(tail_digits[2])
-        hardware_minor = int(tail_digits[3])
+            # Parse remaining digits based on offsets derived from query_pic.py
+            # body_str indices:
+            # 0-3: Part num suffix (used above)
+            # 4: Model ID 1
+            # 5: Model ID 2
+            # 6: Hardware Major
+            # 7: Hardware Minor
+            # 8: MCU Sub (List[11] in query_pic)
+            # 9: MCU Minor (List[12] in query_pic)
+            # 10: MCU Major (List[13] in query_pic)
 
-    # MCU FW: last three digits in tail, reversed
-    mcu_major: Optional[int] = None
-    mcu_minor: Optional[int] = None
-    mcu_sub: Optional[int] = None
-    if len(tail_digits) >= 3:
-        mcu_major = int(tail_digits[-1])
-        mcu_minor = int(tail_digits[-2])
-        mcu_sub = int(tail_digits[-3])
+            if len(body_str) >= 11:
+                # Model ID
+                model_id = f"{body_str[4]}{body_str[5]}"
 
-    # Build combined convenience fields
-    combined_model_id: Optional[str] = None
-    if model_id1 is not None and model_id2 is not None:
-        combined_model_id = f"{model_id1}{model_id2}"
+                # Hardware Version (Major.Minor)
+                hw_ver = f"{body_str[6]}{body_str[7]}"
 
-    combined_hw_ver: Optional[str] = None
-    if hardware_major is not None and hardware_minor is not None:
-        # As requested: concatenated order minor+major (e.g., 1 then 2 -> "12")
-        combined_hw_ver = f"{hardware_minor}{hardware_major}"
+                # MCU FW (Reverse order per reference script logic)
+                mj = int(body_str[10])
+                mn = int(body_str[9])
+                sb = int(body_str[8])
+                mcu_fw = (mj, mn, sb)
+        except (ValueError, IndexError):
+            # If parsing individual digits fails, we still return whatever partials we found
+            pass
 
     return DeviceVersionInfo(
-        scb_part_number=scb_part,
-        mcu_fw=(mcu_major, mcu_minor, mcu_sub),
-        hardware_version=combined_hw_ver,
-        model_id=combined_model_id,
+        scb_part_number=scb_part if scb_part else "N/A",
+        mcu_fw=mcu_fw,
+        hardware_version=hw_ver,
+        model_id=model_id,
         bridge_fw=bridge_fw,
     )
 

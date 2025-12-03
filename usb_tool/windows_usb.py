@@ -821,23 +821,19 @@ def instantiate_class_objects(
 ):
     devices = []
 
-    # print()
-    # print("----------")
-    # print("AFTER PROCESSING: ")
-    # print("USB Controllers:")
-    # pprint(usb_controllers)
-    # print()
-    # print("wmi_usb_devices:")
-    # pprint(wmi_usb_devices)
-    # print()
-    # print("wmi_usb_drives:")
-    # pprint(wmi_usb_drives)
-    # print()
-    # print("libusb devices:")
-    # pprint(libusb_data)
-    # print("----------")
+    # Helper for version normalization (Safe for "N/A")
+    def _norm_hex4(s: Any) -> str | None:
+        if s is None:
+            return None
+        ss = str(s).strip()
+        if ss.upper() == "N/A":
+            return None
+        ss = ss.replace("0x", "").replace("0X", "").replace(".", "")
+        ss = re.sub(r"[^0-9a-fA-F]", "", ss)
+        return ss.lower().zfill(4)[-4:] if ss else None
 
     for item in range(len(wmi_usb_devices)):
+        # Extract basic info
         idProduct = wmi_usb_devices[item]["pid"]
         idVendor = wmi_usb_devices[item]["vid"]
         bcdDevice = libusb_data[item]["bcdDevice"]
@@ -857,14 +853,13 @@ def instantiate_class_objects(
             iSerial = wmi_usb_devices[item]["serial"]
 
         drive_number = -1
-        if physical_drives:  # Check if physical_drives is not None
+        if physical_drives:
             for key, value in physical_drives.items():
                 if key == iSerial:
                     drive_number = value
                     break
 
         isReadOnly = readonly_map.get(drive_number, False)
-
         drive_letter = get_drive_letter_via_ps(drive_number)
 
         if wmi_usb_drives[item]["size_gb"] == 0.0:
@@ -874,12 +869,13 @@ def instantiate_class_objects(
                 wmi_usb_drives[item]["size_gb"], closest_values[idProduct][1]
             )
 
-        # Build best-effort device version info (safe, non-destructive)
+        # Build best-effort device version info
         scb_part = "N/A"
         hw_ver = "N/A"
         model_id = "N/A"
         mcu_fw_str = "N/A"
         bridge_fw = "N/A"
+
         if (
             query_device_version is not None
             and isinstance(drive_number, int)
@@ -887,6 +883,8 @@ def instantiate_class_objects(
         ):
             try:
                 _ver = query_device_version(drive_number)
+
+                # 1. Try standard attribute access
                 if getattr(_ver, "scb_part_number", ""):
                     scb_part = _ver.scb_part_number
                 if getattr(_ver, "hardware_version", None):
@@ -898,11 +896,28 @@ def instantiate_class_objects(
                     mcu_fw_str = f"{mj}.{mn}.{sb}"
                 if getattr(_ver, "bridge_fw", None):
                     bridge_fw = _ver.bridge_fw or "N/A"
+
+                # 2. Fallback Parsing for OOB Mode
+                # If standard parsing returned N/A, check the raw data for the version pattern.
+                # OOB devices return data like: ... (C) 2011 - 20    21-00100000001\xe0 ...
+                # Normal devices return:        ... (C) 2011 - 20 \x00\x00 ...
+                if scb_part == "N/A" and hasattr(_ver, "raw"):
+                    try:
+                        # Convert ctypes array to bytes if needed
+                        raw_data = bytes(_ver.raw)
+                        # Look for the version pattern: 2 digits, hyphen, 11 digits
+                        # e.g., "21-00100000001"
+                        match = re.search(rb"(\d{2}-\d{11})", raw_data)
+                        if match:
+                            scb_part = match.group(1).decode("utf-8")
+                            # If we found the part number manually, the data is valid.
+                            # We keep the other fields as "N/A" rather than deleting them.
+                    except Exception:
+                        pass
             except Exception:
-                # Any failure (including PermissionError) leaves fields as N/A
                 pass
 
-        # Create device info with controller + version details
+        # Create device info object
         dev_info = WinUsbDeviceInfo(
             bcdUSB=bcdUSB,
             idVendor=idVendor,
@@ -926,33 +941,23 @@ def instantiate_class_objects(
             mcuFW=mcu_fw_str,
             bridgeFW=bridge_fw,
         )
-        # Remove version fields if bridgeFW doesn't match bcdDevice (device can't report reliably)
-        try:
 
-            def _norm_hex4(s: Any) -> str | None:
-                if s is None:
-                    return None
-                ss = str(s).strip()
-                ss = ss.replace("0x", "").replace("0X", "").replace(".", "")
-                ss = re.sub(r"[^0-9a-fA-F]", "", ss)
-                if not ss:
-                    return None
-                if len(ss) > 4:
-                    ss = ss[-4:]
-                return ss.lower().zfill(4)
+        # --- VALIDATION AND CLEANUP LOGIC ---
+        # Logic:
+        # 1. If scbPartNumber is "N/A", the device returned no valid data (Locked/Normal),
+        #    so we hide the fields to avoid confusion.
+        # 2. If scbPartNumber HAS value (either from standard parse or our OOB fallback),
+        #    we keep the fields.
 
-            _bd = _norm_hex4(getattr(dev_info, "bcdDevice", None))
-            _bf = _norm_hex4(getattr(dev_info, "bridgeFW", None))
-            if _bd is None or _bf is None or _bd != _bf:
-                for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
-                    try:
-                        delattr(dev_info, _k)
-                    except Exception:
-                        pass
-        except Exception:
-            # If sanitization fails, leave object as-is
-            pass
+        if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
+            for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
+                try:
+                    delattr(dev_info, _k)
+                except Exception:
+                    pass
+
         devices.append(dev_info)
+
     return devices if devices else None
 
 

@@ -250,6 +250,61 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                 media_type = "Unknown"
                 bsd_name = ""
 
+            # --- Best-effort Device Version Info (UPDATED Logic) ---
+            scb_part = "N/A"
+            hw_ver = "N/A"
+            model_id = "N/A"
+            mcu_fw_str = "N/A"
+            bridge_fw = "N/A"
+
+            # Check if we have a bsd_name to target (e.g., "disk2")
+            if query_device_version is not None and bsd_name:
+                # macOS query expects a path like /dev/disk2
+                device_path = f"/dev/{bsd_name}"
+                try:
+                    _ver = query_device_version(device_path)
+
+                    # 1. Try standard attribute access
+                    if getattr(_ver, "scb_part_number", ""):
+                        scb_part = _ver.scb_part_number
+                    if getattr(_ver, "hardware_version", None):
+                        hw_ver = _ver.hardware_version or "N/A"
+                    if getattr(_ver, "model_id", None):
+                        model_id = _ver.model_id or "N/A"
+                    mj, mn, sb = getattr(_ver, "mcu_fw", (None, None, None))
+                    if mj is not None and mn is not None and sb is not None:
+                        mcu_fw_str = f"{mj}.{mn}.{sb}"
+                    if getattr(_ver, "bridge_fw", None):
+                        bridge_fw = _ver.bridge_fw or "N/A"
+
+                    # 2. Fallback Parsing for OOB Mode
+                    # Check for .raw_data (preferred) or .raw (ctypes fallback)
+                    raw_bytes = None
+                    if hasattr(_ver, "raw_data"):
+                        raw_bytes = bytes(_ver.raw_data)
+                    elif hasattr(_ver, "raw"):
+                        raw_bytes = bytes(_ver.raw)
+
+                    if scb_part == "N/A" and raw_bytes:
+                        try:
+                            if len(raw_bytes) >= 4:
+                                bridge_fw = f"{raw_bytes[2]:02x}{raw_bytes[3]:02x}"
+
+                            match = re.search(rb"(\d{2})-(\d{11})", raw_bytes)
+                            if match:
+                                p1_str = match.group(1).decode("utf-8")
+                                p2_str = match.group(2).decode("utf-8")
+                                scb_part = f"{p1_str}-{p2_str[:4]}"
+                                digits = [int(c) for c in p2_str]
+                                if len(digits) >= 11:
+                                    model_id = f"{digits[4]}{digits[5]}"
+                                    hw_ver = f"{digits[6]}.{digits[7]}"
+                                    mcu_fw_str = f"{digits[8]}.{digits[9]}.{digits[10]}"
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+
             dev_info = macOSUsbDeviceInfo(
                 bcdUSB=bcdUSB_str,
                 idVendor=idVendor_str,
@@ -262,38 +317,20 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                 driveSizeGB=drive_size_gb,
                 blockDevice=bsd_name,
                 mediaType=media_type,
+                scbPartNumber=scb_part,
+                hardwareVersion=hw_ver,
+                modelID=model_id,
+                mcuFW=mcu_fw_str,
+                bridgeFW=bridge_fw,
             )
-            # Version sanitization logic (from original code)
-            try:
 
-                def _norm_hex4(s: object) -> str | None:
-                    if s is None:
-                        return None
-                    ss = str(s).strip()
-                    ss = ss.replace("0x", "").replace("0X", "").replace(".", "")
-                    ss = re.sub(r"[^0-9a-fA-F]", "", ss)
-                    if not ss:
-                        return None
-                    if len(ss) > 4:
-                        ss = ss[-4:]
-                    return ss.lower().zfill(4)
-
-                _bd = _norm_hex4(getattr(dev_info, "bcdDevice", None))
-                _bf = _norm_hex4(getattr(dev_info, "bridgeFW", None))
-                if _bd is None or _bf is None or _bd != _bf:
-                    for _k in (
-                        "scbPartNumber",
-                        "hardwareVersion",
-                        "modelID",
-                        "mcuFW",
-                    ):
-                        try:
-                            delattr(dev_info, _k)
-                        except Exception:
-                            pass
-            except Exception:
-                # If sanitization fails, leave object as-is
-                pass
+            # --- VALIDATION AND CLEANUP LOGIC ---
+            if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
+                for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
+                    try:
+                        delattr(dev_info, _k)
+                    except Exception:
+                        pass
 
             apricorn_devices.append(dev_info)
 
