@@ -5,7 +5,6 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional, Union
 import json
-from pprint import pprint
 
 from .device_config import closest_values
 from .utils import bytes_to_gb, find_closest
@@ -138,14 +137,14 @@ def list_usb_drives():
         return []
     else:
         usb_drives = json.loads(result.stdout)
-        obj=usb_drives["SPUSBDataType"]
         matches = []
 
         def recurse(obj=usb_drives["SPUSBDataType"]):
             if isinstance(obj, dict):
                 # Check vendor_id
-                vendor_id = obj.get('vendor_id', '')
-                if '0984' in vendor_id:
+                vendor_id = obj.get("vendor_id", "")
+                manufacturer = obj.get("manufacturer", "")
+                if "0984" in vendor_id or "Apricorn" in manufacturer:
                     matches.append(obj)
                 # Recurse into all dictionary values
                 for value in obj.values():
@@ -156,35 +155,38 @@ def list_usb_drives():
                     recurse(item)
 
         recurse()
-#        pprint(matches)
+        #        pprint(matches)
         return matches
 
 
 def parse_uasp_info():
     uas_dict = {}
-    
+
     # Get the list of all USB drives detected by system_profiler
     all_drives = list_usb_drives()
 
     for drive in all_drives:
-        product_name = drive.get('_name')
+        product_name = drive.get("_name")
         bsd_name = None
-        if 'Media' in drive and len(drive['Media']) > 0:
-            bsd_name = drive['Media'][0].get('bsd_name')
+        if "Media" in drive and len(drive["Media"]) > 0:
+            bsd_name = drive["Media"][0].get("bsd_name")
 
         if product_name and bsd_name:
             cmd = ["diskutil", "info", bsd_name]
             result = subprocess.run(cmd, capture_output=True, text=True)
-            
+
             is_uas = False
             if result.returncode == 0:
                 # Check for "Protocol: USB" and "Transport: UAS"
-                if "Protocol: USB" in result.stdout and "Transport: UAS" in result.stdout:
+                if (
+                    "Protocol: USB" in result.stdout
+                    and "Transport: UAS" in result.stdout
+                ):
                     is_uas = True
-            
+
             uas_dict[product_name] = is_uas
-            
-#    pprint(uas_dict)
+
+    #    pprint(uas_dict)
     return uas_dict
 
 
@@ -209,7 +211,6 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
     all_drives = list_usb_drives()
     apricorn_uas_status = parse_uasp_info()
     # target_disk = list_disk_partitions() #fdisk
-    apricorn_hardware = parse_uasp_info()  # lshw
 
     apricorn_devices = []
     for drive in all_drives:
@@ -225,17 +226,19 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
             iManufacturer_str = drive.get("manufacturer", "")
             iProduct_str = drive.get("_name", "")
             iSerial_str = drive.get("serial_num", "")
-            
-            drive_size_gb = 0
+
+            drive_size_gb: Union[int, str] = 0
             media_type = "Unknown"
 
-            if 'Media' in drive and len(drive['Media']) > 0:
-                media_info = drive['Media'][0]
+            if "Media" in drive and len(drive["Media"]) > 0:
+                media_info = drive["Media"][0]
                 size_in_bytes = media_info.get("size_in_bytes", 0)
-                drive_size_gb = find_closest(
+                approx_size = find_closest(
                     bytes_to_gb(size_in_bytes),
                     closest_values.get(idProduct_str, (0, [0]))[1],
                 )
+                drive_size_gb = approx_size if approx_size is not None else 0
+
                 removable_val = media_info.get("removable_media", "unknown")
                 if removable_val == "yes":
                     media_type = "Removable Media"
@@ -262,6 +265,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
             )
             # Version sanitization logic (from original code)
             try:
+
                 def _norm_hex4(s: object) -> str | None:
                     if s is None:
                         return None
@@ -290,7 +294,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
             except Exception:
                 # If sanitization fails, leave object as-is
                 pass
-            
+
             apricorn_devices.append(dev_info)
 
     return apricorn_devices if apricorn_devices else None

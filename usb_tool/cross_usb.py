@@ -99,11 +99,9 @@ def print_help():
 
 NAME
        usb - Cross-platform USB tool for Apricorn devices (Windows)
-       usb-update - Update the usb-tool installation
 
 SYNOPSIS
-       usb [-h] [-v] [-p TARGETS]
-       usb-update
+       usb [-h] [-p TARGETS]
 
 DESCRIPTION
        The usb-tool utility scans the system for connected Apricorn USB devices
@@ -115,9 +113,6 @@ DESCRIPTION
 OPTIONS
        -h, --help
               Show this help message and exit.
-
-       -v, --version
-              Show tool version number.
 
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
@@ -144,11 +139,9 @@ EXAMPLES
 
 NAME
        usb - Cross-platform USB tool for Apricorn devices (Linux)
-       usb-update - Update the usb-tool installation
 
 SYNOPSIS
-       usb [-h] [-v] [-p TARGETS]
-       usb-update
+       usb [-h] [-p TARGETS]
 
 DESCRIPTION
        The usb-tool utility scans the system for connected Apricorn USB devices.
@@ -160,9 +153,6 @@ DESCRIPTION
 OPTIONS
        -h, --help
               Show this help message and exit.
-
-       -v, --version
-              Show tool version number.
 
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
@@ -184,11 +174,9 @@ EXAMPLES
 
 NAME
        usb - Cross-platform USB tool for Apricorn devices (macOS)
-       usb-update - Update the usb-tool installation
 
 SYNOPSIS
-       usb [-h] [-v] [-p TARGETS]
-       usb-update
+       usb [-h] [-p TARGETS]
 
 DESCRIPTION
        The usb-tool utility scans the system for connected Apricorn USB devices
@@ -202,9 +190,6 @@ DESCRIPTION
 OPTIONS
        -h, --help
               Show this help message and exit.
-
-       -v, --version
-              Show tool version number.
 
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
