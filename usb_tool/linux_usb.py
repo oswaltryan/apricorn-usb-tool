@@ -2,47 +2,14 @@
 
 import subprocess
 import re
-from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 import json
 import os
 import sys
 
+from .common import UsbDeviceInfo, populate_device_version
 from .device_config import closest_values
 from .utils import bytes_to_gb, find_closest
-
-# Version query via READ BUFFER (6)
-try:
-    from .device_version import query_device_version
-except Exception:
-    query_device_version = None  # type: ignore
-
-
-# -----------------------------
-# Same Dataclass as on Windows
-# -----------------------------
-@dataclass
-class LinuxUsbDeviceInfo:
-    """Dataclass mirroring the Windows USB device info structure for Linux."""
-
-    bcdUSB: float
-    idVendor: str
-    idProduct: str
-    bcdDevice: str
-    iManufacturer: str
-    iProduct: str
-    iSerial: str
-    SCSIDevice: bool = False
-    driveSizeGB: Any = "N/A (OOB Mode)"
-    # usbController: str = "" # Removed, not easily available/reliable on Linux
-    blockDevice: str = "N/A"
-    mediaType: str = "Unknown"
-    # Device version details (best-effort; Linux requires sg path + root)
-    scbPartNumber: str = "N/A"
-    hardwareVersion: str = "N/A"
-    modelID: str = "N/A"
-    mcuFW: str = "N/A"
-    bridgeFW: str = "N/A"
 
 
 def _sg_path_for_block(block_device: str) -> Optional[str]:
@@ -77,7 +44,7 @@ def sort_devices(devices: list) -> list:
     """Sort devices by block device path.
 
     Args:
-        devices: List of ``LinuxUsbDeviceInfo`` instances.
+        devices: List of ``UsbDeviceInfo`` instances.
 
     Returns:
         Devices ordered alphabetically by the ``blockDevice`` attribute with
@@ -602,14 +569,14 @@ def parse_lsusb_output(
 # ------------------------------------------------------
 # Enumerate "lsusb", filter for Apricorn, gather details - MODIFIED
 # ------------------------------------------------------
-def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never None
+def find_apricorn_device() -> List[UsbDeviceInfo]:  # Return List, never None
     """
     Enumerates USB devices using 'lsusb', filters for Apricorn devices (VID 0984),
     and gathers detailed information using 'lsusb -v', 'lshw', and 'lsblk'.
     Correlates information primarily based on block device name, using serial
     number as the link to lsusb data. Handles multiple devices sharing VID:PID.
 
-    Returns a list of LinuxUsbDeviceInfo objects for detected Apricorn devices.
+    Returns a list of UsbDeviceInfo objects for detected Apricorn devices.
     Excludes known non-target devices (PID 0221, 0301).
     Returns an empty list if no devices are found or critical commands fail.
     """
@@ -851,66 +818,13 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
         if not isinstance(iManufacturer_str, str):
             iManufacturer_str = str(iManufacturer_str)
 
-        # --- Best-effort Device Version Info (UPDATED Logic) ---
-        scb_part = "N/A"
-        hw_ver = "N/A"
-        model_id = "N/A"
-        mcu_fw_str = "N/A"
-        bridge_fw = "N/A"
-
-        if query_device_version is not None and isinstance(blockDevice_str, str):
+        version_info = {}
+        if isinstance(blockDevice_str, str):
             sg_path = _sg_path_for_block(blockDevice_str)
             if sg_path:
-                try:
-                    _ver = query_device_version(sg_path)
+                version_info = populate_device_version(sg_path)
 
-                    # 1. Try standard attribute access
-                    if getattr(_ver, "scb_part_number", ""):
-                        scb_part = _ver.scb_part_number
-                    if getattr(_ver, "hardware_version", None):
-                        hw_ver = _ver.hardware_version or "N/A"
-                    if getattr(_ver, "model_id", None):
-                        model_id = _ver.model_id or "N/A"
-                    mj, mn, sb = getattr(_ver, "mcu_fw", (None, None, None))
-                    if mj is not None and mn is not None and sb is not None:
-                        mcu_fw_str = f"{mj}.{mn}.{sb}"
-                    if getattr(_ver, "bridge_fw", None):
-                        bridge_fw = _ver.bridge_fw or "N/A"
-
-                    # 2. Fallback Parsing for OOB Mode
-                    # If standard parsing returned N/A, check the raw data for the version pattern.
-                    # Check for .raw_data (preferred) or .raw (ctypes fallback)
-                    raw_bytes = None
-                    if hasattr(_ver, "raw_data"):
-                        raw_bytes = bytes(_ver.raw_data)
-                    elif hasattr(_ver, "raw"):
-                        raw_bytes = bytes(_ver.raw)
-
-                    if scb_part == "N/A" and raw_bytes:
-                        try:
-                            # Extract Bridge FW from bytes 2 and 3
-                            if len(raw_bytes) >= 4:
-                                bridge_fw = f"{raw_bytes[2]:02x}{raw_bytes[3]:02x}"
-
-                            # Look for the version pattern: 2 digits, hyphen, 11 digits
-                            # RENAMED variable 'match' to 'raw_match' to avoid mypy type conflict
-                            raw_match = re.search(rb"(\d{2})-(\d{11})", raw_bytes)
-                            if raw_match:
-                                p1_str = raw_match.group(1).decode("utf-8")
-                                p2_str = raw_match.group(2).decode("utf-8")
-                                scb_part = f"{p1_str}-{p2_str[:4]}"
-                                digits = [int(c) for c in p2_str]
-
-                                if len(digits) >= 11:
-                                    model_id = f"{digits[4]}{digits[5]}"
-                                    hw_ver = f"{digits[6]}.{digits[7]}"
-                                    mcu_fw_str = f"{digits[8]}.{digits[9]}.{digits[10]}"
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-
-        dev_info = LinuxUsbDeviceInfo(
+        dev_info = UsbDeviceInfo(
             bcdUSB=bcdUSB_float,
             idVendor=vid_lower,
             idProduct=pid_lower,
@@ -922,22 +836,8 @@ def find_apricorn_device() -> List[LinuxUsbDeviceInfo]:  # Return List, never No
             driveSizeGB=driveSize_val,
             blockDevice=blockDevice_str,
             mediaType=mediaType_str,
-            scbPartNumber=scb_part,
-            hardwareVersion=hw_ver,
-            modelID=model_id,
-            mcuFW=mcu_fw_str,
-            bridgeFW=bridge_fw,
+            **version_info,
         )
-
-        # --- VALIDATION AND CLEANUP LOGIC ---
-        # Only delete fields if scbPartNumber is "N/A" (meaning no valid data found).
-        # We assume if we found a part number (standard or fallback), the other data is likely valid.
-        if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
-            for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
-                try:
-                    delattr(dev_info, _k)
-                except Exception:
-                    pass
 
         all_found_devices.append(dev_info)
 

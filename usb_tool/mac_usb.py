@@ -2,65 +2,19 @@
 
 import subprocess
 import re
-from dataclasses import dataclass
 from typing import List, Optional, Union
 import json
 
+from .common import UsbDeviceInfo, populate_device_version
 from .device_config import closest_values
 from .utils import bytes_to_gb, find_closest
-
-# Version query (READ BUFFER 0x3C). On macOS, end-to-end permissions
-# and disk path resolution may limit availability; fields default to N/A.
-try:
-    from .device_version import query_device_version
-except Exception:
-    query_device_version = None  # type: ignore
-
-
-# -----------------------------
-# Same Dataclass as on Windows
-# -----------------------------
-@dataclass
-class macOSUsbDeviceInfo:
-    """
-    Represents information about an Apricorn USB device on macOS.
-
-    Attributes:
-        bcdUSB (float): USB specification release number.
-        idVendor (str): Vendor ID assigned by the USB Implementers Forum.
-        idProduct (str): Product ID assigned by the manufacturer.
-        bcdDevice (str): Device revision number.
-        iManufacturer (str): Index of the manufacturer string descriptor.
-        iProduct (str): Index of the product string descriptor.
-        iSerial (str): Index of the serial number string descriptor.
-        SCSIDevice (bool): Indicates if the device uses SCSI commands over USB (UAS).
-        driveSizeGB (int): Approximate drive size in Gigabytes.
-    """
-
-    bcdUSB: float
-    idVendor: str
-    idProduct: str
-    bcdDevice: str
-    iManufacturer: str
-    iProduct: str
-    iSerial: str
-    SCSIDevice: bool = False
-    driveSizeGB: Union[int, str] = 0
-    blockDevice: str = ""
-    mediaType: str = "Unknown"
-    # Device version details (best-effort; typically not available without raw disk access)
-    scbPartNumber: str = "N/A"
-    hardwareVersion: str = "N/A"
-    modelID: str = "N/A"
-    mcuFW: str = "N/A"
-    bridgeFW: str = "N/A"
 
 
 def sort_devices(devices: list) -> list:
     """Return devices sorted by serial number.
 
     Args:
-        devices: List of ``macOSUsbDeviceInfo`` instances.
+        devices: List of ``UsbDeviceInfo`` instances.
 
     Returns:
         Devices ordered by their ``iSerial`` attribute. Devices lacking a
@@ -193,15 +147,15 @@ def parse_uasp_info():
 # ------------------------------------------------------
 # Enumerate devices, filter for Apricorn, gather details
 # ------------------------------------------------------
-def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
+def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
     """
     Identifies connected Apricorn USB devices and gathers detailed information
     about them, including USB descriptors, product information, and whether
-    they are using UAS. It then maps this information to the `macOSUsbDeviceInfo`
+    they are using UAS. It then maps this information to the `UsbDeviceInfo`
     dataclass.
 
     Returns:
-        Optional[List[macOSUsbDeviceInfo]]: A list of `macOSUsbDeviceInfo` objects,
+        Optional[List[UsbDeviceInfo]]: A list of `UsbDeviceInfo` objects,
                                              each representing an Apricorn USB device
                                              found on the system. Returns None if no
                                              Apricorn devices are detected or if
@@ -229,6 +183,7 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
 
             drive_size_gb: Union[int, str] = 0
             media_type = "Unknown"
+            bsd_name = ""
 
             if "Media" in drive and len(drive["Media"]) > 0:
                 media_info = drive["Media"][0]
@@ -248,64 +203,13 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
             else:
                 drive_size_gb = "N/A (OOB Mode)"
                 media_type = "Unknown"
-                bsd_name = ""
 
-            # --- Best-effort Device Version Info (UPDATED Logic) ---
-            scb_part = "N/A"
-            hw_ver = "N/A"
-            model_id = "N/A"
-            mcu_fw_str = "N/A"
-            bridge_fw = "N/A"
-
-            # Check if we have a bsd_name to target (e.g., "disk2")
-            if query_device_version is not None and bsd_name:
-                # macOS query expects a path like /dev/disk2
+            version_info = {}
+            if bsd_name:
                 device_path = f"/dev/{bsd_name}"
-                try:
-                    _ver = query_device_version(device_path)
+                version_info = populate_device_version(device_path)
 
-                    # 1. Try standard attribute access
-                    if getattr(_ver, "scb_part_number", ""):
-                        scb_part = _ver.scb_part_number
-                    if getattr(_ver, "hardware_version", None):
-                        hw_ver = _ver.hardware_version or "N/A"
-                    if getattr(_ver, "model_id", None):
-                        model_id = _ver.model_id or "N/A"
-                    mj, mn, sb = getattr(_ver, "mcu_fw", (None, None, None))
-                    if mj is not None and mn is not None and sb is not None:
-                        mcu_fw_str = f"{mj}.{mn}.{sb}"
-                    if getattr(_ver, "bridge_fw", None):
-                        bridge_fw = _ver.bridge_fw or "N/A"
-
-                    # 2. Fallback Parsing for OOB Mode
-                    # Check for .raw_data (preferred) or .raw (ctypes fallback)
-                    raw_bytes = None
-                    if hasattr(_ver, "raw_data"):
-                        raw_bytes = bytes(_ver.raw_data)
-                    elif hasattr(_ver, "raw"):
-                        raw_bytes = bytes(_ver.raw)
-
-                    if scb_part == "N/A" and raw_bytes:
-                        try:
-                            if len(raw_bytes) >= 4:
-                                bridge_fw = f"{raw_bytes[2]:02x}{raw_bytes[3]:02x}"
-
-                            match = re.search(rb"(\d{2})-(\d{11})", raw_bytes)
-                            if match:
-                                p1_str = match.group(1).decode("utf-8")
-                                p2_str = match.group(2).decode("utf-8")
-                                scb_part = f"{p1_str}-{p2_str[:4]}"
-                                digits = [int(c) for c in p2_str]
-                                if len(digits) >= 11:
-                                    model_id = f"{digits[4]}{digits[5]}"
-                                    hw_ver = f"{digits[6]}.{digits[7]}"
-                                    mcu_fw_str = f"{digits[8]}.{digits[9]}.{digits[10]}"
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-
-            dev_info = macOSUsbDeviceInfo(
+            dev_info = UsbDeviceInfo(
                 bcdUSB=bcdUSB_str,
                 idVendor=idVendor_str,
                 idProduct=idProduct_str,
@@ -317,20 +221,8 @@ def find_apricorn_device() -> Optional[List[macOSUsbDeviceInfo]]:
                 driveSizeGB=drive_size_gb,
                 blockDevice=bsd_name,
                 mediaType=media_type,
-                scbPartNumber=scb_part,
-                hardwareVersion=hw_ver,
-                modelID=model_id,
-                mcuFW=mcu_fw_str,
-                bridgeFW=bridge_fw,
+                **version_info,
             )
-
-            # --- VALIDATION AND CLEANUP LOGIC ---
-            if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
-                for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
-                    try:
-                        delattr(dev_info, _k)
-                    except Exception:
-                        pass
 
             apricorn_devices.append(dev_info)
 
@@ -346,7 +238,7 @@ def main(find_apricorn_device=None):
 
     Args:
         find_apricorn_device (callable): A function that returns a list of
-                                         macOSUsbDeviceInfo objects representing
+                                         UsbDeviceInfo objects representing
                                          connected Apricorn devices.
     """
     finder = (

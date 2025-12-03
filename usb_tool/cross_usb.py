@@ -303,32 +303,6 @@ def _handle_list_action(devices: list) -> None:
         if attributes and isinstance(attributes, dict):
             # Work on a copy for printing to avoid mutating the dataclass
             printable = dict(attributes)
-            # Sanitize version fields if bridgeFW does not match bcdDevice
-            try:
-
-                def _norm_hex4(val: object) -> str | None:
-                    if val is None:
-                        return None
-                    s = str(val).strip()
-                    s = s.replace("0x", "").replace("0X", "").replace(".", "")
-                    # Keep only hex digits
-                    import re as _re
-
-                    s = _re.sub(r"[^0-9a-fA-F]", "", s)
-                    if not s:
-                        return None
-                    if len(s) > 4:
-                        s = s[-4:]
-                    return s.lower().zfill(4)
-
-                _bd = _norm_hex4(printable.get("bcdDevice"))
-                _bf = _norm_hex4(printable.get("bridgeFW"))
-                if _bd is None or _bf is None or _bd != _bf:
-                    for _k in ("scbPartNumber", "hardwareVersion", "modelID", "mcuFW"):
-                        printable.pop(_k, None)
-            except Exception:
-                # If anything goes wrong, fall back to printing as-is
-                pass
             # Always omit bridgeFW from final output (collected internally only)
             printable.pop("bridgeFW", None)
 
