@@ -432,7 +432,8 @@ def parse_lsusb_output(
 
     # Use sudo if available and needed (heuristic: check if we are not root)
     sudo_prefix = []
-    if os.geteuid() != 0:  # type: ignore
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid and geteuid() != 0:
         sudo_path = shutil.which("sudo")
         if sudo_path:
             sudo_prefix = [sudo_path]
@@ -880,7 +881,8 @@ def main(find_apricorn_device_func=None):
     """
     import shutil  # Import here for fdisk/lshw/lsusb path finding
 
-    if hasattr(os, "geteuid") and os.geteuid() != 0:
+    geteuid = getattr(os, "geteuid", None)
+    if geteuid and geteuid() != 0:
         print(
             "Warning: This script may require root privileges (sudo) for full functionality (lshw, fdisk, lsusb -v).",
             file=sys.stderr,

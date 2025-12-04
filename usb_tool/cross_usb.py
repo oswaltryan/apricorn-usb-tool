@@ -240,8 +240,9 @@ def sync_poke_drive(device_identifier):
     except PokeScsiError as e:
         # Mimic Windows output format
         print(f"  Device {device_identifier}: Poke FAILED (SCSI Error)")
+        scsi_status = getattr(e, "scsi_status", None)
         status_str = (
-            f"0x{int(e.scsi_status):02X}" if isinstance(e.scsi_status, int) else "N/A"
+            f"0x{int(scsi_status):02X}" if isinstance(scsi_status, int) else "N/A"
         )
         print(f"    Status: {status_str}, Sense: {getattr(e, 'sense_hex', 'N/A')}")
         return False

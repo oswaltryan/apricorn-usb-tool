@@ -12,8 +12,11 @@ import sys
 import os
 import platform
 import errno
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 import time  # Used only in example
+
+if TYPE_CHECKING:
+    import ctypes.wintypes as wintypes
 
 # --- Platform Specific Setup ---
 _SYSTEM = platform.system()
@@ -21,6 +24,7 @@ _SYSTEM = platform.system()
 # Forward declarations for libc/ioctl so assignments to None type-check.
 libc: Optional[ctypes.CDLL] = None
 ioctl: Optional[Any] = None
+
 
 # --- Constants ---
 # SCSI Opcodes

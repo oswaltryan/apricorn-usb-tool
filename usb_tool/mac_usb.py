@@ -261,15 +261,15 @@ def main(find_apricorn_device=None):
         else globals().get("find_apricorn_device")
     )
     devices = finder() if callable(finder) else None
-    if not devices:
-        print("No Apricorn devices found.")
-    else:
+    if devices and isinstance(devices, list):
         for idx, dev in enumerate(devices, start=1):
             print(f"\n=== Apricorn Device #{idx} ===")
             _printable = dict(dev.__dict__)
             _printable.pop("bridgeFW", None)
             for field_name, value in _printable.items():
                 print(f"  {field_name}: {value}")
+    else:
+        print("No Apricorn devices found.")
 
 
 if __name__ == "__main__":
