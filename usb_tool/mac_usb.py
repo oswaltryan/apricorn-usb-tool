@@ -219,10 +219,24 @@ def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
                 iSerial=iSerial_str,
                 SCSIDevice=is_uas,
                 driveSizeGB=drive_size_gb,
-                blockDevice=bsd_name,
                 mediaType=media_type,
                 **version_info,
             )
+
+            if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
+                for _k in (
+                    "scbPartNumber",
+                    "hardwareVersion",
+                    "modelID",
+                    "mcuFW",
+                    "bridgeFW",
+                ):
+                    try:
+                        delattr(dev_info, _k)
+                    except AttributeError:
+                        pass
+
+            setattr(dev_info, "blockDevice", bsd_name)
 
             apricorn_devices.append(dev_info)
 

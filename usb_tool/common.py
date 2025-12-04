@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, Optional, TYPE_CHECKING
+import sys
 
 
 @dataclass
@@ -20,22 +21,21 @@ class UsbDeviceInfo:
     SCSIDevice: bool = False
     driveSizeGB: Any = 0
     mediaType: str = "Unknown"
+
+    if sys.platform == "win32":
+        # Windows-specific fields
+        usbController: Optional[str] = ""
+        busNumber: Optional[int] = 0
+        deviceAddress: Optional[int] = 0
+        physicalDriveNum: Optional[int] = 0
+        driveLetter: Optional[str] = "Not Formatted"
+        readOnly: Optional[bool] = False
+
     scbPartNumber: str = "N/A"
     hardwareVersion: str = "N/A"
     modelID: str = "N/A"
     mcuFW: str = "N/A"
     bridgeFW: str = "N/A"
-
-    # Windows-specific fields
-    usbController: Optional[str] = ""
-    busNumber: Optional[int] = 0
-    deviceAddress: Optional[int] = 0
-    physicalDriveNum: Optional[int] = 0
-    driveLetter: Optional[str] = "N/A"
-    readOnly: Optional[bool] = False
-
-    # Linux/macOS-specific fields
-    blockDevice: Optional[str] = "N/A"
 
 
 _device_version_imported = False
@@ -69,7 +69,13 @@ def populate_device_version(target: Any) -> dict:
     }
 
     if not _device_version_imported:
-        return version_info
+        return {
+            "scbPartNumber": "N/A",
+            "hardwareVersion": "N/A",
+            "modelID": "N/A",
+            "mcuFW": "N/A",
+            "bridgeFW": "N/A",
+        }
 
     try:
         _ver = query_device_version(target)

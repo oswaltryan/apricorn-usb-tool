@@ -67,7 +67,7 @@ def test_parse_usb_version_decodes_bcd_numbers():
 
 def test_get_drive_letter_via_ps_handles_invalid_index():
     """A negative drive index should yield 'N/A'."""
-    assert windows_usb.get_drive_letter_via_ps(-1) == "N/A"
+    assert windows_usb.get_drive_letter_via_ps(-1) == "Not Formatted"
 
 
 def test_get_drive_letter_via_ps_parses_output():

@@ -141,7 +141,7 @@ def get_drive_letter_via_ps(drive_index: int) -> str:
 
     # A drive index less than 0 is invalid.
     if drive_index < 0:
-        return "N/A"
+        return "Not Formatted"
 
     # This is your PowerShell script, slightly modified to collect and output
     # all drive letters on a single line for easy parsing by Python.
@@ -174,11 +174,11 @@ def get_drive_letter_via_ps(drive_index: int) -> str:
         # Get the output and remove any leading/trailing whitespace.
         output = result.stdout.strip()
 
-        return output if output else "N/A"
+        return output if output else "Not Formatted"
 
     except (subprocess.CalledProcessError, FileNotFoundError):
         # If the script fails for any reason, return "N/A".
-        return "N/A"
+        return "Not Formatted"
 
 
 def get_wmi_usb_devices():
@@ -834,15 +834,32 @@ def instantiate_class_objects(
             iSerial=iSerial,
             SCSIDevice=SCSIDevice,
             driveSizeGB=driveSizeGB,
-            usbController=usbController,
-            busNumber=bus_number,
-            deviceAddress=dev_address,
-            physicalDriveNum=drive_number,
-            driveLetter=drive_letter,
             mediaType=mediaType,
-            readOnly=isReadOnly,
             **version_info,
         )
+
+        setattr(dev_info, "usbController", usbController)
+        setattr(dev_info, "busNumber", bus_number)
+        setattr(dev_info, "deviceAddress", dev_address)
+        setattr(dev_info, "physicalDriveNum", drive_number)
+        setattr(dev_info, "driveLetter", drive_letter)
+        setattr(dev_info, "readOnly", isReadOnly)
+
+        if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
+            for _k in (
+                "scbPartNumber",
+                "hardwareVersion",
+                "modelID",
+                "mcuFW",
+                "bridgeFW",
+            ):
+                try:
+                    delattr(dev_info, _k)
+                except AttributeError:
+                    pass
+
+        if getattr(dev_info, "driveSizeGB", "N/A") == "N/A (OOB Mode)":
+            delattr(dev_info, "driveLetter")
 
         devices.append(dev_info)
 
