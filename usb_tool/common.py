@@ -40,10 +40,10 @@ class UsbDeviceInfo:
 
 _device_version_imported = False
 if TYPE_CHECKING:
-    from .device_version import query_device_version
+    from usb_tool.device_version import query_device_version
 
 try:
-    from .device_version import query_device_version
+    from usb_tool.device_version import query_device_version
 
     _device_version_imported = True
 except (ImportError, ModuleNotFoundError):

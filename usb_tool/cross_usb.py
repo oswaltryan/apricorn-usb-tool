@@ -11,7 +11,7 @@ from importlib.metadata import version, PackageNotFoundError
 # Optional: device version query (READ BUFFER 0x3C)
 query_device_version: Optional[Callable[..., Any]]
 try:
-    from .device_version import query_device_version as _query_device_version
+    from usb_tool.device_version import query_device_version as _query_device_version
 
     query_device_version = _query_device_version
 except Exception:
@@ -29,7 +29,10 @@ if _SYSTEM.startswith(("win", "linux", "darwin")):
     PokeScsiError: Type[Exception]
     try:
         # Use relative import for package structure
-        from .poke_device import send_scsi_read10, ScsiError as _ImportedScsiError
+        from usb_tool.poke_device import (
+            send_scsi_read10,
+            ScsiError as _ImportedScsiError,
+        )
 
         POKE_AVAILABLE = True
         PokeScsiError = _ImportedScsiError
@@ -516,11 +519,11 @@ def main():
         sys.exit(0)
 
     if _SYSTEM.startswith("win"):
-        from . import windows_usb as os_usb
+        from usb_tool import windows_usb as os_usb
     elif _SYSTEM.startswith("darwin"):
-        from . import mac_usb as os_usb
+        from usb_tool import mac_usb as os_usb
     elif _SYSTEM.startswith("linux"):
-        from . import linux_usb as os_usb
+        from usb_tool import linux_usb as os_usb
     else:
         print(f"Unsupported platform: {_SYSTEM}", file=sys.stderr)
         sys.exit(1)

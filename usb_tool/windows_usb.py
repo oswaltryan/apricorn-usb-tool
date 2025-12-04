@@ -6,9 +6,9 @@ from pprint import pprint
 import subprocess
 import win32com.client
 
-from .common import UsbDeviceInfo, populate_device_version
-from .device_config import closest_values
-from .utils import bytes_to_gb, find_closest, parse_usb_version
+from usb_tool.common import UsbDeviceInfo, populate_device_version
+from usb_tool.device_config import closest_values
+from usb_tool.utils import bytes_to_gb, find_closest, parse_usb_version
 
 # Configure libusb to use the included libusb-1.0.dll
 usb.config(LIBUSB=None)

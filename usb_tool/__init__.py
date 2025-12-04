@@ -3,7 +3,7 @@
 import platform
 
 if platform.system().lower().startswith("win"):
-    from .windows_usb import (
+    from usb_tool.windows_usb import (
         find_apricorn_device,
         main,
         UsbDeviceInfo,
@@ -15,7 +15,7 @@ if platform.system().lower().startswith("win"):
         "UsbDeviceInfo",
     ]
 elif platform.system().lower().startswith("darwin"):
-    from .mac_usb import (
+    from usb_tool.mac_usb import (
         find_apricorn_device,
         main,
         UsbDeviceInfo,
@@ -27,7 +27,7 @@ elif platform.system().lower().startswith("darwin"):
         "UsbDeviceInfo",
     ]
 else:
-    from .linux_usb import find_apricorn_device, main, UsbDeviceInfo
+    from usb_tool.linux_usb import find_apricorn_device, main, UsbDeviceInfo
 
     __all__ = [
         "find_apricorn_device",

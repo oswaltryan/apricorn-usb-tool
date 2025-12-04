@@ -7,9 +7,9 @@ import json
 import os
 import sys
 
-from .common import UsbDeviceInfo, populate_device_version
-from .device_config import closest_values
-from .utils import bytes_to_gb, find_closest
+from usb_tool.common import UsbDeviceInfo, populate_device_version
+from usb_tool.device_config import closest_values
+from usb_tool.utils import bytes_to_gb, find_closest
 
 
 def _sg_path_for_block(block_device: str) -> Optional[str]:
