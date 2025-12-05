@@ -19,6 +19,7 @@ import os
 import errno
 import platform
 import re
+import sys
 
 
 @dataclass
@@ -138,97 +139,100 @@ if SYSTEM == "Linux":
 # Windows (SPTI)
 # -----------------
 elif SYSTEM == "Windows":
-    import ctypes.wintypes as wintypes
+    if sys.platform == "win32":
+        import ctypes.wintypes as wintypes
 
-    GENERIC_READ = 0x80000000
-    GENERIC_WRITE = 0x40000000
-    FILE_SHARE_READ = 0x1
-    FILE_SHARE_WRITE = 0x2
-    OPEN_EXISTING = 0x3
-    INVALID_HANDLE_VALUE = -1
-    IOCTL_SCSI_PASS_THROUGH_DIRECT = 0x4D014
+        GENERIC_READ = 0x80000000
+        GENERIC_WRITE = 0x40000000
+        FILE_SHARE_READ = 0x1
+        FILE_SHARE_WRITE = 0x2
+        OPEN_EXISTING = 0x3
+        INVALID_HANDLE_VALUE = -1
+        IOCTL_SCSI_PASS_THROUGH_DIRECT = 0x4D014
 
-    class SCSI_PASS_THROUGH_DIRECT(ctypes.Structure):
-        _fields_ = [
-            ("Length", wintypes.USHORT),
-            ("ScsiStatus", wintypes.BYTE),
-            ("PathId", wintypes.BYTE),
-            ("TargetId", wintypes.BYTE),
-            ("Lun", wintypes.BYTE),
-            ("CdbLength", wintypes.BYTE),
-            ("SenseInfoLength", wintypes.BYTE),
-            ("DataIn", wintypes.BYTE),
-            ("DataTransferLength", wintypes.ULONG),
-            ("TimeOutValue", wintypes.ULONG),
-            ("DataBuffer", ctypes.c_void_p),
-            ("SenseInfoOffset", wintypes.ULONG),
-            ("Cdb", wintypes.BYTE * 16),
-        ]
+        class SCSI_PASS_THROUGH_DIRECT(ctypes.Structure):
+            _fields_ = [
+                ("Length", wintypes.USHORT),
+                ("ScsiStatus", wintypes.BYTE),
+                ("PathId", wintypes.BYTE),
+                ("TargetId", wintypes.BYTE),
+                ("Lun", wintypes.BYTE),
+                ("CdbLength", wintypes.BYTE),
+                ("SenseInfoLength", wintypes.BYTE),
+                ("DataIn", wintypes.BYTE),
+                ("DataTransferLength", wintypes.ULONG),
+                ("TimeOutValue", wintypes.ULONG),
+                ("DataBuffer", ctypes.c_void_p),
+                ("SenseInfoOffset", wintypes.ULONG),
+                ("Cdb", wintypes.BYTE * 16),
+            ]
 
-    class SPTD_WITH_SENSE(ctypes.Structure):
-        _pack_ = 1
-        _fields_ = [
-            ("sptd", SCSI_PASS_THROUGH_DIRECT),
-            ("ucSenseBuf", ctypes.c_ubyte * 32),
-        ]
+        class SPTD_WITH_SENSE(ctypes.Structure):
+            _pack_ = 1
+            _fields_ = [
+                ("sptd", SCSI_PASS_THROUGH_DIRECT),
+                ("ucSenseBuf", ctypes.c_ubyte * 32),
+            ]
 
-    def _windows_read_buffer(physical_drive_num: int, timeout_sec: int = 5) -> bytes:
-        drive_path = rf"\\.\PhysicalDrive{physical_drive_num}"
-        h = INVALID_HANDLE_VALUE
-        try:
-            h = ctypes.windll.kernel32.CreateFileW(
-                drive_path,
-                GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-                None,
-                OPEN_EXISTING,
-                0,
-                None,
-            )
-            if h == INVALID_HANDLE_VALUE:
-                win_error = ctypes.GetLastError()
-                if win_error == errno.EACCES:
-                    raise PermissionError("Administrator privileges required")
-                raise ctypes.WinError(win_error)
+        def _windows_read_buffer(
+            physical_drive_num: int, timeout_sec: int = 5
+        ) -> bytes:
+            drive_path = rf"\\.\PhysicalDrive{physical_drive_num}"
+            h = INVALID_HANDLE_VALUE
+            try:
+                h = ctypes.windll.kernel32.CreateFileW(
+                    drive_path,
+                    GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    None,
+                    OPEN_EXISTING,
+                    0,
+                    None,
+                )
+                if h == INVALID_HANDLE_VALUE:
+                    win_error = ctypes.GetLastError()
+                    if win_error == errno.EACCES:
+                        raise PermissionError("Administrator privileges required")
+                    raise ctypes.WinError(win_error)
 
-            cdb = _build_read_buffer_cdb()
-            data_len = 1024
-            data_buf = ctypes.create_string_buffer(data_len)
-            sptd_sense = SPTD_WITH_SENSE()
-            ctypes.memset(ctypes.byref(sptd_sense), 0, ctypes.sizeof(sptd_sense))
-            sptd = sptd_sense.sptd
-            sptd.Length = ctypes.sizeof(SCSI_PASS_THROUGH_DIRECT)
-            sptd.PathId = 0
-            sptd.TargetId = 0
-            sptd.Lun = 0
-            sptd.CdbLength = len(cdb)
-            sptd.SenseInfoLength = len(sptd_sense.ucSenseBuf)
-            sptd.DataIn = 1  # DATA_IN
-            sptd.DataTransferLength = data_len
-            sptd.TimeOutValue = int(timeout_sec)
-            sptd.DataBuffer = ctypes.cast(ctypes.pointer(data_buf), ctypes.c_void_p)
-            sptd.SenseInfoOffset = sptd.Length
-            ctypes.memmove(sptd.Cdb, (ctypes.c_ubyte * len(cdb))(*cdb), len(cdb))
+                cdb = _build_read_buffer_cdb()
+                data_len = 1024
+                data_buf = ctypes.create_string_buffer(data_len)
+                sptd_sense = SPTD_WITH_SENSE()
+                ctypes.memset(ctypes.byref(sptd_sense), 0, ctypes.sizeof(sptd_sense))
+                sptd = sptd_sense.sptd
+                sptd.Length = ctypes.sizeof(SCSI_PASS_THROUGH_DIRECT)
+                sptd.PathId = 0
+                sptd.TargetId = 0
+                sptd.Lun = 0
+                sptd.CdbLength = len(cdb)
+                sptd.SenseInfoLength = len(sptd_sense.ucSenseBuf)
+                sptd.DataIn = 1  # DATA_IN
+                sptd.DataTransferLength = data_len
+                sptd.TimeOutValue = int(timeout_sec)
+                sptd.DataBuffer = ctypes.cast(ctypes.pointer(data_buf), ctypes.c_void_p)
+                sptd.SenseInfoOffset = sptd.Length
+                ctypes.memmove(sptd.Cdb, (ctypes.c_ubyte * len(cdb))(*cdb), len(cdb))
 
-            returned_bytes = wintypes.DWORD(0)
-            ok = ctypes.windll.kernel32.DeviceIoControl(
-                h,
-                IOCTL_SCSI_PASS_THROUGH_DIRECT,
-                ctypes.byref(sptd_sense),
-                ctypes.sizeof(sptd_sense),
-                ctypes.byref(sptd_sense),
-                ctypes.sizeof(sptd_sense),
-                ctypes.byref(returned_bytes),
-                None,
-            )
-            if ok == 0:
-                raise ctypes.WinError(ctypes.GetLastError())
-            # We return the data buffer regardless of ScsiStatus to support OOB mode
-            # where the status might indicate a check condition but data is present.
-            return data_buf.raw
-        finally:
-            if h != INVALID_HANDLE_VALUE:
-                ctypes.windll.kernel32.CloseHandle(h)
+                returned_bytes = wintypes.DWORD(0)
+                ok = ctypes.windll.kernel32.DeviceIoControl(
+                    h,
+                    IOCTL_SCSI_PASS_THROUGH_DIRECT,
+                    ctypes.byref(sptd_sense),
+                    ctypes.sizeof(sptd_sense),
+                    ctypes.byref(sptd_sense),
+                    ctypes.sizeof(sptd_sense),
+                    ctypes.byref(returned_bytes),
+                    None,
+                )
+                if ok == 0:
+                    raise ctypes.WinError(ctypes.GetLastError())
+                # We return the data buffer regardless of ScsiStatus to support OOB mode
+                # where the status might indicate a check condition but data is present.
+                return data_buf.raw
+            finally:
+                if h != INVALID_HANDLE_VALUE:
+                    ctypes.windll.kernel32.CloseHandle(h)
 
 
 # -----------------
@@ -310,8 +314,10 @@ elif SYSTEM == "Darwin":
 
 else:
     # Unsupported OS — provide a stub that raises
-    def _unsupported(*_args: Any, **_kwargs: Any) -> None:
+    def _unsupported(*_args: Any, **_kwargs: Any) -> bytes:
         raise NotImplementedError(f"Device version query unsupported on {SYSTEM}")
+
+    _windows_read_buffer = _unsupported
 
 
 # -----------------

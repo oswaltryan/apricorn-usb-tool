@@ -1,0 +1,139 @@
+**Plan C: Compile for macOS**
+
+**Step 1: Create macOS Build Script.**
+- Action: Created `build_mac.sh` to automate the build process on macOS.
+- Status: Completed.
+
+**Step 2: Create macOS-Specific Spec File.**
+- Action: Copied `usb.spec.windows` to `usb.spec.mac`.
+- Action: Modified `usb.spec.mac` to remove `winreg` and add `libusb` and `pkg_about` to hiddenimports.
+- Status: Completed.
+
+**Step 3: First Build Attempt.**
+- Action: Executed `build_mac.sh`.
+- Status: Failed.
+- Error: `externally-managed-environment`.
+- Analysis: The system Python is managed by Homebrew, preventing global pip installs.
+
+**Step 4: Second Build Attempt.**
+- Action: Modified `build_mac.sh` to create and use a Python virtual environment.
+- Status: Failed.
+- Error: PyInstaller creating a directory named after the spec file.
+
+**Step 5: Third Build Attempt.**
+- Action: Renamed `usb.spec.mac` to `usb.spec` and updated `build_mac.sh`.
+- Status: Success!
+- Output: The PyInstaller build completed and created the `usb` executable in the `dist` directory.
+
+**Step 6: Verify the executable.**
+- Action: Ran `/Users/itadmin/Desktop/apricorn-usb-tool/usb_tool/dist/usb`.
+- Status: Success! The program executed correctly and detected a device.
+
+**Step 7: Finalize build scripts.**
+- Action: Renamed `usb.spec` back to `usb.spec.mac`.
+- Action: Updated `build_mac.sh` to use `usb.spec.mac`.
+- Status: Completed.
+- Task complete.
+
+**Plan D: Create Installers**
+
+**Step 1: Create macOS Installer.**
+- Action: Created `installers/macos` directory.
+- Action: Created `installers/macos/build_installer_mac.sh` to build a `.pkg` installer.
+- Action: Successfully built the installer at `installers/macos/usb-tool-0.3.0.pkg`.
+- Status: Completed.
+
+**Step 2: Create Windows Installer.**
+- Action: Created `installers/windows` directory.
+- Action: Created `installers/windows/usb-tool.nsi` NSIS script.
+- Action: Created `installers/windows/README.md` with instructions for building the installer on Windows.
+- Status: Completed.
+
+**Step 3: Create Linux Installer.**
+- Action: Created `installers/linux` directory.
+- Action: Created `installers/linux/build_installer_linux.sh` to build a `.deb` package.
+- Action: Created `installers/linux/README.md` with instructions for building the installer on Linux.
+- Status: Completed.
+
+**Plan E: Run pre-commit hooks**
+
+**Step 1: Run pre-commit hooks.**
+- Action: Ran `pre-commit run -a`.
+- Status: Failed.
+- Errors: `mypy` and `pytest` errors.
+
+**Step 2: Fix mypy errors.**
+- Action: Added platform checks to `usb_tool/device_version.py`.
+- Action: Added a stub for `_windows_read_buffer` in `usb_tool/device_version.py`.
+- Status: Completed.
+
+**Step 3: Fix pytest errors.**
+- Action: Modified `tests/test_cross_usb.py` to be platform-aware.
+- Action: Modified `usb_tool/cross_usb.py` to handle macOS device paths.
+- Status: Completed.
+
+**Step 4: Run pre-commit hooks again.**
+- Action: Ran `pre-commit run -a`.
+- Status: Success!
+- Task complete.
+
+**Plan F: Refactor build process**
+
+**Step 1: Rename spec files.**
+- Action: Renamed `usb.spec.mac` to `usb_mac.spec`.
+- Action: Renamed `usb.spec.windows` to `usb_windows.spec`.
+- Action: Created `usb_linux.spec`.
+- Status: Completed.
+
+**Step 2: Update build scripts.**
+- Action: Updated `build_mac.sh` to use `usb_mac.spec`.
+- Action: Updated `installers/windows/README.md` to use `usb_windows.spec`.
+- Action: Updated `installers/linux/README.md` to use `usb_linux.spec`.
+- Status: Completed.
+
+**Step 3: Verify macOS build.**
+- Action: Ran `build_mac.sh`.
+- Status: Success!
+- Output: The PyInstaller build completed and created the `usb` executable in the `dist` directory.
+- Status: Completed.
+
+**Plan G: Recover from file management errors**
+
+**Step 1: Acknowledge the mess and formulate a recovery plan.**
+- Action: I acknowledge that I have made a mess of the build scripts and spec files. I will now take a step back, formulate a clear plan, and execute it carefully to fix the organization of the build files.
+- Status: Completed.
+
+**Step 2: Establish a single source of truth for file locations.**
+- Action: I will use the `ls -R` command to get a complete and accurate picture of the current file structure. This will be my single source of truth to avoid any more confusion about where files are located.
+- Status: Completed.
+
+**Step 3: Clean up misplaced files.**
+- Action: Based on the output of `ls -R`, I will identify and remove any build scripts or spec files that are in the wrong directories (`usb_tool`, the root directory, etc.).
+- Status: Completed.
+
+**Step 4: Create a clean `build` directory.**
+- Action: I will ensure that a `build` directory exists in the root of the project and that it is empty.
+- Status: Completed.
+
+**Step 5: Recreate build scripts and spec files in the `build` directory.**
+- Action: I will recreate the following files in the `build` directory with the correct paths and configurations:
+    - `build/build_mac.sh`
+    - `build/build_windows.bat`
+    - `build/build_linux.sh`
+    - `build/usb_mac.spec`
+    - `build/usb_windows.spec`
+    - `build/usb_linux.spec`
+- Status: Completed.
+
+**Step 6: Update `README.md` files.**
+- Action: I will update the `README.md` files in the `installers` directories to reflect the new, correct file paths and build instructions.
+- Status: Completed.
+
+**Step 7: Verify the macOS build.**
+- Action: I will run the `build/build_mac.sh` script to ensure that the macOS executable is created correctly in the `dist` directory.
+- Status: Completed.
+- Output: The PyInstaller build completed and created the `usb` executable in the `dist` directory.
+
+**Step 8: Update the session log.**
+- Action: I will update the session log with the successful refactoring of the build process.
+- Status: Completed.

@@ -383,6 +383,10 @@ def _parse_poke_targets(
                         b_dev = getattr(dev, "blockDevice", "")
                         if isinstance(b_dev, str) and b_dev.startswith("/dev/"):
                             os_id = b_dev
+                    elif _SYSTEM.startswith("darwin"):
+                        b_dev = getattr(dev, "blockDevice", "")
+                        if isinstance(b_dev, str) and b_dev.startswith("/dev/disk"):
+                            os_id = b_dev
                     if os_id is not None:
                         if is_oob:
                             skipped_oob.append(f"#{idx}")
@@ -397,7 +401,9 @@ def _parse_poke_targets(
                         f"{element} (Index out of range 1-{num_devices})"
                     )
             except ValueError:
-                if _SYSTEM.startswith("linux") and element.startswith("/dev/"):
+                if (_SYSTEM.startswith("linux") and element.startswith("/dev/")) or (
+                    _SYSTEM.startswith("darwin") and element.startswith("/dev/disk")
+                ):
                     found = None
                     for i, dev in enumerate(devices, start=1):
                         if getattr(dev, "blockDevice", "") == element:
@@ -417,11 +423,15 @@ def _parse_poke_targets(
                 else:
                     invalid_inputs.append(
                         f"{element} (Invalid format - expected index"
-                        + (" or /dev/ path" if _SYSTEM.startswith("linux") else "")
+                        + (
+                            " or /dev/ path"
+                            if _SYSTEM.startswith("linux")
+                            or _SYSTEM.startswith("darwin")
+                            else ""
+                        )
                         + ")"
                     )
         targets_to_poke = list(unique_targets)
-
     if invalid_inputs:
         raise ValueError("Invalid value(s) for --poke: " + ", ".join(invalid_inputs))
     if not targets_to_poke:
@@ -433,9 +443,13 @@ def _parse_poke_targets(
 
 def _handle_poke_action(args: argparse.Namespace, devices: list) -> None:
     """Execute the poke workflow."""
-    if not (_SYSTEM.startswith("win") or _SYSTEM.startswith("linux")):
+    if not (
+        _SYSTEM.startswith("win")
+        or _SYSTEM.startswith("linux")
+        or _SYSTEM.startswith("darwin")
+    ):
         raise ValueError(
-            f"--poke option is only available on Windows and Linux (current: {_SYSTEM})."
+            f"--poke option is only available on Windows, Linux and macOS (current: {_SYSTEM})."
         )
     if not POKE_AVAILABLE:
         raise ValueError(
