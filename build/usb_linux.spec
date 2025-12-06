@@ -5,7 +5,7 @@ block_cipher = None
 
 
 a = Analysis(
-    ['/Users/itadmin/Desktop/apricorn-usb-tool/usb_tool/cross_usb.py'],
+    ['usb_tool/cross_usb.py'],
     pathex=[],
     binaries=[],
     datas=[],

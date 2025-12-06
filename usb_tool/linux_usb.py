@@ -116,7 +116,7 @@ def list_usb_drives():
     """
     # -p includes full path /dev/..., -l provides list format
     # -e 7 excludes loop devices (common snaps/etc)
-    cmd = ["lsblk", "-p", "-o", "NAME,SERIAL,SIZE", "-d", "-n", "-l", "-e", "7"]
+    cmd = ["lsblk", "-p", "-o", "NAME,SERIAL,SIZE,RM", "-d", "-n", "-l", "-e", "7"]
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, check=False, timeout=10
@@ -638,7 +638,7 @@ def find_apricorn_device() -> List[UsbDeviceInfo]:  # Return List, never None
         if not match:
             continue
 
-        vid, pid = match.groups()
+        vid, pid, _ = match.groups()
         vid_lower = vid.lower()
         pid_lower = pid.lower()
 
