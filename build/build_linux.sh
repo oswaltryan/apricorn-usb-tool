@@ -13,7 +13,7 @@ pip install pyinstaller
 
 # Dynamically create the spec file with the absolute path
 PROJECT_ROOT=$(pwd)
-TEMP_SPEC_FILE="build/temp_usb_linux.spec"
+TEMP_SPEC_FILE="build/usb_linux.spec"
 
 cat <<EOF > "${TEMP_SPEC_FILE}"
 # -*- mode: python ; coding: utf-8 -*-
@@ -64,12 +64,16 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='usb',
+    name='usb_linux',
 )
 EOF
 
 # Run PyInstaller with the temporary spec file
-pyinstaller "${TEMP_SPEC_FILE}"
+pyinstaller "${TEMP_SPEC_FILE}" --noconfirm
 
 # Clean up temporary spec file
 rm "${TEMP_SPEC_FILE}"
+rm -r build/bdist.linux-x86_64
+rm -r build/lib
+rm -r build/usb_linux
+

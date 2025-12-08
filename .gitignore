@@ -173,4 +173,3 @@ cython_debug/
 
 # Build artificats
 *.egg-info
-build
