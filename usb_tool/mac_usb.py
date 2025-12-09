@@ -205,9 +205,10 @@ def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
                 media_type = "Unknown"
 
             version_info = {}
-            if bsd_name:
-                device_path = f"/dev/{bsd_name}"
-                version_info = populate_device_version(device_path)
+            if iSerial_str:
+                version_info = populate_device_version(
+                    int(idVendor_str, 16), int(idProduct_str, 16), iSerial_str, bsd_name=bsd_name
+                )
 
             dev_info = UsbDeviceInfo(
                 bcdUSB=bcdUSB_str,
@@ -236,16 +237,17 @@ def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
                     except AttributeError:
                         pass
 
-            setattr(dev_info, "blockDevice", bsd_name)
+            if bsd_name:
+                setattr(dev_info, "blockDevice", bsd_name)
 
             apricorn_devices.append(dev_info)
 
     return apricorn_devices if apricorn_devices else None
 
 
-# ---------------
-# Example Usage
-# ---------------
+# --------------- 
+# Example Usage 
+# --------------- 
 def main(find_apricorn_device=None):
     """
     Main function to find and display information about connected Apricorn devices.

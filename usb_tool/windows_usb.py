@@ -820,8 +820,10 @@ def instantiate_class_objects(
             )
 
         version_info = {}
-        if isinstance(drive_number, int) and drive_number >= 0:
-            version_info = populate_device_version(drive_number)
+        if iSerial:
+            version_info = populate_device_version(
+                int(idVendor, 16), int(idProduct, 16), iSerial
+            )
 
         # Create device info object
         dev_info = UsbDeviceInfo(

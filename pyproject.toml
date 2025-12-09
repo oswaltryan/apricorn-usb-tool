@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Package metadata
 name = "usb-tool"
-version = "0.4.1"
+version = "0.4.2"
 description = "Cross-platform USB tool for Apricorn devices"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,8 +21,8 @@ requires-python = ">=3.10"
 # Runtime dependencies.  Windows specific packages use environment markers so
 # they are only installed on that platform.
 dependencies = [
+    "pyusb",
     "pywin32==309; sys_platform == 'win32'",
-    "libusb==1.0.27.post4; sys_platform == 'win32'",
     "pygments==2.19.1; sys_platform == 'win32'",
 ]
 

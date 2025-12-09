@@ -50,12 +50,16 @@ except (ImportError, ModuleNotFoundError):
     pass
 
 
-def populate_device_version(target: Any) -> dict:
+def populate_device_version(
+    vendor_id: int, product_id: int, serial_number: str, bsd_name: Optional[str] = None
+) -> dict:
     """
     Queries the device version and returns a dictionary of formatted strings.
 
     Args:
-        target: The OS-specific device identifier (int for Windows, str for Linux/macOS).
+        vendor_id: The vendor ID of the USB device.
+        product_id: The product ID of the USB device.
+        serial_number: The serial number of the USB device.
 
     Returns:
         A dictionary with version information.
@@ -69,16 +73,10 @@ def populate_device_version(target: Any) -> dict:
     }
 
     if not _device_version_imported:
-        return {
-            "scbPartNumber": "N/A",
-            "hardwareVersion": "N/A",
-            "modelID": "N/A",
-            "mcuFW": "N/A",
-            "bridgeFW": "N/A",
-        }
+        return version_info
 
     try:
-        _ver = query_device_version(target)
+        _ver = query_device_version(vendor_id, product_id, serial_number, bsd_name=bsd_name)
 
         if getattr(_ver, "scb_part_number", "N/A") != "N/A":
             version_info["scbPartNumber"] = _ver.scb_part_number
