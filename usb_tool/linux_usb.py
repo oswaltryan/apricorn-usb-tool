@@ -822,8 +822,12 @@ def find_apricorn_device() -> List[UsbDeviceInfo]:  # Return List, never None
         version_info = {}
         if isinstance(blockDevice_str, str):
             sg_path = _sg_path_for_block(blockDevice_str)
-            if sg_path:
-                version_info = populate_device_version(sg_path)
+            if sg_path and serial_str:
+                version_info = populate_device_version(
+                    int(vid_lower, 16),
+                    int(pid_lower, 16),
+                    serial_str,
+                )
 
         dev_info = UsbDeviceInfo(
             bcdUSB=bcdUSB_float,
