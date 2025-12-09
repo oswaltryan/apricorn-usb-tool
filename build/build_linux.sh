@@ -1,79 +1,27 @@
 #!/bin/bash
 set -e
 
+VENV_PATH=".venv_build"
+SPEC_FILE="build/usb_linux.spec"
+
 # Create a virtual environment
-python3 -m venv .venv
-source .venv/bin/activate
+if [ ! -d "$VENV_PATH" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv $VENV_PATH
+fi
+
+echo "Activating virtual environment..."
+source $VENV_PATH/bin/activate
 
 # Install dependencies
-pip install .
-pip install pyinstaller
+echo "Installing dependencies..."
+python3 -m pip install --upgrade pip
+python3 -m pip install wheel
+python3 -m pip install .
+python3 -m pip install pyinstaller pkg_about
 
 # Run PyInstaller
+echo "Running PyInstaller..."
+pyinstaller --clean --noconfirm $SPEC_FILE
 
-# Dynamically create the spec file with the absolute path
-PROJECT_ROOT=$(pwd)
-TEMP_SPEC_FILE="build/usb_linux.spec"
-
-cat <<EOF > "${TEMP_SPEC_FILE}"
-# -*- mode: python ; coding: utf-8 -*-
-
-
-block_cipher = None
-
-
-a = Analysis(
-    ['${PROJECT_ROOT}/usb_tool/cross_usb.py'],
-    pathex=[],
-    binaries=[],
-    datas=[],
-    hiddenimports=['libusb'],
-    hookspath=[],
-    hooksconfig={},
-    runtime_hooks=[],
-    excludes=[],
-    win_no_prefer_redirects=False,
-    win_private_assemblies=False,
-    cipher=block_cipher,
-    noarchive=False,
-)
-pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
-
-exe = EXE(
-    pyz,
-    a.scripts,
-    [],
-    exclude_binaries=True,
-    name='usb',
-    debug=False,
-    bootloader_ignore_signals=False,
-    strip=False,
-    upx=True,
-    console=True,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
-)
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='usb_linux',
-)
-EOF
-
-# Run PyInstaller with the temporary spec file
-pyinstaller "${TEMP_SPEC_FILE}" --noconfirm
-
-# Clean up temporary spec file
-rm "${TEMP_SPEC_FILE}"
-rm -r build/bdist.linux-x86_64
-rm -r build/lib
-rm -r build/usb_linux
-
+echo "Build complete. The single-file executable is in the 'dist' folder."
