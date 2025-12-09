@@ -1,28 +1,26 @@
 #!/bin/bash
 set -e
 
-# Navigate to the project root directory
-SCRIPT_DIR=$(dirname "$0")
-PROJECT_ROOT=$(dirname "$SCRIPT_DIR")
-cd "$PROJECT_ROOT"
+VENV_DIR="build/.venv"
+SPEC_FILE="build/usb_mac.spec"
 
-# Create a virtual environment if it doesn't exist
-if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+# Create a virtual environment
+if [ ! -d "$VENV_DIR" ]; then
+    echo "Creating virtual environment..."
+    python3 -m venv $VENV_DIR
 fi
-source .venv/bin/activate
+
+echo "Activating virtual environment..."
+source $VENV_DIR/bin/activate
 
 # Install dependencies
-# Check if requirements.txt exists and install from it
-if [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt
-else
-    echo "No requirements.txt found. Assuming minimal dependencies."
-fi
-pip install pyinstaller # Ensure pyinstaller is installed in the venv
+echo "Installing dependencies..."
+python3 -m pip install --upgrade pip
+python3 -m pip install -e .
+python3 -m pip install pyinstaller
 
-# Run PyInstaller from the project root, referencing the spec file correctly
-pyinstaller "$SCRIPT_DIR"/usb_mac.spec --distpath "$SCRIPT_DIR"/dist
+# Run PyInstaller
+echo "Running PyInstaller..."
+pyinstaller --clean -y $SPEC_FILE
 
-# Optional: Deactivate virtual environment
-deactivate
+echo "Build complete. The executable is in the 'dist' folder."
