@@ -822,7 +822,10 @@ def instantiate_class_objects(
         version_info = {}
         if iSerial:
             version_info = populate_device_version(
-                int(idVendor, 16), int(idProduct, 16), iSerial
+                int(idVendor, 16),
+                int(idProduct, 16),
+                iSerial,
+                physical_drive_num=drive_number if drive_number != -1 else None,
             )
 
         # Create device info object

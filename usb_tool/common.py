@@ -51,7 +51,11 @@ except (ImportError, ModuleNotFoundError):
 
 
 def populate_device_version(
-    vendor_id: int, product_id: int, serial_number: str, bsd_name: Optional[str] = None
+    vendor_id: int,
+    product_id: int,
+    serial_number: str,
+    bsd_name: Optional[str] = None,
+    physical_drive_num: Optional[int] = None,
 ) -> dict:
     """
     Queries the device version and returns a dictionary of formatted strings.
@@ -76,7 +80,13 @@ def populate_device_version(
         return version_info
 
     try:
-        _ver = query_device_version(vendor_id, product_id, serial_number, bsd_name=bsd_name)
+        _ver = query_device_version(
+            vendor_id,
+            product_id,
+            serial_number,
+            bsd_name=bsd_name,
+            physical_drive_num=physical_drive_num,
+        )
 
         if getattr(_ver, "scb_part_number", "N/A") != "N/A":
             version_info["scbPartNumber"] = _ver.scb_part_number

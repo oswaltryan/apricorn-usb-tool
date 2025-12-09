@@ -207,7 +207,10 @@ def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
             version_info = {}
             if iSerial_str:
                 version_info = populate_device_version(
-                    int(idVendor_str, 16), int(idProduct_str, 16), iSerial_str, bsd_name=bsd_name
+                    int(idVendor_str, 16),
+                    int(idProduct_str, 16),
+                    iSerial_str,
+                    bsd_name=bsd_name,
                 )
 
             dev_info = UsbDeviceInfo(
@@ -245,9 +248,9 @@ def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
     return apricorn_devices if apricorn_devices else None
 
 
-# --------------- 
-# Example Usage 
-# --------------- 
+# ---------------
+# Example Usage
+# ---------------
 def main(find_apricorn_device=None):
     """
     Main function to find and display information about connected Apricorn devices.
