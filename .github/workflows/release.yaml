@@ -4,11 +4,6 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to release (e.g., v0.4.2)"
-        required: false
 
 permissions:
   contents: write
@@ -61,10 +56,10 @@ jobs:
               pwsh -Command "Compress-Archive -Path dist\\* -DestinationPath release\\usb-windows.zip"
               ;;
             macOS)
-              zip -j "release/usb-macos.zip" dist/*
+              tar -czf release/usb-macos.tar.gz -C dist .
               ;;
             Linux)
-              zip -j "release/usb-linux.zip" dist/*
+              tar -czf release/usb-linux.tar.gz -C dist .
               ;;
           esac
 
@@ -88,5 +83,5 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           files: release-assets/*
