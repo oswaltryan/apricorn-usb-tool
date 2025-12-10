@@ -1,11 +1,22 @@
 # usb-tool (Apricorn USB Utility)
 
-Cross-platform CLI and Python library for enumerating Apricorn USB devices and performing a safe READ(10) diagnostic “poke”.
+Cross-platform CLI and Python library for enumerating Apricorn USB devices and performing a safe READ(10) diagnostic poke.
 
 - Windows, Linux: enumeration + optional poke (requires Admin/root)
 - macOS: enumeration only (poke planned)
 
-## Install
+## Download (standalone builds)
+
+Prebuilt, single-file binaries are published on GitHub Releases; Python is not required.
+
+1) Download the latest asset for your OS:
+   - `usb-windows.zip`: unzip and run `usb.exe`.
+   - `usb-linux.tar.gz`: extract, `chmod +x usb` if needed, then run `./usb`.
+   - `usb-macos.tar.gz`: extract, `chmod +x usb` if needed, then run `./usb` (enumeration only).
+2) Run `usb` from a terminal with the commands below. Poke still requires Administrator on Windows and sudo/root on Linux.
+3) To update standalone builds, download the newest release asset (standalone binaries do not use `usb-update`).
+
+## Install via pip
 
 Recommended with Python 3.10+.
 
@@ -51,11 +62,6 @@ sudo usb -p /dev/sdb
 sudo usb -p all
 ```
 
-Self-update (editable installs):
-```bash
-usb-update
-```
-
 ## Output Fields
 The CLI prints normalized device fields. Typical keys include:
 - bcdUSB: USB spec version (e.g., 2.0, 3.0)
@@ -63,7 +69,7 @@ The CLI prints normalized device fields. Typical keys include:
 - bcdDevice: device revision (4-hex digits)
 - iManufacturer, iProduct, iSerial: strings/indices resolved to printable values
 - SCSIDevice: whether UAS/SCSI is in use
-- driveSizeGB: normalized capacity or “N/A (OOB Mode)”
+- driveSizeGB: normalized capacity or `N/A (OOB Mode)`
 - usbController: Windows only (e.g., Intel, ASMedia)
 - platform-specific identifiers: Windows physical drive number, Linux block path
 
@@ -105,11 +111,6 @@ The returned objects are dataclasses:
 - macOS: `macOSUsbDeviceInfo`
 
 Field sets are similar across OSes; some fields are platform-specific (e.g., `usbController` on Windows, `blockDevice` on Linux). Output filtering described above applies only to CLI printing; collected fields remain attached to the objects.
-
-## What’s New in 0.2.2
-- Hide bridgeFW from user-facing output while still collecting it internally.
-- Omit scbPartNumber, hardwareVersion, modelID, and mcuFW when bridgeFW != bcdDevice.
-- General refinements to cross-platform listing and poke gating.
 
 ## Contributing / Dev
 - Code style: black + ruff via pre-commit.
