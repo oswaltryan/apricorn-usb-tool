@@ -11,6 +11,7 @@ from usb_tool.common import EXCLUDED_PIDS, UsbDeviceInfo, populate_device_versio
 from usb_tool.device_config import closest_values
 from usb_tool.utils import bytes_to_gb, find_closest
 
+
 def _normalize_pid(pid: str) -> str:
     """Normalize a PID string to 4 lowercase hex characters."""
     if not isinstance(pid, str):

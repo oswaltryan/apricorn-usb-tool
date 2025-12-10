@@ -110,8 +110,9 @@ def test_find_apricorn_device_skips_excluded_pids():
         },
     ]
 
-    with patch("usb_tool.mac_usb.list_usb_drives", return_value=drives), patch(
-        "usb_tool.mac_usb.parse_uasp_info", return_value={}
+    with (
+        patch("usb_tool.mac_usb.list_usb_drives", return_value=drives),
+        patch("usb_tool.mac_usb.parse_uasp_info", return_value={}),
     ):
         result = mac_usb.find_apricorn_device()
 

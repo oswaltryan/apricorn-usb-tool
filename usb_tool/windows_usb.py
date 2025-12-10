@@ -11,6 +11,7 @@ from usb_tool.common import EXCLUDED_PIDS, UsbDeviceInfo, populate_device_versio
 from usb_tool.device_config import closest_values
 from usb_tool.utils import bytes_to_gb, find_closest, parse_usb_version
 
+
 def _extract_vid_pid(device_id: str) -> tuple[str, str]:
     """Extract VID/PID pairs from a PNP DeviceID string."""
     if not isinstance(device_id, str):
@@ -29,6 +30,7 @@ def _is_excluded_pid(pid: str) -> bool:
         return False
     normalized = pid.lower().split("&", 1)[0].replace("0x", "")
     return normalized in EXCLUDED_PIDS
+
 
 # Configure libusb to use the included libusb-1.0.dll
 usb.config(LIBUSB=None)
@@ -533,14 +535,14 @@ def sort_wmi_drives(wmi_usb_devices, wmi_usb_drives):
             # Remove the drive from the processing list and append it to the sorted list.
             found_drive = drives_to_process.pop(found_index)
             sorted_drives.append(found_drive)
-        else:
-            # If no match found for this device, add a placeholder or handle error
-            # For simplicity here, we'll append None, but you might need robust error handling
-            if not _is_excluded_pid:
-                print(
-                    f"Warning: No matching drive found for WMI device: {device_serial} / {device_desc}"
-                )
-                sorted_drives.append(None)  # Add placeholder
+        # else:
+        #     # If no match found for this device, add a placeholder or handle error
+        #     # For simplicity here, we'll append None, but you might need robust error handling
+        #     if not _is_excluded_pid:
+        #         print(
+        #             f"Warning: No matching drive found for WMI device: {device_serial} / {device_desc}"
+        #         )
+        #         sorted_drives.append(None)
 
     # Append any remaining drives that were not matched to any device (might be unexpected drives)
     if drives_to_process:
