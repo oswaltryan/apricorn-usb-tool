@@ -5,6 +5,7 @@ import libusb as usb
 from pprint import pprint
 import re
 import subprocess
+import time
 import win32com.client
 
 from usb_tool.common import EXCLUDED_PIDS, UsbDeviceInfo, populate_device_version
@@ -605,8 +606,8 @@ def sort_usb_controllers(wmi_usb_devices, usb_controllers):
 
     # Check if any controllers were left unmatched (should be empty if data is consistent)
     if controllers_to_process:
-        print("Warning: Some controllers were not matched and are being appended:")
-        pprint(controllers_to_process)
+        # print("Warning: Some controllers were not matched and are being appended:")
+        # pprint(controllers_to_process)
         sorted_controllers.extend(controllers_to_process)
     usb_controllers = sorted_controllers
 
@@ -650,9 +651,9 @@ def sort_libusb_data(wmi_usb_devices, libusb_data):
         return libusb_data  # Return the list as-is if PIDs align
 
     # --- Original Sorting Logic (If pre-sort check failed) ---
-    print(
-        "Info: libusb_data does not appear pre-sorted by PID, proceeding with sorting logic."
-    )
+    # print(
+    #     "Info: libusb_data does not appear pre-sorted by PID, proceeding with sorting logic."
+    # )
 
     # Build lookup: {pid: [libusb_entry, ...]}
     pid_map = defaultdict(list)
@@ -897,6 +898,46 @@ def instantiate_class_objects(
     return devices if devices else None
 
 
+def _should_retry_scan(lengths: list[int]) -> bool:
+    """Return True when sources are present but lengths are mismatched."""
+    if not lengths:
+        return False
+    if not any(lengths):
+        return False  # Nothing collected at all.
+    return len(set(lengths)) != 1
+
+
+def _perform_scan_pass():
+    """Run a single scan pass and return assembled devices plus source lengths."""
+    wmi_usb_devices = get_wmi_usb_devices() or []
+    wmi_usb_drives = get_wmi_usb_drives() or []
+    usb_controllers = get_all_usb_controller_names() or []
+    libusb_data = get_apricorn_libusb_data() or []
+    physical_drives = get_physical_drive_number()
+    readonly_map = get_usb_readonly_status_map()
+
+    wmi_usb_drives = sort_wmi_drives(wmi_usb_devices, wmi_usb_drives)
+    usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
+    libusb_data = sort_libusb_data(wmi_usb_devices, libusb_data)
+
+    lengths = [
+        len(wmi_usb_devices),
+        len(wmi_usb_drives),
+        len(usb_controllers),
+        len(libusb_data),
+    ]
+
+    apricorn_devices = instantiate_class_objects(
+        wmi_usb_devices,
+        wmi_usb_drives,
+        usb_controllers,
+        libusb_data,
+        physical_drives,
+        readonly_map,
+    )
+    return apricorn_devices, lengths
+
+
 # ==================================
 # Main
 # ==================================
@@ -907,25 +948,24 @@ def find_apricorn_device():
     High-level function tying together WMI USB device data, drive data, and libusb data.
     Returns a list of UsbDeviceInfo objects or None if none found.
     """
-    wmi_usb_devices = get_wmi_usb_devices()
-    wmi_usb_drives = get_wmi_usb_drives()
-    usb_controllers = get_all_usb_controller_names()
-    libusb_data = get_apricorn_libusb_data()
-    physical_drives = get_physical_drive_number()
-    readonly_map = get_usb_readonly_status_map()
+    apricorn_devices, lengths = _perform_scan_pass()
+    if apricorn_devices:
+        return apricorn_devices
 
-    wmi_usb_drives = sort_wmi_drives(wmi_usb_devices, wmi_usb_drives)
-    usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
-    libusb_data = sort_libusb_data(wmi_usb_devices, libusb_data)
+    if _should_retry_scan(lengths):
+        print(
+            "Info: Detected partial Apricorn enumeration; retrying scan after a short pause..."
+        )
+        time.sleep(1.0)
+        apricorn_devices, lengths = _perform_scan_pass()
+        if apricorn_devices:
+            return apricorn_devices
+        if _should_retry_scan(lengths):
+            print(
+                "Warning: Device data remained incomplete after retry. The device may still be enumerating; "
+                "please rerun usb once the device is fully detected."
+            )
 
-    apricorn_devices = instantiate_class_objects(
-        wmi_usb_devices,
-        wmi_usb_drives,
-        usb_controllers,
-        libusb_data,
-        physical_drives,
-        readonly_map,
-    )
     return apricorn_devices
 
 

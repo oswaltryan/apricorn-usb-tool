@@ -550,7 +550,10 @@ def main():
         devices = None
 
     if devices is None:
-        print("Device scan failed. Exiting.", file=sys.stderr)
+        print(
+            "Device scan failed. The device may still be enumerating; wait a moment and rerun usb.",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     try:

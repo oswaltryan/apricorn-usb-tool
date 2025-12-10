@@ -101,3 +101,31 @@ def test_get_wmi_usb_devices_skips_excluded_pids():
     assert len(result) == 1
     assert result[0]["pid"] == "1234"
     assert result[0]["serial"] == "SER_GOOD"
+
+
+def test_should_retry_scan_detects_partial_lists():
+    """Retry logic should trigger when lengths are mismatched and non-zero."""
+    assert windows_usb._should_retry_scan([0, 1, 1, 0]) is True
+    assert windows_usb._should_retry_scan([0, 0, 0, 0]) is False
+    assert windows_usb._should_retry_scan([2, 2, 2, 2]) is False
+
+
+def test_find_apricorn_device_retries_once_on_partial_scan():
+    """A partial first pass should trigger a single retry before giving up."""
+    fake_device = SimpleNamespace()
+    scan_results = [
+        (None, [0, 1, 1, 0]),  # First pass: partial data, no devices
+        ([fake_device], [1, 1, 1, 1]),  # Second pass: complete
+    ]
+
+    with (
+        patch(
+            "usb_tool.windows_usb._perform_scan_pass", side_effect=scan_results
+        ) as scan_mock,
+        patch("usb_tool.windows_usb.time.sleep") as sleep_mock,
+    ):
+        devices = windows_usb.find_apricorn_device()
+
+    assert devices == [fake_device]
+    assert scan_mock.call_count == 2
+    sleep_mock.assert_called_once()
