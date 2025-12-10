@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Package metadata
 name = "usb-tool"
-version = "0.4.5"
+version = "1.0.0"
 description = "Cross-platform USB tool for Apricorn devices"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -35,7 +35,6 @@ dependencies = [
 # --- This section defines the command-line script ---
 [project.scripts]
 usb = "usb_tool.cross_usb:main"
-usb-update = "usb_tool.update:main"
 
 [project.optional-dependencies]
 dev = [
@@ -50,8 +49,6 @@ dev = [
 [tool.setuptools]
 packages = ["usb_tool"]
 
-# --- End of pyproject.toml ---
-
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
@@ -61,3 +58,5 @@ warn_redundant_casts = true
 exclude = [
     "wheels/",
 ]
+
+# --- End of pyproject.toml ---
