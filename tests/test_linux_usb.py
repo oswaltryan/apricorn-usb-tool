@@ -38,6 +38,13 @@ def test_find_closest_handles_edge_cases():
     assert linux_usb.find_closest(4, []) is None
 
 
+def test_is_excluded_pid_handles_suffixes_and_case():
+    """Excluded PID detection should tolerate prefixes/suffixes."""
+    assert linux_usb._is_excluded_pid("0221&REV_0000")
+    assert linux_usb._is_excluded_pid("0x0301")
+    assert not linux_usb._is_excluded_pid("1234")
+
+
 # ---------------------------
 # lsblk Parsing Tests
 # ---------------------------

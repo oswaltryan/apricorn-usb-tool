@@ -75,3 +75,29 @@ def test_get_drive_letter_via_ps_parses_output():
     mock_result = SimpleNamespace(stdout="E:\n", returncode=0)
     with patch("usb_tool.windows_usb.subprocess.run", return_value=mock_result):
         assert windows_usb.get_drive_letter_via_ps(1) == "E:"
+
+
+def test_get_wmi_usb_devices_skips_excluded_pids():
+    """PNP entries with excluded PIDs must be ignored."""
+
+    class DummyDevice:
+        def __init__(self, device_id, description="USB Mass Storage Device"):
+            self.DeviceID = device_id
+            self.Description = description
+
+    devices = [
+        DummyDevice(r"USB\\VID_0984&PID_0221&REV_0000\\SER_BAD1"),
+        DummyDevice(r"USB\\VID_0984&PID_0301\\SER_BAD2"),
+        DummyDevice(r"USB\\VID_0984&PID_1234&REV_0000\\SER_GOOD"),
+    ]
+
+    class DummyService:
+        def ExecQuery(self, query):
+            return devices
+
+    with patch("usb_tool.windows_usb.service", DummyService()):
+        result = windows_usb.get_wmi_usb_devices()
+
+    assert len(result) == 1
+    assert result[0]["pid"] == "1234"
+    assert result[0]["serial"] == "SER_GOOD"

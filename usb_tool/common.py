@@ -2,6 +2,9 @@ from dataclasses import dataclass
 from typing import Any, Optional, TYPE_CHECKING
 import sys
 
+# PIDs explicitly excluded from Apricorn targeting (non-device or unrelated models).
+EXCLUDED_PIDS = {"0221", "0211", "0301"}
+
 
 @dataclass
 class UsbDeviceInfo:

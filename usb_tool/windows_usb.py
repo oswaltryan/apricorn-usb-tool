@@ -3,12 +3,32 @@ import ctypes as ct
 import json
 import libusb as usb
 from pprint import pprint
+import re
 import subprocess
 import win32com.client
 
-from usb_tool.common import UsbDeviceInfo, populate_device_version
+from usb_tool.common import EXCLUDED_PIDS, UsbDeviceInfo, populate_device_version
 from usb_tool.device_config import closest_values
 from usb_tool.utils import bytes_to_gb, find_closest, parse_usb_version
+
+def _extract_vid_pid(device_id: str) -> tuple[str, str]:
+    """Extract VID/PID pairs from a PNP DeviceID string."""
+    if not isinstance(device_id, str):
+        return "", ""
+
+    vid_match = re.search(r"VID_([0-9A-Fa-f]{4})", device_id)
+    pid_match = re.search(r"PID_([0-9A-Fa-f]{4})", device_id)
+    vid = vid_match.group(1).lower() if vid_match else ""
+    pid = pid_match.group(1).lower() if pid_match else ""
+    return vid, pid
+
+
+def _is_excluded_pid(pid: str) -> bool:
+    """Return True if pid maps to a known non-target device."""
+    if not pid:
+        return False
+    normalized = pid.lower().split("&", 1)[0].replace("0x", "")
+    return normalized in EXCLUDED_PIDS
 
 # Configure libusb to use the included libusb-1.0.dll
 usb.config(LIBUSB=None)
@@ -59,19 +79,21 @@ def get_all_usb_controller_names():
             data = [data]
 
         # Convert to a list of dictionaries, normalizing DeviceID to uppercase
-        usb_controllers = [
-            {
-                "DeviceID": item["DeviceID"].upper(),
-                "ControllerName": (
-                    item["ControllerName"][:5]
-                    if item["ControllerName"].startswith("Intel")
-                    else "ASMedia"
-                ),
-            }
-            for item in data
-            if "0221" not in item["DeviceID"]
-            if "0301" not in item["DeviceID"]
-        ]
+        usb_controllers = []
+        for item in data:
+            vid, pid = _extract_vid_pid(item.get("DeviceID", ""))
+            if vid != "0984" or _is_excluded_pid(pid):
+                continue
+            usb_controllers.append(
+                {
+                    "DeviceID": item["DeviceID"].upper(),
+                    "ControllerName": (
+                        item["ControllerName"][:5]
+                        if item["ControllerName"].startswith("Intel")
+                        else "ASMedia"
+                    ),
+                }
+            )
 
         # print("USB Controllers:")
         # pprint(usb_controllers)
@@ -192,20 +214,11 @@ def get_wmi_usb_devices():
     devices_info = []
     for device in usb_devices:
         device_id = device.DeviceID
-        if not device_id.upper().startswith("USB\\VID_") or "0984" not in device_id:
+        vid, pid = _extract_vid_pid(device_id)
+        if vid != "0984" or _is_excluded_pid(pid):
             continue
 
-        parts = device_id.split("\\", 2)
-        if len(parts) < 2:
-            continue
-
-        vid_pid = parts[1].split("&")
-        vid = vid_pid[0].replace("VID_", "").lower()
-        pid = vid_pid[1].replace("PID_", "").lower()
-        serial = parts[2] if len(parts) > 2 else ""
-
-        if pid == "0221" or pid == "0301":
-            continue
+        serial = device_id.split("\\")[-1] if "\\" in device_id else ""
 
         devices_info.append(
             {
@@ -328,7 +341,7 @@ def get_apricorn_libusb_data():
             bus_number = usb.get_bus_number(dev)
             dev_address = usb.get_device_address(dev)
 
-            if idProduct == "0221" or idProduct == "0301":
+            if _is_excluded_pid(idProduct):
                 continue
 
             devices.append(
@@ -523,10 +536,11 @@ def sort_wmi_drives(wmi_usb_devices, wmi_usb_drives):
         else:
             # If no match found for this device, add a placeholder or handle error
             # For simplicity here, we'll append None, but you might need robust error handling
-            print(
-                f"Warning: No matching drive found for WMI device: {device_serial} / {device_desc}"
-            )
-            sorted_drives.append(None)  # Add placeholder
+            if not _is_excluded_pid:
+                print(
+                    f"Warning: No matching drive found for WMI device: {device_serial} / {device_desc}"
+                )
+                sorted_drives.append(None)  # Add placeholder
 
     # Append any remaining drives that were not matched to any device (might be unexpected drives)
     if drives_to_process:
@@ -781,8 +795,18 @@ def instantiate_class_objects(
     readonly_map,
 ):
     devices = []
+    count = min(
+        len(wmi_usb_devices),
+        len(wmi_usb_drives),
+        len(usb_controllers),
+        len(libusb_data),
+    )
+    if count != len(wmi_usb_devices):
+        print(
+            "Warning: Device lists are misaligned after filtering; skipping unmatched entries."
+        )
 
-    for item in range(len(wmi_usb_devices)):
+    for item in range(count):
         # Extract basic info
         idProduct = wmi_usb_devices[item]["pid"]
         idVendor = wmi_usb_devices[item]["vid"]

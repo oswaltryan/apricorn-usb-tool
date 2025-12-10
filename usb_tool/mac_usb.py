@@ -5,9 +5,21 @@ import re
 from typing import List, Optional, Union
 import json
 
-from usb_tool.common import UsbDeviceInfo, populate_device_version
+from usb_tool.common import EXCLUDED_PIDS, UsbDeviceInfo, populate_device_version
 from usb_tool.device_config import closest_values
 from usb_tool.utils import bytes_to_gb, find_closest
+
+def _normalize_pid(pid: str) -> str:
+    """Normalize a PID string to lowercase hex without prefixes/suffixes."""
+    if not isinstance(pid, str):
+        return ""
+    cleaned = pid.lower().replace("0x", "")
+    return cleaned.split("&", 1)[0][:4]
+
+
+def _is_excluded_pid(pid: str) -> bool:
+    """Return True when pid corresponds to a known non-target Apricorn device."""
+    return _normalize_pid(pid) in EXCLUDED_PIDS
 
 
 def sort_devices(devices: list) -> list:
@@ -176,6 +188,11 @@ def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
             bcdUSB_str = 3 if int(drive.get("bus_power", "0")) > 500 else 2
             idVendor_str = drive.get("vendor_id", "").replace("0x", "")[:4]
             idProduct_str = drive.get("product_id", "").replace("0x", "")
+            pid_normalized = _normalize_pid(idProduct_str)
+            if _is_excluded_pid(pid_normalized):
+                continue
+            idProduct_clean = pid_normalized or idProduct_str.lower()
+            vendor_clean = idVendor_str.lower()
             bcdDevice_str = drive.get("bcd_device", "").replace(".", "")
             iManufacturer_str = drive.get("manufacturer", "")
             iProduct_str = drive.get("_name", "")
@@ -190,7 +207,7 @@ def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
                 size_in_bytes = media_info.get("size_in_bytes", 0)
                 approx_size = find_closest(
                     bytes_to_gb(size_in_bytes),
-                    closest_values.get(idProduct_str, (0, [0]))[1],
+                    closest_values.get(idProduct_clean, (0, [0]))[1],
                 )
                 drive_size_gb = approx_size if approx_size is not None else 0
 
@@ -205,18 +222,18 @@ def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
                 media_type = "Unknown"
 
             version_info = {}
-            if iSerial_str:
+            if iSerial_str and vendor_clean and idProduct_clean:
                 version_info = populate_device_version(
-                    int(idVendor_str, 16),
-                    int(idProduct_str, 16),
+                    int(vendor_clean, 16),
+                    int(idProduct_clean, 16),
                     iSerial_str,
                     bsd_name=bsd_name,
                 )
 
             dev_info = UsbDeviceInfo(
                 bcdUSB=bcdUSB_str,
-                idVendor=idVendor_str,
-                idProduct=idProduct_str,
+                idVendor=vendor_clean,
+                idProduct=idProduct_clean,
                 bcdDevice=f"0{bcdDevice_str}" if bcdDevice_str else "N/A",
                 iManufacturer=iManufacturer_str,
                 iProduct=iProduct_str,

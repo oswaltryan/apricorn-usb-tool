@@ -87,3 +87,33 @@ def test_parse_uasp_info_builds_boolean_map():
 
     assert "Drive One" in uas_dict
     assert uas_dict["Drive One"] is True
+
+
+def test_find_apricorn_device_skips_excluded_pids():
+    """Devices with blocked PIDs should not be surfaced."""
+    drives = [
+        {
+            "_name": "Bad Apricorn",
+            "manufacturer": "Apricorn",
+            "vendor_id": "0x0984",
+            "product_id": "0x0221",
+            "serial_num": "BAD1",
+            "Media": [{"size_in_bytes": 100 * 1024**3, "bsd_name": "disk3s1"}],
+        },
+        {
+            "_name": "Good Apricorn",
+            "manufacturer": "Apricorn",
+            "vendor_id": "0x0984",
+            "product_id": "0x1234",
+            "serial_num": "GOOD1",
+            "Media": [{"size_in_bytes": 100 * 1024**3, "bsd_name": "disk4s1"}],
+        },
+    ]
+
+    with patch("usb_tool.mac_usb.list_usb_drives", return_value=drives), patch(
+        "usb_tool.mac_usb.parse_uasp_info", return_value={}
+    ):
+        result = mac_usb.find_apricorn_device()
+
+    assert result and len(result) == 1
+    assert result[0].idProduct == "1234"

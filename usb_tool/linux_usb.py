@@ -7,9 +7,21 @@ import json
 import os
 import sys
 
-from usb_tool.common import UsbDeviceInfo, populate_device_version
+from usb_tool.common import EXCLUDED_PIDS, UsbDeviceInfo, populate_device_version
 from usb_tool.device_config import closest_values
 from usb_tool.utils import bytes_to_gb, find_closest
+
+def _normalize_pid(pid: str) -> str:
+    """Normalize a PID string to 4 lowercase hex characters."""
+    if not isinstance(pid, str):
+        return ""
+    cleaned = pid.lower().replace("0x", "")
+    return cleaned.split("&", 1)[0][:4]
+
+
+def _is_excluded_pid(pid: str) -> bool:
+    """Return True if PID matches a known non-target device."""
+    return _normalize_pid(pid) in EXCLUDED_PIDS
 
 
 def _sg_path_for_block(block_device: str) -> Optional[str]:
@@ -640,9 +652,9 @@ def find_apricorn_device() -> List[UsbDeviceInfo]:  # Return List, never None
 
         vid, pid, _ = match.groups()
         vid_lower = vid.lower()
-        pid_lower = pid.lower()
+        pid_lower = _normalize_pid(pid)
 
-        if vid_lower != "0984" or pid_lower in ["0221", "0301"]:
+        if vid_lower != "0984" or _is_excluded_pid(pid_lower):
             continue
 
         if (vid_lower, pid_lower) in processed_vid_pid:
@@ -702,8 +714,8 @@ def find_apricorn_device() -> List[UsbDeviceInfo]:  # Return List, never None
         # --- Extract Primary Information (Prioritize lsusb -v) ---
         # Get VID/PID from lsusb data; re-check filter in case lsusb -v matched a filtered PID via serial
         vid_lower = lsusb_v_info.get("idVendor", "").lower()
-        pid_lower = lsusb_v_info.get("idProduct", "").lower()
-        if vid_lower != "0984" or pid_lower in ["0221", "0301"]:
+        pid_lower = _normalize_pid(lsusb_v_info.get("idProduct", ""))
+        if vid_lower != "0984" or _is_excluded_pid(pid_lower):
             print(
                 f"  Info: Skipping {block_path} (Serial: {serial_str}) as its lsusb data indicates excluded VID/PID {vid_lower}:{pid_lower}."
             )
