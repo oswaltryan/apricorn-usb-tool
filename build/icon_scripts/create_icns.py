@@ -13,6 +13,8 @@ from pathlib import Path
 
 from PIL import Image
 
+BUILD_DIR = Path(__file__).resolve().parent.parent
+
 ICONSET_SPECS: tuple[tuple[int, int], ...] = (
     (16, 1),
     (16, 2),
@@ -87,13 +89,13 @@ def main() -> None:
         "--iconset-dir",
         type=Path,
         default=None,
-        help="Destination .iconset directory (defaults to <PNG>.iconset)",
+        help="Destination .iconset directory (defaults to build/<PNG>.iconset)",
     )
     parser.add_argument(
         "--icns",
         type=Path,
         default=None,
-        help="Optional output .icns file path (defaults to <PNG>.icns)",
+        help="Optional output .icns file path (defaults to build/<PNG>.icns)",
     )
     parser.add_argument(
         "--skip-iconutil",
@@ -107,11 +109,15 @@ def main() -> None:
         raise FileNotFoundError(png_path)
 
     iconset_dir = (
-        args.iconset_dir
+        args.iconset_dir.resolve()
         if args.iconset_dir is not None
-        else png_path.with_suffix(".iconset")
+        else BUILD_DIR / f"{png_path.stem}.iconset"
     )
-    icns_path = args.icns if args.icns is not None else png_path.with_suffix(".icns")
+    icns_path = (
+        args.icns.resolve()
+        if args.icns is not None
+        else BUILD_DIR / f"{png_path.stem}.icns"
+    )
 
     build_iconset(png_path, iconset_dir)
     maybe_run_iconutil(iconset_dir, icns_path, skip=args.skip_iconutil)
