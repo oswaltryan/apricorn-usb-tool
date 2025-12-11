@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 import pytest
 from usb_tool import cross_usb
@@ -50,3 +51,24 @@ def test_parse_poke_targets_rejects_invalid_values():
     devices = [SimpleNamespace(blockDevice="/dev/sda", driveSizeGB=1)]
     with pytest.raises(ValueError):
         cross_usb._parse_poke_targets("3", devices)
+
+
+def test_handle_list_action_json_output(capfd):
+    device = SimpleNamespace(
+        physicalDriveNum=2,
+        blockDevice="/dev/disk3",
+        driveSizeGB=64,
+        iSerial="XYZ123",
+    )
+    cross_usb._handle_list_action([device], json_mode=True)
+    captured = capfd.readouterr()
+    payload = json.loads(captured.out)
+    assert "devices" in payload
+    assert len(payload["devices"]) == 1
+    device_block = payload["devices"][0]
+    assert "1" in device_block
+    device_entry = device_block["1"]
+    assert device_entry["iSerial"] == "XYZ123"
+    assert device_entry["driveSizeGB"] == 64
+    assert device_entry["physicalDriveNum"] == 2
+    assert captured.err == ""

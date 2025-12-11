@@ -4,9 +4,11 @@ import platform
 import sys
 import argparse
 import ctypes
+import json
 import os  # For path validation on Linux
 from typing import List, Tuple, Optional, Callable, Any, Type
-from importlib.metadata import version, PackageNotFoundError
+
+from usb_tool._version import get_version as get_local_version
 
 # Optional: device version query (READ BUFFER 0x3C)
 query_device_version: Optional[Callable[..., Any]]
@@ -81,12 +83,7 @@ def print_help():
     Includes a standard Unix-style header and footer.
     """
     # 1. Resolve Version safely
-    try:
-        tool_ver = version("usb_tool")
-    except PackageNotFoundError:
-        tool_ver = "0.0.0"
-    except Exception:
-        tool_ver = "Unknown"
+    tool_ver = get_local_version("usb-tool")
 
     # 2. Define Header and Footer
     # Header: COMMAND(Section) | Title | Source/Version
@@ -127,6 +124,11 @@ OPTIONS
               Devices detected in Out-Of-Box (OOB) mode (reporting size as N/A)
               will be skipped.
 
+       --json
+              Emit JSON as {{"devices":[{{"<index>":{{...}}}}]}} for automation.
+              Each object key matches the numbered list output. Mutually
+              exclusive with --poke.
+
 EXAMPLES
        usb
               List all detected Apricorn devices.
@@ -165,6 +167,11 @@ OPTIONS
 
               This operation requires root privileges (e.g., sudo).
 
+       --json
+              Emit JSON as {{"devices":[{{"<index>":{{...}}}}]}} for automation.
+              Each object key matches the numbered list output. Mutually
+              exclusive with --poke.
+
 EXAMPLES
        usb
               List devices (details may be limited without root).
@@ -201,6 +208,11 @@ OPTIONS
               'all'.
 
               This operation requires root privileges.
+
+       --json
+              Emit JSON as {{"devices":[{{"<index>":{{...}}}}]}} for automation.
+              Each object key matches the numbered list output. Mutually
+              exclusive with --poke.
 
 EXAMPLES
        usb
@@ -287,11 +299,50 @@ def sync_poke_drive(device_identifier):
         return False
 
 
-def _handle_list_action(devices: list) -> None:
-    """Print the details of all discovered devices."""
+def _device_to_mapping(device: object) -> dict[str, Any]:
+    try:
+        if isinstance(device, dict):
+            printable: dict[str, Any] = dict(device)
+        else:
+            printable = dict(vars(device))
+    except TypeError:
+        printable = {"value": str(device)}
+    printable.pop("bridgeFW", None)
+    return printable
+
+
+def _devices_to_json_payload(
+    devices: list[object],
+) -> dict[str, list[dict[str, dict[str, Any]]]]:
+    safe_devices: list[object] = devices or []
+    devices_mapping: dict[str, dict[str, Any]] = {}
+    for idx, dev in enumerate(safe_devices, start=1):
+        devices_mapping[str(idx)] = _device_to_mapping(dev)
+    devices_list: list[dict[str, dict[str, Any]]] = (
+        [devices_mapping] if devices_mapping else []
+    )
+    return {"devices": devices_list}
+
+
+def _json_default(value: object) -> object:
+    if isinstance(value, (set, tuple)):
+        return list(value)
+    if isinstance(value, bytes):
+        return value.hex()
+    return str(value)
+
+
+def _handle_list_action(devices: list, json_mode: bool = False) -> None:
+    """Print or emit JSON details of all discovered devices."""
     if devices is None:
         print("Device scan failed or yielded no results.", file=sys.stderr)
         sys.exit(1)
+
+    if json_mode:
+        payload = _devices_to_json_payload(devices)
+        print(json.dumps(payload, indent=2, default=_json_default))
+        return
+
     if not devices:
         print("\nNo Apricorn devices found.\n")
         return
@@ -525,12 +576,20 @@ def main():
         "Requires Admin/root."
     )
     parser.add_argument("-p", "--poke", type=str, metavar="TARGETS", help=poke_help)
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Output device information as JSON for scripting.",
+    )
 
     args = parser.parse_args()
 
     if args.help:
         print_help()
         sys.exit(0)
+
+    if args.json and args.poke:
+        parser.error("--json cannot be used together with --poke.")
 
     if _SYSTEM.startswith("win"):
         from usb_tool import windows_usb as os_usb
@@ -542,7 +601,11 @@ def main():
         print(f"Unsupported platform: {_SYSTEM}", file=sys.stderr)
         sys.exit(1)
 
-    print("Scanning for Apricorn devices...")
+    scan_message = "Scanning for Apricorn devices..."
+    if args.json:
+        print(scan_message, file=sys.stderr)
+    else:
+        print(scan_message)
     try:
         devices = os_usb.find_apricorn_device()
     except Exception as e:
@@ -570,7 +633,7 @@ def main():
         except ValueError as exc:
             parser.error(str(exc))
     else:
-        _handle_list_action(devices)
+        _handle_list_action(devices, json_mode=args.json)
 
 
 # --- Entry Point for direct execution ---

@@ -9,36 +9,34 @@ Cross-platform CLI and Python library for enumerating Apricorn USB devices and p
 
 Prebuilt, single-file binaries are published on GitHub Releases; Python is not required.
 
-1) Download the latest asset for your OS:
+1. Download the latest asset for your OS:
    - `usb-windows.zip`: unzip and run `usb.exe`.
    - `usb-linux.tar.gz`: extract, `chmod +x usb` if needed, then run `./usb`.
    - `usb-macos.tar.gz`: extract, `chmod +x usb` if needed, then run `./usb` (enumeration only).
-2) Run `usb` from a terminal with the commands below. Poke still requires Administrator on Windows and sudo/root on Linux.
-3) To update standalone builds, download the newest release asset (standalone binaries do not use `usb-update`).
+2. Run `usb` from a terminal with the commands below. Poke still requires Administrator on Windows and sudo/root on Linux.
+3. To update standalone builds, download the newest release asset (standalone binaries do not use `usb-update`).
 
 ## Install via pip
 
 Recommended with Python 3.10+.
 
-1) Optional: create a virtual environment
-```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# Linux/macOS
-source .venv/bin/activate
-```
-
-2) Install
-```bash
-pip install .
-```
-
-For development:
-```bash
-pip install -e .[dev]
-pre-commit install
-```
+1. (Optional) create a virtual environment
+   ```bash
+   python -m venv .venv
+   # Windows
+   .venv\Scripts\activate
+   # Linux/macOS
+   source .venv/bin/activate
+   ```
+2. Install
+   ```bash
+   pip install .
+   ```
+3. For development
+   ```bash
+   pip install -e .[dev]
+   pre-commit install
+   ```
 
 ## Usage
 
@@ -47,76 +45,115 @@ List Apricorn devices (VID 0984):
 usb
 ```
 
-Safe diagnostic poke (READ(10)):
-- Windows: run in an Administrator shell, target by index or `all`
-```bash
-usb -p 1
-usb -p 1,3
-usb -p all
-```
-
-- Linux: run with sudo, target by index, by path, or `all`
-```bash
-sudo usb -p 1
-sudo usb -p /dev/sdb
-sudo usb -p all
-```
-
-
-## Output Fields
-The CLI prints normalized device fields. Typical keys include:
-- bcdUSB: USB spec version (e.g., 2.0, 3.0)
-- idVendor, idProduct: vendor/product IDs (lowercase hex)
-- bcdDevice: device revision (4-hex digits)
-- iManufacturer, iProduct, iSerial: strings/indices resolved to printable values
-- SCSIDevice: whether UAS/SCSI is in use
-- driveSizeGB: normalized capacity or `N/A (OOB Mode)`
-- usbController: Windows only (e.g., Intel, ASMedia)
-- platform-specific identifiers: Windows physical drive number, Linux block path
-
-Version details (best-effort, safely parsed from a vendor READ BUFFER):
-- scbPartNumber, hardwareVersion, modelID, mcuFW
-
-Visibility rules:
-- The tool always hides bridgeFW from user output (collected internally for gating).
-- If bridgeFW does not match bcdDevice (after normalization), the following fields are omitted from output: scbPartNumber, hardwareVersion, modelID, mcuFW.
-- Devices reporting no size (OOB Mode) are automatically skipped for poke.
+<img src="output_example.png" alt="Apricorn USB Enumeration Example" width="500">
 
 <br>
-<img src="output_example.png" alt="Apricorn USB Enumeration Example" width="500">
+"Poke" device (make Green LED blink):
+
+- Windows (Admin shell): target by index or `all`
+  ```bash
+  usb -p 1
+  usb -p 1,3
+  usb -p all
+  ```
+- Linux (sudo/root): target by index, block path, or `all`
+  ```bash
+  sudo usb -p 1
+  sudo usb -p /dev/sdb
+  sudo usb -p all
+  ```
+
+Script-friendly JSON:
+```bash
+usb --json
+```
+Outputs a deterministic structure tailored for automation:
+```json
+{
+  "devices": [
+    {
+      "1": {
+        "bcdUSB": 3.2,
+        "idVendor": "0984",
+        "idProduct": "1407",
+        "bcdDevice": "0502",
+        "iManufacturer": "Apricorn",
+        "iProduct": "Secure Key 3.0",
+        "iSerial": "147250000408",
+        "SCSIDevice": false,
+        "driveSizeGB": 16,
+        "mediaType": "Basic Disk",
+        "usbController": "Intel",
+        "busNumber": 1,
+        "deviceAddress": 16,
+        "physicalDriveNum": 3,
+        "driveLetter": "F:",
+        "readOnly": false,
+        "scbPartNumber": "N/A",
+        "hardwareVersion": "N/A",
+        "modelID": "N/A",
+        "mcuFW": "N/A"
+      }
+    }
+  ]
+}
+```
+If no devices are detected, `"devices"` is an empty list. This mode cannot be combined with `--poke`.
+
+## Output Fields
+
+The CLI prints normalized device fields. Typical keys include:
+- `bcdUSB`: USB spec version (e.g., 2.0, 3.0)
+- `idVendor`, `idProduct`: vendor/product IDs (lowercase hex)
+- `bcdDevice`: device revision (4-hex digits)
+- `iManufacturer`, `iProduct`, `iSerial`: user-friendly descriptors
+- `SCSIDevice`: whether UAS/SCSI is in use
+- `driveSizeGB`: normalized capacity or `N/A (OOB Mode)`
+- `usbController`: Windows only (e.g., Intel, ASMedia)
+- Platform identifiers: Windows physical drive number, Linux block path, macOS disk path
+
+Version details (best-effort, safely parsed from a vendor READ BUFFER):
+- `scbPartNumber`, `hardwareVersion`, `modelID`, `mcuFW`
+
+Visibility rules:
+- The tool always hides `bridgeFW` from user output.
+- If `bridgeFW` does not match `bcdDevice`, the version fields listed above are omitted.
+- Devices reporting no size (OOB Mode) are automatically skipped for poke.
 
 ## Platform Notes
 
-Windows
+**Windows**
 - Enumeration works as standard user; poke requires Administrator.
-- Requires PowerShell in PATH. libusb and pywin32 are pinned and installed via markers.
+- Requires PowerShell in `PATH`. `libusb` and `pywin32` are pinned and installed via markers.
 
-Linux
+**Linux**
 - Full detail may require root. Helpful tools: `lsusb`, `lshw`, `lsblk`.
-- Optional helpers: run `./update_sudoersd.sh` to allow passwordless reads for `lshw`/`fdisk -l` (review before using).
+- Optional helper: run `./update_sudoersd.sh` to allow passwordless reads for `lshw`/`fdisk -l` (review before using).
 
-macOS
+**macOS**
 - Enumeration uses `system_profiler` + `ioreg`. Poke is not yet enabled.
-- For tests and some tools: `brew install lsusb`.
+- For tests/tools: `brew install lsusb`.
 
 ## Python API
 
-A per-OS `find_apricorn_device()` is exported from `usb_tool` for convenience:
+`find_apricorn_device()` is exported for convenience:
 ```python
 from usb_tool import find_apricorn_device
 
 devices = find_apricorn_device() or []
-for d in devices:
-    print(d.iProduct, d.iSerial, d.driveSizeGB)
+for dev in devices:
+    print(dev.iProduct, dev.iSerial, dev.driveSizeGB)
 ```
-The returned objects are dataclasses:
+
+Returned objects are dataclasses:
 - Windows: `WinUsbDeviceInfo`
 - Linux: `LinuxUsbDeviceInfo`
 - macOS: `macOSUsbDeviceInfo`
 
-Field sets are similar across OSes; some fields are platform-specific (e.g., `usbController` on Windows, `blockDevice` on Linux). Output filtering described above applies only to CLI printing; collected fields remain attached to the objects.
+Field sets are similar across OSes; some fields are platform-specific (e.g., `usbController` on Windows, `blockDevice` on Linux). Output filtering described above applies only to CLI printing; collected fields remain available on the objects.
 
 ## Contributing / Dev
-- Code style: black + ruff via pre-commit.
+
+- Code style: `black` + `ruff` via pre-commit.
 - Tests: `pytest -q`.
 - Python 3.10+.

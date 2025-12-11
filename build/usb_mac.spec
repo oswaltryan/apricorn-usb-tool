@@ -6,7 +6,7 @@ a = Analysis(
     ['../usb_tool/cross_usb.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('../usb_tool/_cached_version.txt', 'usb_tool')],
     hiddenimports=['ctypes', 'pkg_about'],
     hookspath=[],
     hooksconfig={},

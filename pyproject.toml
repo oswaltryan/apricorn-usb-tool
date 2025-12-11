@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Package metadata
 name = "usb-tool"
-version = "1.0.3"
+version = "1.1.0"
 description = "Cross-platform USB tool for Apricorn devices"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -48,6 +48,9 @@ dev = [
 # ``wheels`` directory used for vendored dependencies.
 [tool.setuptools]
 packages = ["usb_tool"]
+
+[tool.setuptools.package-data]
+usb_tool = ["_cached_version.txt"]
 
 [tool.mypy]
 python_version = "3.10"
