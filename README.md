@@ -62,6 +62,7 @@ sudo usb -p /dev/sdb
 sudo usb -p all
 ```
 
+
 ## Output Fields
 The CLI prints normalized device fields. Typical keys include:
 - bcdUSB: USB spec version (e.g., 2.0, 3.0)
@@ -80,6 +81,9 @@ Visibility rules:
 - The tool always hides bridgeFW from user output (collected internally for gating).
 - If bridgeFW does not match bcdDevice (after normalization), the following fields are omitted from output: scbPartNumber, hardwareVersion, modelID, mcuFW.
 - Devices reporting no size (OOB Mode) are automatically skipped for poke.
+
+<br>
+<img src="output_example.png" alt="Apricorn USB Enumeration Example" width="500">
 
 ## Platform Notes
 
