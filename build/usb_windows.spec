@@ -1,6 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
+import sys
 
 block_cipher = None
+
+SPEC_DIR = os.path.abspath(os.path.dirname(sys.argv[0])) if sys.argv else os.path.abspath(".")
+ICON_PATH = os.path.join(SPEC_DIR, "USBTool.ico")
 
 a = Analysis(
     ['..\\usb_tool\\cross_usb.py'],
@@ -45,4 +50,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON_PATH,
 )
