@@ -3,8 +3,9 @@ import sys
 
 from PIL import Image
 
+
 def png_to_ico(png_path: str, ico_path: str | None = None):
-    print(f"[INFO] Requested PNG → ICO")
+    print("[INFO] Requested PNG → ICO")
     print(f"[INFO] PNG path: {png_path!r}")
     print(f"[INFO] Current working dir: {os.getcwd()}")
 
@@ -28,7 +29,7 @@ def png_to_ico(png_path: str, ico_path: str | None = None):
             print(f"[INFO] Converting image mode from {img.mode} to RGBA")
             img = img.convert("RGBA")
 
-        sizes = [(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)]
+        sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
         print(f"[INFO] Saving ICO to: {ico_path!r} with sizes: {sizes}")
         img.save(ico_path, sizes=sizes)
 
