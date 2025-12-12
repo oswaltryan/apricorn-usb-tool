@@ -26,7 +26,7 @@ jobs:
 
       - name: Install WiX Toolset
         if: runner.os == 'Windows'
-        run: choco install wixtoolset --version 3.14.0.6526 -y
+        run: choco upgrade wixtoolset -y --no-progress
 
       - name: Install Linux deps
         if: runner.os == 'Linux'
