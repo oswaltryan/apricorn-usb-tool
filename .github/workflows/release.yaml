@@ -72,7 +72,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
-          Compress-Archive -Force -Path dist\usb.exe -DestinationPath release\usb-windows.zip
+          Compress-Archive -Force -Path dist\usb-windows.exe -DestinationPath release\usb-windows.zip
           Copy-Item dist\usb-tool-*-x64.msi release\
 
       - name: Package artifact (macOS)
@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          tar -czf release/usb-macos.tar.gz -C dist usb
+          tar -czf release/usb-macos.tar.gz -C dist usb-macos
           cp dist/usb-tool-*-macos.pkg release/
 
       - name: Package artifact (Linux)
@@ -90,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          tar -czf release/usb-linux.tar.gz -C dist usb
+          tar -czf release/usb-linux.tar.gz -C dist usb-linux
           cp dist/usb-tool-*-amd64.deb release/
 
       - name: Upload artifact

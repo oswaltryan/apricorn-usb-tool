@@ -1,6 +1,6 @@
 # Windows Installer
 
-Builds a Windows Installer (`.msi`) that installs the `usb` CLI under `%ProgramFiles%\Apricorn\usb-tool` and exposes it system-wide via PATH.
+Builds a Windows Installer (`.msi`) that installs the `usb` CLI under `%ProgramFiles%\Apricorn\Apricorn USB Tool` and exposes it system-wide via PATH.
 
 ## Prerequisites
 
@@ -25,4 +25,4 @@ Builds a Windows Installer (`.msi`) that installs the `usb` CLI under `%ProgramF
    ```
 3. The resulting `usb-tool-<version>-x64.msi` is placed in `dist/` ready for distribution.
 
-The MSI installs only the CLI—no shortcuts or Start Menu entries are created. Uninstall via **Settings → Apps → usb-tool**.
+The MSI installs only the CLI—no shortcuts or Start Menu entries are created. Uninstall via **Settings → Apps → Apricorn USB Tool**.

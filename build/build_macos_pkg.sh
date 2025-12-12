@@ -5,7 +5,7 @@ usage() {
     cat <<'USAGE'
 Usage: ./build/build_macos_pkg.sh [--arm64 <path>] [--x86_64 <path>] [--skip-pyinstaller]
 
-Combines the provided binaries (or the default dist/usb build) into a
+Combines the provided binaries (or the default dist/usb-macos build) into a
 universal CLI and generates a macOS installer package.
 USAGE
 }
