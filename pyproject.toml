@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 # Package metadata
-name = "usb-tool"
+name = "apricorn-usb-tool"
 version = "1.1.1"
 description = "Cross-platform USB tool for Apricorn devices"
 readme = "README.md"

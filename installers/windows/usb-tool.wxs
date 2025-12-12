@@ -12,6 +12,8 @@
                   DowngradeErrorMessage="A newer version of usb-tool is already installed." />
     <MediaTemplate EmbedCab="yes"/>
     <CustomActionRef Id="WixBroadcastEnvironmentChange" />
+    <Icon Id="UsbToolIcon" SourceFile="$(var.ProductIcon)" />
+    <Property Id="ARPPRODUCTICON" Value="UsbToolIcon" />
 
     <Feature Id="MainFeature" Title="usb-tool" Level="1">
       <ComponentGroupRef Id="UsbToolComponents" />
