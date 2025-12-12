@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product Id="*"
+           Name="usb-tool"
+           Language="1033"
+           Version="$(var.ProductVersion)"
+           Manufacturer="Apricorn"
+           UpgradeCode="C0A5BA8C-019E-4A37-B1FD-5072F1D7C89F">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" Description="Apricorn usb-tool CLI"/>
+    <MajorUpgrade AllowDowngrades="no"
+                  AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of usb-tool is already installed." />
+    <MediaTemplate EmbedCab="yes"/>
+    <CustomActionRef Id="WixBroadcastEnvironmentChange" />
+
+    <Feature Id="MainFeature" Title="usb-tool" Level="1">
+      <ComponentGroupRef Id="UsbToolComponents" />
+    </Feature>
+  </Product>
+
+  <Fragment>
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="ApricornDir" Name="Apricorn">
+          <Directory Id="INSTALLDIR" Name="usb-tool" />
+        </Directory>
+      </Directory>
+    </Directory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="UsbToolComponents">
+      <Component Id="UsbExecutable" Guid="E1A87577-A3F7-44BE-8C9D-4012ABE33C81" Directory="INSTALLDIR" Win64="yes">
+        <File Id="UsbExe" Source="$(var.UsbBinary)" KeyPath="yes" Name="usb.exe" Checksum="yes"/>
+        <Environment Id="UsbToolPath" Name="PATH" Action="set" Part="last" Value="[INSTALLDIR]" Permanent="no" System="yes"/>
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

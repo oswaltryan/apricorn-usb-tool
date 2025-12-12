@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+BIN_DIR="/usr/local/lib/usb-tool"
+LINK_TARGET="/usr/local/bin/usb"
+
+if [ ! -x "$BIN_DIR/usb" ]; then
+    chmod 755 "$BIN_DIR/usb" 2>/dev/null || true
+fi
+
+ln -sf "$BIN_DIR/usb" "$LINK_TARGET"
+
+exit 0

@@ -1,0 +1,11 @@
+Package: usb-tool
+Version: @DEB_VERSION@
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: Apricorn <support@apricorn.com>
+Depends: libc6 (>= 2.31)
+Homepage: https://github.com/apricorn/usb-tool
+Description: Apricorn USB enumeration and diagnostics CLI
+ usb-tool lists Apricorn USB devices (VID 0984) and performs safe
+ SCSI READ(10) diagnostics from Windows, Linux, and macOS hosts.

@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+INSTALL_DIR="/usr/local/lib/usb-tool"
+LINK="/usr/local/bin/usb"
+
+/bin/mkdir -p "$INSTALL_DIR"
+/bin/mkdir -p "$(dirname "$LINK")"
+/bin/chmod 755 "$INSTALL_DIR" 2>/dev/null || true
+if [ -f "$INSTALL_DIR/usb" ]; then
+    /bin/chmod 755 "$INSTALL_DIR/usb"
+fi
+
+/bin/ln -sf "$INSTALL_DIR/usb" "$LINK"
+
+exit 0

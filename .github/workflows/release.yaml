@@ -24,44 +24,74 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install WiX Toolset
+        if: runner.os == 'Windows'
+        run: choco install wixtoolset --version 3.14.0.6526 -y
+
       - name: Install Linux deps
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libusb-1.0-0
+          sudo apt-get install -y libusb-1.0-0 dpkg-dev
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: |
-          chmod +x build/build_linux.sh
+          chmod +x build/build_linux.sh build/build_linux_installer.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/debian/DEBIAN/postinst installers/linux/debian/DEBIAN/prerm
           ./build/build_linux.sh
+
+      - name: Build Linux installer
+        if: runner.os == 'Linux'
+        run: |
+          SKIP_PYINSTALLER=1 ./build/build_linux_installer.sh
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
-          chmod +x build/build_mac.sh
+          chmod +x build/build_mac.sh build/build_macos_pkg.sh installers/macos/scripts/postinstall
           ./build/build_mac.sh
+
+      - name: Build macOS installer
+        if: runner.os == 'macOS'
+        run: |
+          ./build/build_macos_pkg.sh --skip-pyinstaller
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
         run: build\build_windows.bat
         shell: cmd
 
-      - name: Package artifact
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./build/build_windows_msi.ps1 -SkipPyInstaller
+
+      - name: Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Compress-Archive -Force -Path dist\usb.exe -DestinationPath release\usb-windows.zip
+          Copy-Item dist\usb-tool-*-x64.msi release\
+
+      - name: Package artifact (macOS)
+        if: runner.os == 'macOS'
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p release
-          case "${{ runner.os }}" in
-            Windows)
-              pwsh -Command "Compress-Archive -Path dist\\* -DestinationPath release\\usb-windows.zip"
-              ;;
-            macOS)
-              tar -czf release/usb-macos.tar.gz -C dist .
-              ;;
-            Linux)
-              tar -czf release/usb-linux.tar.gz -C dist .
-              ;;
-          esac
+          tar -czf release/usb-macos.tar.gz -C dist usb
+          cp dist/usb-tool-*-macos.pkg release/
+
+      - name: Package artifact (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          tar -czf release/usb-linux.tar.gz -C dist usb
+          cp dist/usb-tool-*-amd64.deb release/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

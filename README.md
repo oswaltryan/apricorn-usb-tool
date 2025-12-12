@@ -7,14 +7,17 @@ Cross-platform CLI and Python library for enumerating Apricorn USB devices and p
 
 ## Download (standalone builds)
 
-Prebuilt, single-file binaries are published on GitHub Releases; Python is not required.
+Prebuilt installers and single-file binaries are published on GitHub Releases; Python is not required.
 
 1. Download the latest asset for your OS:
-   - `usb-windows.zip`: unzip and run `usb.exe`.
-   - `usb-linux.tar.gz`: extract, `chmod +x usb` if needed, then run `./usb`.
-   - `usb-macos.tar.gz`: extract, `chmod +x usb` if needed, then run `./usb` (enumeration only).
+   - **Windows**: `usb-tool-<version>-x64.msi` installs to `%ProgramFiles%\Apricorn\usb-tool\` and places `usb` on PATH (Admin required).
+   - **Linux**: `usb-tool-<version>-amd64.deb` installs to `/usr/local/lib/usb-tool` and symlinks `/usr/local/bin/usb` (sudo required).<br>
+                A portable `usb-linux.tar.gz` plus `installers/linux/install.sh` is available for non-Debian hosts.
+   - **macOS**: `usb-tool-<version>-macos.pkg` installs to `/usr/local/lib/usb-tool` and exposes `/usr/local/bin/usb`; the payload is universal. A raw `usb-macos.tar.gz` binary is also published for portable use.
 2. Run `usb` from a terminal with the commands below. Poke still requires Administrator on Windows and sudo/root on Linux.
-3. To update standalone builds, download the newest release asset (standalone binaries do not use `usb-update`).
+3. To update standalone builds, rerun the latest installer or download the newest portable binary. Standalone binaries do not use `usb-update`.
+
+Detailed installer instructions (silent installs, manual uninstall, etc.) live in `INSTALLERS.md`.
 
 ## Install via pip
 
@@ -45,7 +48,7 @@ List Apricorn devices (VID 0984):
 usb
 ```
 
-<img src="output_example.png" alt="Apricorn USB Enumeration Example" width="500">
+<img src="output_example.png" alt="Apricorn USB Enumeration Example" width="700">
 
 <br>
 "Poke" device (make Green LED blink):
