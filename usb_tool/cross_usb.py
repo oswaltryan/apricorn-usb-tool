@@ -617,9 +617,7 @@ def main():
     else:
         print(scan_message)
     try:
-        devices = os_usb.find_apricorn_device(
-            minimal=getattr(args, "minimal", False)
-        )
+        devices = os_usb.find_apricorn_device(minimal=getattr(args, "minimal", False))
     except Exception as e:
         print(f"Error during device scan: {e}", file=sys.stderr)
         devices = None

@@ -583,7 +583,9 @@ def parse_lsusb_output(
 # ------------------------------------------------------
 # Enumerate "lsusb", filter for Apricorn, gather details - MODIFIED
 # ------------------------------------------------------
-def find_apricorn_device(minimal: bool = False) -> List[UsbDeviceInfo]:  # Return List, never None
+def find_apricorn_device(
+    minimal: bool = False,
+) -> List[UsbDeviceInfo]:  # Return List, never None
     """
     Enumerates USB devices using 'lsusb', filters for Apricorn devices (VID 0984),
     and gathers detailed information using 'lsusb -v', 'lshw', and 'lsblk'.
