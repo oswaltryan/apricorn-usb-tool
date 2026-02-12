@@ -1,21 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
   <Product Id="*"
-           Name="usb-tool"
+           Name="Apricorn USB Tool"
            Language="1033"
            Version="$(var.ProductVersion)"
            Manufacturer="Apricorn"
            UpgradeCode="C0A5BA8C-019E-4A37-B1FD-5072F1D7C89F">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" Description="Apricorn usb-tool CLI"/>
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" Description="Apricorn USB Tool CLI"/>
     <MajorUpgrade AllowDowngrades="no"
                   AllowSameVersionUpgrades="yes"
-                  DowngradeErrorMessage="A newer version of usb-tool is already installed." />
+                  DowngradeErrorMessage="A newer version of Apricorn USB Tool is already installed." />
     <MediaTemplate EmbedCab="yes"/>
     <CustomActionRef Id="WixBroadcastEnvironmentChange" />
     <Icon Id="UsbToolIcon" SourceFile="$(var.ProductIcon)" />
     <Property Id="ARPPRODUCTICON" Value="UsbToolIcon" />
 
-    <Feature Id="MainFeature" Title="usb-tool" Level="1">
+    <Feature Id="MainFeature" Title="Apricorn USB Tool" Level="1">
       <ComponentGroupRef Id="UsbToolComponents" />
     </Feature>
   </Product>
@@ -24,7 +24,7 @@
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="ApricornDir" Name="Apricorn">
-          <Directory Id="INSTALLDIR" Name="usb-tool" />
+          <Directory Id="INSTALLDIR" Name="Apricorn USB Tool" />
         </Directory>
       </Directory>
     </Directory>

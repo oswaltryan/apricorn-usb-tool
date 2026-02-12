@@ -12,7 +12,7 @@ Builds a signed-or-unsigned `.pkg` that installs `usb` into `/usr/local/lib/usb-
 
 1. Produce PyInstaller binaries for both architectures (run on each host, or provide paths):
    ```bash
-   ./build/build_mac.sh   # emits dist/usb on the current architecture
+   ./build/build_mac.sh   # emits dist/usb-macos on the current architecture
    ```
    Copy the resulting files aside as `dist/usb-macos-arm64` / `dist/usb-macos-x86_64` if you build on two machines.
 2. From a macOS machine with both binaries available, run:

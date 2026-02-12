@@ -10,7 +10,7 @@ Cross-platform CLI and Python library for enumerating Apricorn USB devices and p
 Prebuilt installers and single-file binaries are published on GitHub Releases; Python is not required.
 
 1. Download the latest asset for your OS:
-   - **Windows**: `usb-tool-<version>-x64.msi` installs to `%ProgramFiles%\Apricorn\usb-tool\` and places `usb` on PATH (Admin required).
+   - **Windows**: `usb-tool-<version>-x64.msi` installs to `%ProgramFiles%\Apricorn\Apricorn USB Tool\` and places `usb` on PATH (Admin required).
    - **Linux**: `usb-tool-<version>-amd64.deb` installs to `/usr/local/lib/usb-tool` and symlinks `/usr/local/bin/usb` (sudo required).<br>
                 A portable `usb-linux.tar.gz` plus `installers/linux/install.sh` is available for non-Debian hosts.
    - **macOS**: `usb-tool-<version>-macos.pkg` installs to `/usr/local/lib/usb-tool` and exposes `/usr/local/bin/usb`; the payload is universal. A raw `usb-macos.tar.gz` binary is also published for portable use.
