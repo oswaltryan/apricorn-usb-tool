@@ -115,6 +115,65 @@ controller mapping, USB read-only status, and drive letters.
 - End-to-end time dropped to ~1.1s on this host.
 - The remaining time is largely WMI query overhead rather than PowerShell startup.
 
+---
+
+## Update: Consolidated Win32_DiskDrive Query (2026-02-12)
+Avoided redundant WMI queries by retrieving Win32_DiskDrive once and
+passing the results to downstream functions.
+
+### Baseline: End-to-End Runtime (after change)
+`python -m usb_tool.cross_usb`
+- TotalSeconds: **1.074s**
+
+### Component Timings (single run, after change)
+- `get_wmi_usb_devices`: **0.305s** (len=1)
+- `get_wmi_diskdrives`: **0.009s** (len=2)
+- `get_apricorn_libusb_data`: **0.028s** (len=1)
+- `get_wmi_usb_drives`: **0.000s** (len=1)
+- `get_physical_drive_number`: **0.000s** (len=1)
+- `get_wmi_usb_metadata`: **0.421s** (len=3)
+
+### Notes
+- The DiskDrive reuse removes repeated WMI queries with negligible code risk.
+- Further wins likely require reducing the USB controller association cost.
+
+---
+
+## Update: Skip Drive Letters for OOB Devices (2026-02-12)
+Limited drive-letter lookup to only non-OOB Apricorn devices by passing a set
+of required drive indices into `get_drive_letters_map_wmi`.
+
+### Baseline: End-to-End Runtime (after change)
+`python -m usb_tool.cross_usb`
+- TotalSeconds: **1.113s**
+
+### Component Timings (single run, after change)
+- `get_wmi_usb_devices`: **0.299s** (len=1)
+- `get_wmi_diskdrives`: **0.007s** (len=2)
+- `get_apricorn_libusb_data`: **0.029s** (len=1)
+- `get_usb_controllers_wmi`: **0.379s** (len=1)
+- `get_usb_readonly_status_map_wmi`: **0.605s** (len=0)
+- `get_wmi_usb_drives`: **0.000s** (len=1)
+- `get_physical_drive_number`: **0.000s** (len=1)
+- `get_drive_letters_map_wmi`: **0.003s** (len=2)
+
+### Notes
+- Drive-letter lookup is now effectively negligible.
+- Overall runtime didn’t drop on this host; the read-only WMI query dominates.
+
+---
+
+## Update: --minimal Scan Mode (2026-02-12)
+Added `--minimal` to skip controller name and drive letter fields for faster scans.
+
+### Baseline: End-to-End Runtime (minimal mode)
+`python -m usb_tool.cross_usb --minimal`
+- TotalSeconds: **0.695s**
+
+### Notes
+- This mode reduces runtime by skipping the USB controller mapping and drive-letter lookups.
+- Output omits `usbController` and `driveLetter` fields on Windows.
+
 ## Raw Output
 PROFILE_RESULTS_START
 get_wmi_usb_devices: 0.370s ok=True len=1

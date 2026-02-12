@@ -129,6 +129,10 @@ OPTIONS
               Each object key matches the numbered list output. Mutually
               exclusive with --poke.
 
+       --minimal
+              Faster scan that omits controller name and drive letter fields.
+              Output remains otherwise unchanged.
+
 EXAMPLES
        usb
               List all detected Apricorn devices.
@@ -172,6 +176,10 @@ OPTIONS
               Each object key matches the numbered list output. Mutually
               exclusive with --poke.
 
+       --minimal
+              Faster scan that omits controller name and drive letter fields.
+              (No-op on Linux).
+
 EXAMPLES
        usb
               List devices (details may be limited without root).
@@ -213,6 +221,10 @@ OPTIONS
               Emit JSON as {{"devices":[{{"<index>":{{...}}}}]}} for automation.
               Each object key matches the numbered list output. Mutually
               exclusive with --poke.
+
+       --minimal
+              Faster scan that omits controller name and drive letter fields.
+              (No-op on macOS).
 
 EXAMPLES
        usb
@@ -581,6 +593,11 @@ def main():
         action="store_true",
         help="Output device information as JSON for scripting.",
     )
+    parser.add_argument(
+        "--minimal",
+        action="store_true",
+        help="Faster scan that omits controller name and drive letter fields.",
+    )
 
     args = parser.parse_args()
 
@@ -607,7 +624,7 @@ def main():
     else:
         print(scan_message)
     try:
-        devices = os_usb.find_apricorn_device()
+        devices = os_usb.find_apricorn_device(minimal=args.minimal)
     except Exception as e:
         print(f"Error during device scan: {e}", file=sys.stderr)
         devices = None
