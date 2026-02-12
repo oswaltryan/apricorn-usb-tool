@@ -22,6 +22,7 @@ requires-python = ">=3.10"
 # they are only installed on that platform.
 dependencies = [
     "pyusb",
+    "libusb; sys_platform == 'win32'",
     "pywin32==309; sys_platform == 'win32'",
     "pygments==2.19.1; sys_platform == 'win32'",
 ]
