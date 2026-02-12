@@ -1059,6 +1059,7 @@ def instantiate_class_objects(
         isReadOnly = readonly_map.get(drive_number, False)
         drive_letter = drive_letters_map.get(drive_number, "Not Formatted")
 
+        driveSizeGB: object
         if wmi_usb_drives[item]["size_gb"] == 0.0:
             driveSizeGB = "N/A (OOB Mode)"
         else:
