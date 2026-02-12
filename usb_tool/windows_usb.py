@@ -206,6 +206,60 @@ def get_drive_letter_via_ps(drive_index: int) -> str:
         return "Not Formatted"
 
 
+def get_drive_letters_map() -> dict[int, str]:
+    """
+    Batch PowerShell query to retrieve drive letters for all disks.
+
+    Returns:
+        dict: {disk_index: "E:, F:"} or "Not Formatted" when no letters exist.
+    """
+    ps_script = r"""
+    $results = Get-WmiObject -Class Win32_DiskDrive | ForEach-Object {
+        $drive = $_
+        $letters = Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskDrive.DeviceID='$($drive.DeviceID)'} WHERE AssocClass = Win32_DiskDriveToDiskPartition" |
+        ForEach-Object {
+            $partition = $_
+            Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($partition.DeviceID)'} WHERE AssocClass = Win32_LogicalDiskToPartition" |
+            ForEach-Object { $_.DeviceID }
+        }
+        [PSCustomObject]@{
+            Index = $drive.Index
+            Letters = ($letters -join ', ')
+        }
+    }
+    $results | ConvertTo-Json -Compress
+    """
+
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            check=True,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        if not result.stdout.strip():
+            return {}
+        data = json.loads(result.stdout)
+        if isinstance(data, dict):
+            data = [data]
+        mapping: dict[int, str] = {}
+        for item in data:
+            try:
+                idx = int(item.get("Index"))
+            except (TypeError, ValueError):
+                continue
+            letters = str(item.get("Letters") or "").strip()
+            mapping[idx] = letters if letters else "Not Formatted"
+        return mapping
+    except (
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        FileNotFoundError,
+    ):
+        return {}
+
+
 def get_wmi_usb_devices():
     """
     Fetch all USB devices from WMI (Win32_PnPEntity) whose DeviceID starts with 'USB\\VID_'.
@@ -461,6 +515,119 @@ def get_usb_readonly_status_map():
         return {}
 
     return readonly_map
+
+
+# ==================================
+# Consolidated PowerShell Metadata
+# ==================================
+
+
+def get_ps_usb_metadata():
+    """
+    Run a single PowerShell script to gather controller mapping, USB read-only
+    status, and drive letters in one process.
+
+    Returns:
+        tuple[list[dict], dict[int, bool], dict[int, str]]:
+            (usb_controllers, readonly_map, drive_letters_map)
+    """
+    ps_script = r"""
+    $controllers = Get-CimInstance Win32_USBControllerDevice | ForEach-Object {
+        $controller = Get-CimInstance -CimInstance $_.Antecedent
+        $device = Get-CimInstance -CimInstance $_.Dependent
+        [PSCustomObject]@{
+            DeviceID = $device.DeviceID
+            ControllerName = $controller.Name
+        }
+    }
+
+    $readonly = Get-Disk | Where-Object { $_.Bustype -eq 'USB' } |
+    Select-Object -Property Number, IsReadOnly
+
+    $driveLetters = Get-WmiObject -Class Win32_DiskDrive | ForEach-Object {
+        $drive = $_
+        $letters = Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskDrive.DeviceID='$($drive.DeviceID)'} WHERE AssocClass = Win32_DiskDriveToDiskPartition" |
+        ForEach-Object {
+            $partition = $_
+            Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($partition.DeviceID)'} WHERE AssocClass = Win32_LogicalDiskToPartition" |
+            ForEach-Object { $_.DeviceID }
+        }
+        [PSCustomObject]@{
+            Index = $drive.Index
+            Letters = ($letters -join ', ')
+        }
+    }
+
+    [PSCustomObject]@{
+        Controllers = $controllers
+        ReadOnly = $readonly
+        DriveLetters = $driveLetters
+    } | ConvertTo-Json -Compress -Depth 4
+    """
+
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            check=True,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        if not result.stdout.strip():
+            return [], {}, {}
+        data = json.loads(result.stdout)
+    except (
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        FileNotFoundError,
+    ):
+        return [], {}, {}
+
+    controllers_raw = data.get("Controllers") or []
+    if isinstance(controllers_raw, dict):
+        controllers_raw = [controllers_raw]
+    usb_controllers = []
+    for item in controllers_raw:
+        dev_id = item.get("DeviceID", "")
+        vid, pid = _extract_vid_pid(dev_id)
+        if vid != "0984" or _is_excluded_pid(pid):
+            continue
+        controller_name = item.get("ControllerName", "") or ""
+        usb_controllers.append(
+            {
+                "DeviceID": str(dev_id).upper(),
+                "ControllerName": (
+                    controller_name[:5]
+                    if controller_name.startswith("Intel")
+                    else "ASMedia"
+                ),
+            }
+        )
+
+    readonly_raw = data.get("ReadOnly") or []
+    if isinstance(readonly_raw, dict):
+        readonly_raw = [readonly_raw]
+    readonly_map = {}
+    for item in readonly_raw:
+        try:
+            disk_number = int(item.get("Number"))
+        except (TypeError, ValueError):
+            continue
+        readonly_map[disk_number] = bool(item.get("IsReadOnly"))
+
+    drive_letters_raw = data.get("DriveLetters") or []
+    if isinstance(drive_letters_raw, dict):
+        drive_letters_raw = [drive_letters_raw]
+    drive_letters_map = {}
+    for item in drive_letters_raw:
+        try:
+            idx = int(item.get("Index"))
+        except (TypeError, ValueError):
+            continue
+        letters = str(item.get("Letters") or "").strip()
+        drive_letters_map[idx] = letters if letters else "Not Formatted"
+
+    return usb_controllers, readonly_map, drive_letters_map
 
 
 # ==================================
@@ -796,6 +963,7 @@ def instantiate_class_objects(
     libusb_data,
     physical_drives,
     readonly_map,
+    drive_letters_map,
 ):
     devices = []
     count = min(
@@ -837,7 +1005,7 @@ def instantiate_class_objects(
                     break
 
         isReadOnly = readonly_map.get(drive_number, False)
-        drive_letter = get_drive_letter_via_ps(drive_number)
+        drive_letter = drive_letters_map.get(drive_number, "Not Formatted")
 
         if wmi_usb_drives[item]["size_gb"] == 0.0:
             driveSizeGB = "N/A (OOB Mode)"
@@ -911,10 +1079,9 @@ def _perform_scan_pass():
     """Run a single scan pass and return assembled devices plus source lengths."""
     wmi_usb_devices = get_wmi_usb_devices() or []
     wmi_usb_drives = get_wmi_usb_drives() or []
-    usb_controllers = get_all_usb_controller_names() or []
     libusb_data = get_apricorn_libusb_data() or []
     physical_drives = get_physical_drive_number()
-    readonly_map = get_usb_readonly_status_map()
+    usb_controllers, readonly_map, drive_letters_map = get_ps_usb_metadata()
 
     wmi_usb_drives = sort_wmi_drives(wmi_usb_devices, wmi_usb_drives)
     usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
@@ -934,6 +1101,7 @@ def _perform_scan_pass():
         libusb_data,
         physical_drives,
         readonly_map,
+        drive_letters_map,
     )
     return apricorn_devices, lengths
 
