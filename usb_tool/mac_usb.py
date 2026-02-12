@@ -160,7 +160,7 @@ def parse_uasp_info():
 # ------------------------------------------------------
 # Enumerate devices, filter for Apricorn, gather details
 # ------------------------------------------------------
-def find_apricorn_device() -> Optional[List[UsbDeviceInfo]]:
+def find_apricorn_device(minimal: bool = False) -> Optional[List[UsbDeviceInfo]]:
     """
     Identifies connected Apricorn USB devices and gathers detailed information
     about them, including USB descriptors, product information, and whether

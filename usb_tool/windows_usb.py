@@ -206,6 +206,60 @@ def get_drive_letter_via_ps(drive_index: int) -> str:
         return "Not Formatted"
 
 
+def get_drive_letters_map() -> dict[int, str]:
+    """
+    Batch PowerShell query to retrieve drive letters for all disks.
+
+    Returns:
+        dict: {disk_index: "E:, F:"} or "Not Formatted" when no letters exist.
+    """
+    ps_script = r"""
+    $results = Get-WmiObject -Class Win32_DiskDrive | ForEach-Object {
+        $drive = $_
+        $letters = Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskDrive.DeviceID='$($drive.DeviceID)'} WHERE AssocClass = Win32_DiskDriveToDiskPartition" |
+        ForEach-Object {
+            $partition = $_
+            Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($partition.DeviceID)'} WHERE AssocClass = Win32_LogicalDiskToPartition" |
+            ForEach-Object { $_.DeviceID }
+        }
+        [PSCustomObject]@{
+            Index = $drive.Index
+            Letters = ($letters -join ', ')
+        }
+    }
+    $results | ConvertTo-Json -Compress
+    """
+
+    try:
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            check=True,
+            creationflags=0x08000000,  # CREATE_NO_WINDOW
+        )
+        if not result.stdout.strip():
+            return {}
+        data = json.loads(result.stdout)
+        if isinstance(data, dict):
+            data = [data]
+        mapping: dict[int, str] = {}
+        for item in data:
+            try:
+                idx = int(item.get("Index"))
+            except (TypeError, ValueError):
+                continue
+            letters = str(item.get("Letters") or "").strip()
+            mapping[idx] = letters if letters else "Not Formatted"
+        return mapping
+    except (
+        subprocess.CalledProcessError,
+        json.JSONDecodeError,
+        FileNotFoundError,
+    ):
+        return {}
+
+
 def get_wmi_usb_devices():
     """
     Fetch all USB devices from WMI (Win32_PnPEntity) whose DeviceID starts with 'USB\\VID_'.
@@ -239,13 +293,18 @@ def get_wmi_usb_devices():
     return devices_info
 
 
-def get_wmi_usb_drives():
+def get_wmi_usb_drives(wmi_diskdrives=None):
     """
     Fetch all USB drives from WMI (Win32_DiskDrive WHERE InterfaceType='USB').
     Returns a list of dicts with caption, size in GB, closest_match, iProduct, pnpdeviceid, etc.
     """
-    query = "SELECT * FROM Win32_DiskDrive WHERE InterfaceType='USB'"  # Filter for USB drives
-    usb_drives = service.ExecQuery(query)  # changed from wmi.ExecQuery
+    if wmi_diskdrives is None:
+        query = "SELECT * FROM Win32_DiskDrive WHERE InterfaceType='USB'"  # Filter for USB drives
+        usb_drives = service.ExecQuery(query)  # changed from wmi.ExecQuery
+    else:
+        usb_drives = [
+            d for d in wmi_diskdrives if getattr(d, "InterfaceType", "") == "USB"
+        ]
     drives_info = []
 
     for drive in usb_drives:
@@ -368,7 +427,22 @@ def get_apricorn_libusb_data():
     return devices if devices else None
 
 
-def get_physical_drive_number():
+def get_wmi_diskdrives():
+    """
+    Retrieve Win32_DiskDrive entries once to avoid repeated WMI queries.
+    """
+    try:
+        return list(
+            service.ExecQuery(
+                "SELECT DeviceID, PNPDeviceID, Caption, Size, MediaType, "
+                "InterfaceType, Index FROM Win32_DiskDrive"
+            )
+        )
+    except Exception:
+        return []
+
+
+def get_physical_drive_number(wmi_diskdrives=None):
     """
     Retrieves the physical drive number associated with a given PNPDeviceID.
 
@@ -377,14 +451,13 @@ def get_physical_drive_number():
     """
     physical_drives = {}
     try:
-        wmi = win32com.client.GetObject("winmgmts:\\\\.\\root\\cimv2")
+        results = wmi_diskdrives
+        if results is None:
+            wmi = win32com.client.GetObject("winmgmts:\\\\.\\root\\cimv2")
+            query = "SELECT DeviceID, PNPDeviceID FROM Win32_DiskDrive"
+            results = wmi.ExecQuery(query)
 
-        # 1. Get all Win32_DiskDrive instances
-        query = "SELECT DeviceID, PNPDeviceID FROM Win32_DiskDrive"
-
-        results = wmi.ExecQuery(query)
-
-        for result in results:
+        for result in results or []:
             drive_pnp_id = result.PNPDeviceID.rsplit("\\", 1)[1][:-2]
             drive_device_id = int(result.DeviceID[-1:])
             # print(f"Debugging: Drive PNPDeviceID: {result.PNPDeviceID}")
@@ -461,6 +534,146 @@ def get_usb_readonly_status_map():
         return {}
 
     return readonly_map
+
+
+# ==================================
+# Consolidated WMI/COM Metadata
+# ==================================
+
+
+def _wql_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
+
+
+def get_usb_controllers_wmi() -> list[dict]:
+    usb_controllers: list[dict] = []
+    try:
+        records = service.ExecQuery("SELECT * FROM Win32_USBControllerDevice")
+    except Exception:
+        return usb_controllers
+
+    for record in records:
+        try:
+            controller = service.Get(record.Antecedent)
+            device = service.Get(record.Dependent)
+        except Exception:
+            continue
+        device_id = getattr(device, "DeviceID", "") or ""
+        vid, pid = _extract_vid_pid(device_id)
+        if vid != "0984" or _is_excluded_pid(pid):
+            continue
+        controller_name = getattr(controller, "Name", "") or ""
+        usb_controllers.append(
+            {
+                "DeviceID": str(device_id).upper(),
+                "ControllerName": (
+                    controller_name[:5]
+                    if controller_name.startswith("Intel")
+                    else "ASMedia"
+                ),
+            }
+        )
+    return usb_controllers
+
+
+def get_usb_readonly_status_map_wmi() -> dict[int, bool]:
+    try:
+        locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
+        storage = locator.ConnectServer(".", "root\\Microsoft\\Windows\\Storage")
+    except Exception:
+        return {}
+
+    readonly_map: dict[int, bool] = {}
+    try:
+        disks = storage.ExecQuery("SELECT Number, IsReadOnly, BusType FROM MSFT_Disk")
+    except Exception:
+        return {}
+
+    for disk in disks:
+        try:
+            if int(getattr(disk, "BusType", -1)) != 7:  # 7 == USB
+                continue
+            number = int(getattr(disk, "Number", -1))
+            readonly_map[number] = bool(getattr(disk, "IsReadOnly", False))
+        except Exception:
+            continue
+    return readonly_map
+
+
+def get_drive_letters_map_wmi(
+    wmi_diskdrives=None, drive_indices: set[int] | None = None
+) -> dict[int, str]:
+    drive_letters_map: dict[int, str] = {}
+    drives = wmi_diskdrives
+    if drives is None:
+        try:
+            drives = service.ExecQuery("SELECT DeviceID, Index FROM Win32_DiskDrive")
+        except Exception:
+            return drive_letters_map
+
+    for drive in drives or []:
+        try:
+            device_id = getattr(drive, "DeviceID", "") or ""
+            drive_index = int(getattr(drive, "Index", -1))
+        except Exception:
+            continue
+        if drive_indices is not None and drive_index not in drive_indices:
+            continue
+        if drive_index < 0 or not device_id:
+            continue
+        escaped = _wql_escape(device_id)
+        letters: list[str] = []
+        try:
+            partitions = service.ExecQuery(
+                "ASSOCIATORS OF {Win32_DiskDrive.DeviceID='%s'} "
+                "WHERE AssocClass = Win32_DiskDriveToDiskPartition" % escaped
+            )
+        except Exception:
+            partitions = []
+        try:
+            for partition in partitions:
+                try:
+                    part_id = getattr(partition, "DeviceID", "") or ""
+                    if not part_id:
+                        continue
+                    part_escaped = _wql_escape(part_id)
+                    logicals = service.ExecQuery(
+                        "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='%s'} "
+                        "WHERE AssocClass = Win32_LogicalDiskToPartition" % part_escaped
+                    )
+                except Exception:
+                    logicals = []
+                try:
+                    for logical in logicals:
+                        try:
+                            logical_id = getattr(logical, "DeviceID", "") or ""
+                            if logical_id:
+                                letters.append(logical_id)
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+        except Exception:
+            letters = []
+        drive_letters_map[drive_index] = (
+            ", ".join(letters) if letters else "Not Formatted"
+        )
+
+    return drive_letters_map
+
+
+def get_wmi_usb_metadata(wmi_diskdrives=None, drive_indices: set[int] | None = None):
+    """
+    Gather controller mapping, USB read-only status, and drive letters using WMI/COM.
+
+    Returns:
+        tuple[list[dict], dict[int, bool], dict[int, str]]:
+            (usb_controllers, readonly_map, drive_letters_map)
+    """
+    usb_controllers = get_usb_controllers_wmi()
+    readonly_map = get_usb_readonly_status_map_wmi()
+    drive_letters_map = get_drive_letters_map_wmi(wmi_diskdrives, drive_indices)
+    return usb_controllers, readonly_map, drive_letters_map
 
 
 # ==================================
@@ -796,6 +1009,9 @@ def instantiate_class_objects(
     libusb_data,
     physical_drives,
     readonly_map,
+    drive_letters_map,
+    include_controller: bool = True,
+    include_drive_letter: bool = True,
 ):
     devices = []
     count = min(
@@ -817,7 +1033,11 @@ def instantiate_class_objects(
         bcdUSB = libusb_data[item]["bcdUSB"]
         iManufacturer = wmi_usb_devices[item]["manufacturer"]
         iProduct = wmi_usb_drives[item]["iProduct"]
-        usbController = usb_controllers[item]["ControllerName"]
+        usbController = (
+            usb_controllers[item]["ControllerName"]
+            if include_controller and usb_controllers
+            else "N/A"
+        )
         bus_number = libusb_data[item]["bus_number"]
         dev_address = libusb_data[item]["dev_address"]
         mediaType = wmi_usb_drives[item].get("mediaType", "Unknown")
@@ -837,7 +1057,7 @@ def instantiate_class_objects(
                     break
 
         isReadOnly = readonly_map.get(drive_number, False)
-        drive_letter = get_drive_letter_via_ps(drive_number)
+        drive_letter = drive_letters_map.get(drive_number, "Not Formatted")
 
         if wmi_usb_drives[item]["size_gb"] == 0.0:
             driveSizeGB = "N/A (OOB Mode)"
@@ -870,11 +1090,13 @@ def instantiate_class_objects(
             **version_info,
         )
 
-        setattr(dev_info, "usbController", usbController)
+        if include_controller:
+            setattr(dev_info, "usbController", usbController)
         setattr(dev_info, "busNumber", bus_number)
         setattr(dev_info, "deviceAddress", dev_address)
         setattr(dev_info, "physicalDriveNum", drive_number)
-        setattr(dev_info, "driveLetter", drive_letter)
+        if include_drive_letter:
+            setattr(dev_info, "driveLetter", drive_letter)
         setattr(dev_info, "readOnly", isReadOnly)
 
         if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
@@ -890,7 +1112,18 @@ def instantiate_class_objects(
                 except AttributeError:
                     pass
 
-        if getattr(dev_info, "driveSizeGB", "N/A") == "N/A (OOB Mode)":
+        if not include_controller:
+            try:
+                delattr(dev_info, "usbController")
+            except AttributeError:
+                pass
+
+        if not include_drive_letter:
+            try:
+                delattr(dev_info, "driveLetter")
+            except AttributeError:
+                pass
+        elif getattr(dev_info, "driveSizeGB", "N/A") == "N/A (OOB Mode)":
             delattr(dev_info, "driveLetter")
 
         devices.append(dev_info)
@@ -907,25 +1140,53 @@ def _should_retry_scan(lengths: list[int]) -> bool:
     return len(set(lengths)) != 1
 
 
-def _perform_scan_pass():
+def _perform_scan_pass(minimal: bool = False):
     """Run a single scan pass and return assembled devices plus source lengths."""
     wmi_usb_devices = get_wmi_usb_devices() or []
-    wmi_usb_drives = get_wmi_usb_drives() or []
-    usb_controllers = get_all_usb_controller_names() or []
+    wmi_diskdrives = get_wmi_diskdrives()
+    wmi_usb_drives = get_wmi_usb_drives(wmi_diskdrives) or []
     libusb_data = get_apricorn_libusb_data() or []
-    physical_drives = get_physical_drive_number()
-    readonly_map = get_usb_readonly_status_map()
+    physical_drives = get_physical_drive_number(wmi_diskdrives)
+    include_controller = not minimal
+    include_drive_letter = not minimal
+    if include_controller:
+        usb_controllers = get_usb_controllers_wmi()
+    else:
+        usb_controllers = [{"ControllerName": "N/A"}] * len(wmi_usb_devices)
 
     wmi_usb_drives = sort_wmi_drives(wmi_usb_devices, wmi_usb_drives)
-    usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
+    if include_controller:
+        usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
     libusb_data = sort_libusb_data(wmi_usb_devices, libusb_data)
+
+    drive_numbers_needed: set[int] = set()
+    if include_drive_letter and physical_drives:
+        for device, drive in zip(wmi_usb_devices, wmi_usb_drives):
+            try:
+                size_gb = float(drive.get("size_gb", 0.0))
+            except (TypeError, ValueError):
+                size_gb = 0.0
+            if size_gb == 0.0:
+                continue
+            serial = device.get("serial", "")
+            drive_number = physical_drives.get(serial, -1)
+            if isinstance(drive_number, int) and drive_number >= 0:
+                drive_numbers_needed.add(drive_number)
+
+    readonly_map = get_usb_readonly_status_map_wmi()
+    drive_letters_map = {}
+    if include_drive_letter:
+        drive_letters_map = get_drive_letters_map_wmi(
+            wmi_diskdrives, drive_numbers_needed if drive_numbers_needed else None
+        )
 
     lengths = [
         len(wmi_usb_devices),
         len(wmi_usb_drives),
-        len(usb_controllers),
         len(libusb_data),
     ]
+    if include_controller:
+        lengths.append(len(usb_controllers))
 
     apricorn_devices = instantiate_class_objects(
         wmi_usb_devices,
@@ -934,6 +1195,9 @@ def _perform_scan_pass():
         libusb_data,
         physical_drives,
         readonly_map,
+        drive_letters_map,
+        include_controller=include_controller,
+        include_drive_letter=include_drive_letter,
     )
     return apricorn_devices, lengths
 
@@ -943,12 +1207,12 @@ def _perform_scan_pass():
 # ==================================
 
 
-def find_apricorn_device():
+def find_apricorn_device(minimal: bool = False):
     """
     High-level function tying together WMI USB device data, drive data, and libusb data.
     Returns a list of UsbDeviceInfo objects or None if none found.
     """
-    apricorn_devices, lengths = _perform_scan_pass()
+    apricorn_devices, lengths = _perform_scan_pass(minimal=minimal)
     if apricorn_devices:
         return apricorn_devices
 
@@ -957,7 +1221,7 @@ def find_apricorn_device():
             "Info: Detected partial Apricorn enumeration; retrying scan after a short pause..."
         )
         time.sleep(1.0)
-        apricorn_devices, lengths = _perform_scan_pass()
+        apricorn_devices, lengths = _perform_scan_pass(minimal=minimal)
         if apricorn_devices:
             return apricorn_devices
         if _should_retry_scan(lengths):

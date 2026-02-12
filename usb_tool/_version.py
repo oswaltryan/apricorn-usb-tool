@@ -12,7 +12,7 @@ from typing import Iterable, Optional
 
 __all__ = ["get_version"]
 
-PACKAGE_NAME = "usb-tool"
+PACKAGE_NAME = "apricorn-usb-tool"
 CACHE_FILE = Path(__file__).with_name("_cached_version.txt")
 _PYPROJECT_VERSION_RE = re.compile(r"^version\s*=\s*['\"]([^'\"]+)['\"]", re.MULTILINE)
 
@@ -111,6 +111,10 @@ def get_version(dist_name: str = PACKAGE_NAME) -> str:
         pass
     except Exception:
         pass
+    pyproject_version = _read_version_from_pyproject()
+    if pyproject_version:
+        _write_cached_version(pyproject_version)
+        return pyproject_version
     cached = _read_cached_version()
     if cached:
         return cached
@@ -118,8 +122,4 @@ def get_version(dist_name: str = PACKAGE_NAME) -> str:
     if pkg_info_version:
         _write_cached_version(pkg_info_version)
         return pkg_info_version
-    pyproject_version = _read_version_from_pyproject()
-    if pyproject_version:
-        _write_cached_version(pyproject_version)
-        return pyproject_version
     return "Unknown"
