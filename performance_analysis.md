@@ -94,6 +94,27 @@ PowerShell invocation (`get_ps_usb_metadata`).
 - PowerShell remains the dominant cost; further wins likely require reducing PS use
   or replacing with WMI/COM calls.
 
+---
+
+## Update: WMI/COM Metadata (2026-02-12)
+Replaced the remaining PowerShell block with native WMI/COM queries:
+controller mapping, USB read-only status, and drive letters.
+
+### Baseline: End-to-End Runtime (after change)
+`python -m usb_tool.cross_usb`
+- TotalSeconds: **1.104s**
+
+### Component Timings (single run, after change)
+- `get_wmi_usb_devices`: **0.297s** (len=1)
+- `get_wmi_usb_drives`: **0.012s** (len=1)
+- `get_apricorn_libusb_data`: **0.029s** (len=1)
+- `get_physical_drive_number`: **0.008s** (len=1)
+- `get_wmi_usb_metadata`: **0.405s** (len=3)
+
+### Notes
+- End-to-end time dropped to ~1.1s on this host.
+- The remaining time is largely WMI query overhead rather than PowerShell startup.
+
 ## Raw Output
 PROFILE_RESULTS_START
 get_wmi_usb_devices: 0.370s ok=True len=1

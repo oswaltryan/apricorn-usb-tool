@@ -518,84 +518,35 @@ def get_usb_readonly_status_map():
 
 
 # ==================================
-# Consolidated PowerShell Metadata
+# Consolidated WMI/COM Metadata
 # ==================================
 
 
-def get_ps_usb_metadata():
-    """
-    Run a single PowerShell script to gather controller mapping, USB read-only
-    status, and drive letters in one process.
+def _wql_escape(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("'", "\\'")
 
-    Returns:
-        tuple[list[dict], dict[int, bool], dict[int, str]]:
-            (usb_controllers, readonly_map, drive_letters_map)
-    """
-    ps_script = r"""
-    $controllers = Get-CimInstance Win32_USBControllerDevice | ForEach-Object {
-        $controller = Get-CimInstance -CimInstance $_.Antecedent
-        $device = Get-CimInstance -CimInstance $_.Dependent
-        [PSCustomObject]@{
-            DeviceID = $device.DeviceID
-            ControllerName = $controller.Name
-        }
-    }
 
-    $readonly = Get-Disk | Where-Object { $_.Bustype -eq 'USB' } |
-    Select-Object -Property Number, IsReadOnly
-
-    $driveLetters = Get-WmiObject -Class Win32_DiskDrive | ForEach-Object {
-        $drive = $_
-        $letters = Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskDrive.DeviceID='$($drive.DeviceID)'} WHERE AssocClass = Win32_DiskDriveToDiskPartition" |
-        ForEach-Object {
-            $partition = $_
-            Get-WmiObject -Query "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='$($partition.DeviceID)'} WHERE AssocClass = Win32_LogicalDiskToPartition" |
-            ForEach-Object { $_.DeviceID }
-        }
-        [PSCustomObject]@{
-            Index = $drive.Index
-            Letters = ($letters -join ', ')
-        }
-    }
-
-    [PSCustomObject]@{
-        Controllers = $controllers
-        ReadOnly = $readonly
-        DriveLetters = $driveLetters
-    } | ConvertTo-Json -Compress -Depth 4
-    """
-
+def get_usb_controllers_wmi() -> list[dict]:
+    usb_controllers: list[dict] = []
     try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script],
-            capture_output=True,
-            text=True,
-            check=True,
-            creationflags=0x08000000,  # CREATE_NO_WINDOW
-        )
-        if not result.stdout.strip():
-            return [], {}, {}
-        data = json.loads(result.stdout)
-    except (
-        subprocess.CalledProcessError,
-        json.JSONDecodeError,
-        FileNotFoundError,
-    ):
-        return [], {}, {}
+        records = service.ExecQuery("SELECT * FROM Win32_USBControllerDevice")
+    except Exception:
+        return usb_controllers
 
-    controllers_raw = data.get("Controllers") or []
-    if isinstance(controllers_raw, dict):
-        controllers_raw = [controllers_raw]
-    usb_controllers = []
-    for item in controllers_raw:
-        dev_id = item.get("DeviceID", "")
-        vid, pid = _extract_vid_pid(dev_id)
+    for record in records:
+        try:
+            controller = service.Get(record.Antecedent)
+            device = service.Get(record.Dependent)
+        except Exception:
+            continue
+        device_id = getattr(device, "DeviceID", "") or ""
+        vid, pid = _extract_vid_pid(device_id)
         if vid != "0984" or _is_excluded_pid(pid):
             continue
-        controller_name = item.get("ControllerName", "") or ""
+        controller_name = getattr(controller, "Name", "") or ""
         usb_controllers.append(
             {
-                "DeviceID": str(dev_id).upper(),
+                "DeviceID": str(device_id).upper(),
                 "ControllerName": (
                     controller_name[:5]
                     if controller_name.startswith("Intel")
@@ -603,30 +554,100 @@ def get_ps_usb_metadata():
                 ),
             }
         )
+    return usb_controllers
 
-    readonly_raw = data.get("ReadOnly") or []
-    if isinstance(readonly_raw, dict):
-        readonly_raw = [readonly_raw]
-    readonly_map = {}
-    for item in readonly_raw:
+
+def get_usb_readonly_status_map_wmi() -> dict[int, bool]:
+    try:
+        locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
+        storage = locator.ConnectServer(".", "root\\Microsoft\\Windows\\Storage")
+    except Exception:
+        return {}
+
+    readonly_map: dict[int, bool] = {}
+    try:
+        disks = storage.ExecQuery("SELECT Number, IsReadOnly, BusType FROM MSFT_Disk")
+    except Exception:
+        return {}
+
+    for disk in disks:
         try:
-            disk_number = int(item.get("Number"))
-        except (TypeError, ValueError):
+            if int(getattr(disk, "BusType", -1)) != 7:  # 7 == USB
+                continue
+            number = int(getattr(disk, "Number", -1))
+            readonly_map[number] = bool(getattr(disk, "IsReadOnly", False))
+        except Exception:
             continue
-        readonly_map[disk_number] = bool(item.get("IsReadOnly"))
+    return readonly_map
 
-    drive_letters_raw = data.get("DriveLetters") or []
-    if isinstance(drive_letters_raw, dict):
-        drive_letters_raw = [drive_letters_raw]
-    drive_letters_map = {}
-    for item in drive_letters_raw:
+
+def get_drive_letters_map_wmi() -> dict[int, str]:
+    drive_letters_map: dict[int, str] = {}
+    try:
+        drives = service.ExecQuery("SELECT DeviceID, Index FROM Win32_DiskDrive")
+    except Exception:
+        return drive_letters_map
+
+    for drive in drives:
         try:
-            idx = int(item.get("Index"))
-        except (TypeError, ValueError):
+            device_id = getattr(drive, "DeviceID", "") or ""
+            drive_index = int(getattr(drive, "Index", -1))
+        except Exception:
             continue
-        letters = str(item.get("Letters") or "").strip()
-        drive_letters_map[idx] = letters if letters else "Not Formatted"
+        if drive_index < 0 or not device_id:
+            continue
+        escaped = _wql_escape(device_id)
+        letters: list[str] = []
+        try:
+            partitions = service.ExecQuery(
+                "ASSOCIATORS OF {Win32_DiskDrive.DeviceID='%s'} "
+                "WHERE AssocClass = Win32_DiskDriveToDiskPartition" % escaped
+            )
+        except Exception:
+            partitions = []
+        try:
+            for partition in partitions:
+                try:
+                    part_id = getattr(partition, "DeviceID", "") or ""
+                    if not part_id:
+                        continue
+                    part_escaped = _wql_escape(part_id)
+                    logicals = service.ExecQuery(
+                        "ASSOCIATORS OF {Win32_DiskPartition.DeviceID='%s'} "
+                        "WHERE AssocClass = Win32_LogicalDiskToPartition" % part_escaped
+                    )
+                except Exception:
+                    logicals = []
+                try:
+                    for logical in logicals:
+                        try:
+                            logical_id = getattr(logical, "DeviceID", "") or ""
+                            if logical_id:
+                                letters.append(logical_id)
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+        except Exception:
+            letters = []
+        drive_letters_map[drive_index] = (
+            ", ".join(letters) if letters else "Not Formatted"
+        )
 
+    return drive_letters_map
+
+
+def get_wmi_usb_metadata():
+    """
+    Gather controller mapping, USB read-only status, and drive letters using WMI/COM.
+
+    Returns:
+        tuple[list[dict], dict[int, bool], dict[int, str]]:
+            (usb_controllers, readonly_map, drive_letters_map)
+    """
+    usb_controllers = get_usb_controllers_wmi()
+    readonly_map = get_usb_readonly_status_map_wmi()
+    drive_letters_map = get_drive_letters_map_wmi()
     return usb_controllers, readonly_map, drive_letters_map
 
 
@@ -1081,7 +1102,7 @@ def _perform_scan_pass():
     wmi_usb_drives = get_wmi_usb_drives() or []
     libusb_data = get_apricorn_libusb_data() or []
     physical_drives = get_physical_drive_number()
-    usb_controllers, readonly_map, drive_letters_map = get_ps_usb_metadata()
+    usb_controllers, readonly_map, drive_letters_map = get_wmi_usb_metadata()
 
     wmi_usb_drives = sort_wmi_drives(wmi_usb_devices, wmi_usb_drives)
     usb_controllers = sort_usb_controllers(wmi_usb_devices, usb_controllers)
