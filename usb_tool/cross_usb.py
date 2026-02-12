@@ -83,7 +83,7 @@ def print_help():
     Includes a standard Unix-style header and footer.
     """
     # 1. Resolve Version safely
-    tool_ver = get_local_version("usb-tool")
+    tool_ver = get_local_version()
 
     # 2. Define Header and Footer
     # Header: COMMAND(Section) | Title | Source/Version
@@ -176,10 +176,6 @@ OPTIONS
               Each object key matches the numbered list output. Mutually
               exclusive with --poke.
 
-       --minimal
-              Faster scan that omits controller name and drive letter fields.
-              (No-op on Linux).
-
 EXAMPLES
        usb
               List devices (details may be limited without root).
@@ -221,10 +217,6 @@ OPTIONS
               Emit JSON as {{"devices":[{{"<index>":{{...}}}}]}} for automation.
               Each object key matches the numbered list output. Mutually
               exclusive with --poke.
-
-       --minimal
-              Faster scan that omits controller name and drive letter fields.
-              (No-op on macOS).
 
 EXAMPLES
        usb
@@ -593,11 +585,12 @@ def main():
         action="store_true",
         help="Output device information as JSON for scripting.",
     )
-    parser.add_argument(
-        "--minimal",
-        action="store_true",
-        help="Faster scan that omits controller name and drive letter fields.",
-    )
+    if _SYSTEM.startswith("win"):
+        parser.add_argument(
+            "--minimal",
+            action="store_true",
+            help="Faster scan that omits controller name and drive letter fields.",
+        )
 
     args = parser.parse_args()
 
@@ -624,7 +617,9 @@ def main():
     else:
         print(scan_message)
     try:
-        devices = os_usb.find_apricorn_device(minimal=args.minimal)
+        devices = os_usb.find_apricorn_device(
+            minimal=getattr(args, "minimal", False)
+        )
     except Exception as e:
         print(f"Error during device scan: {e}", file=sys.stderr)
         devices = None
