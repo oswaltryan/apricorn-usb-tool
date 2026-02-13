@@ -126,37 +126,35 @@ def main():
         sys.exit(1)
 
     if args.poke:
-        # Poke logic implementation (simplified for now to use manager.poke)
         if _SYSTEM.startswith("win") and not is_admin_windows():
             parser.error("--poke requires Administrator privileges on Windows.")
 
-        # Very simplified poke targets parsing for demo/transition
-        if args.poke.lower() == "all":
-            targets = [
-                (f"#{i+1}", getattr(d, "physicalDriveNum", -1))
-                for i, d in enumerate(devices)
-            ]
-        else:
-            try:
-                idx = int(args.poke)
-                if 1 <= idx <= len(devices):
-                    targets = [
-                        (f"#{idx}", getattr(devices[idx - 1], "physicalDriveNum", -1))
-                    ]
-                else:
-                    targets = []
-            except (ValueError, TypeError):
-                targets = []
+        try:
+            targets, skipped = _parse_poke_targets(args.poke, devices)
+        except ValueError as e:
+            parser.error(str(e))
+
+        if not targets and not skipped:
+            print("\nNo valid targets specified for poke.\n")
+            return
 
         print()
         for label, identifier in targets:
             if identifier == -1:
+                print(f"  Device {label}: SKIPPED (OOB Mode / No drive index)")
                 continue
+
             print(f"Poking device {label}...")
-            if manager.poke(identifier):
-                pass  # Success message handled by being silent or as needed
-            else:
-                print(f"  Device {label}: Poke FAILED")
+            try:
+                if manager.poke(identifier):
+                    print(f"  Device {label}: SUCCESS")
+                else:
+                    print(f"  Device {label}: FAILED")
+            except Exception as e:
+                print(f"  Device {label}: ERROR ({e})")
+
+        for label in skipped:
+            print(f"  Device {label}: SKIPPED")
         print()
     else:
         _handle_list_action(devices, json_mode=args.json)

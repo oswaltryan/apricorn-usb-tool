@@ -165,6 +165,7 @@ class WindowsBackend(AbstractBackend):
 
             cdb = [0] * 10
             cdb[0] = 0x28  # READ(10)
+            cdb[8] = 1  # Transfer 1 block
 
             data_buffer = ct.create_string_buffer(512)
             sptd.Length = ct.sizeof(SCSI_PASS_THROUGH_DIRECT)
@@ -173,7 +174,7 @@ class WindowsBackend(AbstractBackend):
             sptd.DataIn = SCSI_IOCTL_DATA_IN
             sptd.DataTransferLength = 512
             sptd.TimeOutValue = 5
-            sptd.DataBuffer = ct.cast(ct.pointer(data_buffer), ct.c_void_p)
+            sptd.DataBuffer = ct.addressof(data_buffer)
             sptd.SenseInfoOffset = sptd.Length
             ct.memmove(sptd.Cdb, (ct.c_ubyte * 10)(*cdb), 10)
 
@@ -341,7 +342,16 @@ class WindowsBackend(AbstractBackend):
             if "SATAWIRE" in r.PNPDeviceID or "FLASH_DISK" in r.PNPDeviceID:
                 continue
             if "APRI" in r.PNPDeviceID:
-                drives[r.PNPDeviceID.rsplit("\\", 1)[1][:-2]] = int(r.DeviceID[-1:])
+                try:
+                    # Index is the physical drive number (e.g., 0 for \\.\PhysicalDrive0)
+                    drive_num = int(r.Index)
+                    # Extract serial from PNPDeviceID (last part before suffix)
+                    # Example: USBSTOR\DISK&VEN_APRICORN&PROD_AEGIS_PADLOCK\0123456789ABCDEF&0
+                    serial_part = r.PNPDeviceID.rsplit("\\", 1)[1]
+                    serial = serial_part.split("&")[0]
+                    drives[serial] = drive_num
+                except (ValueError, TypeError, IndexError):
+                    continue
         return drives
 
     def _get_usb_controllers_wmi(self):
