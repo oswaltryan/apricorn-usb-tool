@@ -1,0 +1,165 @@
+# src/usb_tool/backend/macos.py
+
+import subprocess
+import json
+from typing import List, Any
+
+from .base import AbstractBackend
+from ..models import UsbDeviceInfo
+from ..utils import bytes_to_gb, find_closest
+from ..device_config import closest_values
+
+from ..services import populate_device_version
+
+from ..constants import EXCLUDED_PIDS
+
+
+def _normalize_pid(pid: str) -> str:
+    if not isinstance(pid, str):
+        return ""
+    cleaned = pid.lower().replace("0x", "")
+    return cleaned.split("&", 1)[0][:4]
+
+
+def _is_excluded_pid(pid: str) -> bool:
+    return _normalize_pid(pid) in EXCLUDED_PIDS
+
+
+class MacOSBackend(AbstractBackend):
+    def scan_devices(self, minimal: bool = False) -> List[UsbDeviceInfo]:
+        all_drives = self._list_usb_drives()
+        uas_status = self._parse_uasp_info(all_drives)
+
+        devices = []
+        for drive in all_drives:
+            name = drive.get("_name")
+            if not name:
+                continue
+
+            vid = drive.get("vendor_id", "").replace("0x", "")[:4].lower()
+            pid_raw = drive.get("product_id", "").replace("0x", "").lower()
+            pid = _normalize_pid(pid_raw)
+            if vid != "0984" or _is_excluded_pid(pid):
+                continue
+
+            serial = drive.get("serial_num", "")
+            bcd_dev = drive.get("bcd_device", "").replace(".", "")
+
+            size_gb = "0"
+            media_type = "Unknown"
+            bsd_name = ""
+
+            if "Media" in drive and drive["Media"]:
+                m = drive["Media"][0]
+                size_raw = bytes_to_gb(m.get("size_in_bytes", 0))
+                closest = find_closest(size_raw, closest_values.get(pid, (0, []))[1])
+                size_gb = str(closest) if closest is not None else "0"
+                media_type = (
+                    "Removable Media"
+                    if m.get("removable_media") == "yes"
+                    else "Basic Disk"
+                )
+                bsd_name = m.get("bsd_name", "")
+            else:
+                size_gb = "N/A (OOB Mode)"
+
+            version_info = populate_device_version(
+                int(vid, 16), int(pid, 16), serial, bsd_name=bsd_name
+            )
+
+            dev_info = UsbDeviceInfo(
+                bcdUSB=(3.0 if int(drive.get("bus_power", "0")) > 500 else 2.0),
+                idVendor=vid,
+                idProduct=pid,
+                bcdDevice=f"0{bcd_dev}" if bcd_dev else "N/A",
+                iManufacturer=drive.get("manufacturer", "Apricorn"),
+                iProduct=name,
+                iSerial=serial,
+                SCSIDevice=uas_status.get(name, False),
+                driveSizeGB=str(size_gb),
+                mediaType=media_type,
+                **version_info,
+            )
+            if bsd_name:
+                setattr(dev_info, "blockDevice", bsd_name)
+
+            if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
+                for k in (
+                    "scbPartNumber",
+                    "hardwareVersion",
+                    "modelID",
+                    "mcuFW",
+                    "bridgeFW",
+                ):
+                    try:
+                        delattr(dev_info, k)
+                    except AttributeError:
+                        pass
+            devices.append(dev_info)
+
+        return devices
+
+    def poke_device(self, device_identifier: Any) -> bool:
+        return False  # Disabled
+
+    def sort_devices(self, devices: List[UsbDeviceInfo]) -> List[UsbDeviceInfo]:
+        return sorted(devices, key=lambda d: getattr(d, "iSerial", "") or "~~~~~")
+
+    def list_usb_drives(self):
+        return self._list_usb_drives()
+
+    def parse_uasp_info(self, drives=None):
+        return self._parse_uasp_info(drives or [])
+
+    def find_apricorn_device(self):
+        return self.scan_devices()
+
+    def _list_usb_drives(self):
+        try:
+            res = subprocess.run(
+                ["system_profiler", "SPUSBDataType", "-json"],
+                capture_output=True,
+                text=True,
+            )
+            if res.returncode != 0:
+                return []
+            data = json.loads(res.stdout)
+            matches = []
+
+            def recurse(obj):
+                if isinstance(obj, dict):
+                    if "0984" in obj.get("vendor_id", "") or "Apricorn" in obj.get(
+                        "manufacturer", ""
+                    ):
+                        matches.append(obj)
+                    for v in obj.values():
+                        recurse(v)
+                elif isinstance(obj, list):
+                    for i in obj:
+                        recurse(i)
+
+            recurse(data.get("SPUSBDataType", []))
+            return matches
+        except Exception:
+            return []
+
+    def _parse_uasp_info(self, drives):
+        uas = {}
+        for d in drives:
+            name = d.get("_name")
+            if "Media" in d and d["Media"]:
+                bsd = d["Media"][0].get("bsd_name")
+                if name and bsd:
+                    try:
+                        res = subprocess.run(
+                            ["diskutil", "info", bsd], capture_output=True, text=True
+                        )
+                        if (
+                            res.returncode == 0
+                            and "Protocol: USB" in res.stdout
+                            and "Transport: UAS" in res.stdout
+                        ):
+                            uas[name] = True
+                    except Exception:
+                        pass
+        return uas

@@ -28,7 +28,7 @@ function Get-MsiVersion([string]$version) {
 }
 
 function Get-UsbVersion {
-    $versionFile = Join-Path $repoRoot 'usb_tool/_cached_version.txt'
+    $versionFile = Join-Path $repoRoot 'src/usb_tool/_cached_version.txt'
     if (-not (Test-Path $versionFile)) {
         throw "Version cache not found at $versionFile"
     }

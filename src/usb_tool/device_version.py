@@ -51,7 +51,7 @@ if sys.platform == "win32":
         return bytes([0x3C, 0x01, 0x00, 0x00, 0x00, 0x00])
 
     def _windows_read_buffer(physical_drive_num: int, timeout_sec: int = 5) -> bytes:
-        drive_path = rf"\\.\PhysicalDrive{physical_drive_num}"
+        drive_path = rf"\.\PhysicalDrive{physical_drive_num}"
         h = INVALID_HANDLE_VALUE
         try:
             h = ctypes.windll.kernel32.CreateFileW(

@@ -17,7 +17,7 @@ def _dist_info_dir(dist_name: str) -> str:
     return matches[0]
 
 a = Analysis(
-    ['..\\usb_tool\\cross_usb.py'],
+    ['..\\src\\usb_tool\\cli.py'],
     pathex=[],
     binaries=[],
     datas=[
@@ -30,7 +30,7 @@ a = Analysis(
             ),
             "libusb\\_platform\\windows\\x86_64",
         ),
-        ('..\\usb_tool\\_cached_version.txt', 'usb_tool'),
+        ('..\\src\\usb_tool\\_cached_version.txt', 'usb_tool'),
     ],
     hiddenimports=['winreg', 'libusb', 'pkg_about', 'ctypes', 'win32com'],
     hookspath=['build/hooks'],

@@ -3,10 +3,10 @@
 block_cipher = None
 
 a = Analysis(
-    ['../usb_tool/cross_usb.py'],
+    ['../src/usb_tool/cli.py'],
     pathex=[],
     binaries=[],
-    datas=[('../usb_tool/_cached_version.txt', 'usb_tool')],
+    datas=[('../src/usb_tool/_cached_version.txt', 'usb_tool')],
     hiddenimports=['ctypes', 'pkg_about'],
     hookspath=[],
     hooksconfig={},

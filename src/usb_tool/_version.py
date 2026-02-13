@@ -73,6 +73,7 @@ def _read_version_from_pyproject() -> Optional[str]:
 
 def _read_version_resource() -> Optional[str]:
     try:
+        # Adjusted for src/usb_tool
         data = resources.files("usb_tool").joinpath("_cached_version.txt")
         return data.read_text(encoding="utf-8").strip()
     except (FileNotFoundError, OSError):

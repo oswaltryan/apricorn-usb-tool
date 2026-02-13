@@ -3,23 +3,20 @@
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
-from usb_tool import mac_usb
+from usb_tool.backend.macos import MacOSBackend
 
 
 def test_list_usb_drives_filters_apricorn_devices():
-    """list_usb_drives should return devices matching ID OR Manufacturer."""
     profiler_data = {
         "SPUSBDataType": [
             {
                 "_name": "Root",
                 "_items": [
-                    # Matches via Manufacturer
                     {
                         "manufacturer": "Apricorn",
                         "vendor_id": "0x0000",
                         "serial_num": "XYZ",
                     },
-                    # Matches via Vendor ID
                     {
                         "manufacturer": "Generic",
                         "vendor_id": "0x0984",
@@ -30,7 +27,6 @@ def test_list_usb_drives_filters_apricorn_devices():
             {
                 "_name": "Root",
                 "_items": [
-                    # Should not match
                     {
                         "manufacturer": "Other",
                         "vendor_id": "0x1111",
@@ -40,21 +36,16 @@ def test_list_usb_drives_filters_apricorn_devices():
             },
         ]
     }
-
-    # Mock must include returncode to pass the check in list_usb_drives
     mock_result = SimpleNamespace(returncode=0, stdout=json.dumps(profiler_data))
 
     with patch("subprocess.run", return_value=mock_result):
-        drives = mac_usb.list_usb_drives()
+        backend = MacOSBackend()
+        drives = backend.list_usb_drives()
 
-    # Should find both the Apricorn manufacturer and the 0984 vendor
     assert len(drives) == 2
 
 
 def test_parse_uasp_info_builds_boolean_map():
-    """parse_uasp_info should create a mapping of device names to UAS usage."""
-
-    # 1. Setup mock data for system_profiler (the first call)
     profiler_json = json.dumps(
         {
             "SPUSBDataType": [
@@ -66,31 +57,27 @@ def test_parse_uasp_info_builds_boolean_map():
             ]
         }
     )
-
-    # 2. Setup mock data for diskutil (the second call)
     diskutil_out = "Protocol: USB\nTransport: UAS"
 
-    # 3. Create a side_effect function to handle different commands
     def mock_subprocess_run(cmd, **kwargs):
-        # Handle system_profiler call
         if "system_profiler" in cmd:
             return SimpleNamespace(returncode=0, stdout=profiler_json)
-
-        # Handle diskutil call
         if "diskutil" in cmd:
             return SimpleNamespace(returncode=0, stdout=diskutil_out)
-
         return SimpleNamespace(returncode=1, stdout="")
 
     with patch("subprocess.run", side_effect=mock_subprocess_run):
-        uas_dict = mac_usb.parse_uasp_info()
+        backend = MacOSBackend()
+        # Note: parse_uasp_info now takes 'drives' argument in the new backend
+        # We need to feed it the drives list that list_usb_drives would produce
+        drives = backend.list_usb_drives()
+        uas_dict = backend.parse_uasp_info(drives)
 
     assert "Drive One" in uas_dict
     assert uas_dict["Drive One"] is True
 
 
 def test_find_apricorn_device_skips_excluded_pids():
-    """Devices with blocked PIDs should not be surfaced."""
     drives = [
         {
             "_name": "Bad Apricorn",
@@ -111,10 +98,11 @@ def test_find_apricorn_device_skips_excluded_pids():
     ]
 
     with (
-        patch("usb_tool.mac_usb.list_usb_drives", return_value=drives),
-        patch("usb_tool.mac_usb.parse_uasp_info", return_value={}),
+        patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
+        patch.object(MacOSBackend, "_parse_uasp_info", return_value={}),
     ):
-        result = mac_usb.find_apricorn_device()
+        backend = MacOSBackend()
+        result = backend.scan_devices()
 
     assert result and len(result) == 1
     assert result[0].idProduct == "1234"

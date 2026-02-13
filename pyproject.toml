@@ -35,7 +35,7 @@ dependencies = [
 
 # --- This section defines the command-line script ---
 [project.scripts]
-usb = "usb_tool.cross_usb:main"
+usb = "usb_tool.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -48,6 +48,7 @@ dev = [
 # Explicitly specify which packages are included to avoid picking up the
 # ``wheels`` directory used for vendored dependencies.
 [tool.setuptools]
+package-dir = {"" = "src"}
 packages = ["usb_tool"]
 
 [tool.setuptools.package-data]

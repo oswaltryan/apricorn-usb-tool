@@ -93,7 +93,7 @@ else
     echo "Using default PyInstaller binary at $selected_binary"
 fi
 
-version_file="$REPO_ROOT/usb_tool/_cached_version.txt"
+version_file="$REPO_ROOT/src/usb_tool/_cached_version.txt"
 if [[ ! -f "$version_file" ]]; then
     echo "Version cache not found at $version_file" >&2
     exit 1
