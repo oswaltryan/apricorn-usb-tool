@@ -93,8 +93,17 @@ def _read_cached_version() -> Optional[str]:
 
 
 def _write_cached_version(version: str) -> None:
+    normalized = version.strip()
+    if not normalized:
+        return
+    expected = f"{normalized}\n"
     try:
-        CACHE_FILE.write_text(version, encoding="utf-8")
+        try:
+            if CACHE_FILE.read_text(encoding="utf-8") == expected:
+                return
+        except OSError:
+            pass
+        CACHE_FILE.write_text(expected, encoding="utf-8", newline="\n")
     except OSError:
         pass
 

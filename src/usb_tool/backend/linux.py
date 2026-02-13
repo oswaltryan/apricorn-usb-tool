@@ -12,7 +12,7 @@ from ..constants import EXCLUDED_PIDS
 from ..device_config import closest_values
 
 # For Phase 3/4, still import from legacy if not moved
-from ..services import populate_device_version
+from ..services import populate_device_version, prune_hidden_version_fields
 
 
 def _normalize_pid(pid: str) -> str:
@@ -97,18 +97,7 @@ class LinuxBackend(AbstractBackend):
             )
             setattr(dev_info, "blockDevice", block_path)
 
-            if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
-                for k in (
-                    "scbPartNumber",
-                    "hardwareVersion",
-                    "modelID",
-                    "mcuFW",
-                    "bridgeFW",
-                ):
-                    try:
-                        delattr(dev_info, k)
-                    except AttributeError:
-                        pass
+            prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
 
         return devices

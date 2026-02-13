@@ -1,10 +1,57 @@
 # src/usb_tool/services.py
 
 import platform
+import string
 from typing import List, Optional, Any
 from .backend.base import AbstractBackend
 from .models import UsbDeviceInfo
 from .device_version import query_device_version
+
+VERSION_FIELD_NAMES = (
+    "scbPartNumber",
+    "hardwareVersion",
+    "modelID",
+    "mcuFW",
+    "bridgeFW",
+)
+
+
+def _normalize_revision(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text or text.upper() == "N/A":
+        return ""
+    cleaned = "".join(
+        ch for ch in text.lower().removeprefix("0x") if ch in string.hexdigits
+    )
+    if not cleaned:
+        return ""
+    return cleaned.lower().zfill(4)
+
+
+def should_display_version_fields(device: UsbDeviceInfo) -> bool:
+    scb_part = str(getattr(device, "scbPartNumber", "N/A") or "").strip()
+    if not scb_part or scb_part.upper() == "N/A":
+        return False
+
+    bridge_fw = _normalize_revision(getattr(device, "bridgeFW", ""))
+    bcd_device = _normalize_revision(getattr(device, "bcdDevice", ""))
+    if bridge_fw and bcd_device and bridge_fw != bcd_device:
+        return False
+
+    return True
+
+
+def prune_hidden_version_fields(device: UsbDeviceInfo) -> None:
+    if should_display_version_fields(device):
+        return
+
+    for field_name in VERSION_FIELD_NAMES:
+        try:
+            delattr(device, field_name)
+        except AttributeError:
+            pass
 
 
 def populate_device_version(

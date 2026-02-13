@@ -17,6 +17,7 @@ from ..constants import EXCLUDED_PIDS
 from ..device_config import closest_values
 from ..services import (
     populate_device_version,
+    prune_hidden_version_fields,
 )  # We'll need to move this later or import from legacy for now
 
 # For Phase 3, we still import from legacy for cross-module dependencies not yet moved
@@ -569,17 +570,6 @@ class WindowsBackend(AbstractBackend):
                 )
             setattr(dev_info, "readOnly", readonly_map.get(drive_num, False))
 
-            if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
-                for k in (
-                    "scbPartNumber",
-                    "hardwareVersion",
-                    "modelID",
-                    "mcuFW",
-                    "bridgeFW",
-                ):
-                    try:
-                        delattr(dev_info, k)
-                    except AttributeError:
-                        pass
+            prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
         return devices

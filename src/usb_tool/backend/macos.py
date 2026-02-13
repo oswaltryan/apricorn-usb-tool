@@ -9,7 +9,7 @@ from ..models import UsbDeviceInfo
 from ..utils import bytes_to_gb, find_closest
 from ..device_config import closest_values
 
-from ..services import populate_device_version
+from ..services import populate_device_version, prune_hidden_version_fields
 
 from ..constants import EXCLUDED_PIDS
 
@@ -83,18 +83,7 @@ class MacOSBackend(AbstractBackend):
             if bsd_name:
                 setattr(dev_info, "blockDevice", bsd_name)
 
-            if getattr(dev_info, "scbPartNumber", "N/A") == "N/A":
-                for k in (
-                    "scbPartNumber",
-                    "hardwareVersion",
-                    "modelID",
-                    "mcuFW",
-                    "bridgeFW",
-                ):
-                    try:
-                        delattr(dev_info, k)
-                    except AttributeError:
-                        pass
+            prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
 
         return devices
