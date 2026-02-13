@@ -2,6 +2,7 @@
 
 import ctypes as ct
 import re
+import subprocess
 import time
 from collections import defaultdict
 from typing import List, Any, Tuple
@@ -201,10 +202,22 @@ class WindowsBackend(AbstractBackend):
     # --- Internal Helpers adapted from legacy windows_usb.py ---
 
     def get_drive_letter_via_ps(self, drive_index: int) -> str:
-        # Implementation from legacy windows_usb.py
         if drive_index < 0:
             return "Not Formatted"
-        return "E:"  # Dummy for now to pass sanity tests if mocked
+        try:
+            cmd = f"(Get-Partition -DiskNumber {drive_index} | Get-Volume).DriveLetter"
+            result = subprocess.run(
+                ["powershell", "-Command", cmd],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            letter = result.stdout.strip()
+            if not letter:
+                return "Not Formatted"
+            return f"{letter}:" if ":" not in letter else letter
+        except Exception:
+            return "Not Formatted"
 
     def _should_retry_scan(self, lengths: list[int]) -> bool:
         if not lengths:
