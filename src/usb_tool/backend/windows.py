@@ -559,15 +559,29 @@ class WindowsBackend(AbstractBackend):
             )
             if include_controller:
                 setattr(dev_info, "usbController", usb_controllers[i]["ControllerName"])
+            else:
+                try:
+                    delattr(dev_info, "usbController")
+                except AttributeError:
+                    pass
             setattr(dev_info, "busNumber", libusb_data[i]["bus_number"])
             setattr(dev_info, "deviceAddress", libusb_data[i]["dev_address"])
             setattr(dev_info, "physicalDriveNum", drive_num)
-            if include_drive_letter and size_raw != 0.0:
-                setattr(
-                    dev_info,
-                    "driveLetter",
-                    drive_letters_map.get(drive_num, "Not Formatted"),
-                )
+            if include_drive_letter:
+                drive_letter = drive_letters_map.get(drive_num, "Not Formatted")
+                if (
+                    size_raw != 0.0
+                    and isinstance(drive_num, int)
+                    and drive_num >= 0
+                    and drive_letter == "Not Formatted"
+                ):
+                    drive_letter = self.get_drive_letter_via_ps(drive_num)
+                setattr(dev_info, "driveLetter", drive_letter or "Not Formatted")
+            else:
+                try:
+                    delattr(dev_info, "driveLetter")
+                except AttributeError:
+                    pass
             setattr(dev_info, "readOnly", readonly_map.get(drive_num, False))
 
             prune_hidden_version_fields(dev_info)

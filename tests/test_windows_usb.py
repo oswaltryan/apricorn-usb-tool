@@ -83,3 +83,105 @@ def test_find_apricorn_device_retries_once_on_partial_scan():
 
     assert devices == [fake_device]
     assert scan_mock.call_count == 2
+
+
+def test_instantiate_devices_sets_drive_letter_from_map():
+    backend = object.__new__(WindowsBackend)
+    wmi_usb_devices = [
+        {"pid": "1407", "vid": "0984", "serial": "SER123", "manufacturer": "Apricorn"}
+    ]
+    wmi_usb_drives = [
+        {"size_gb": 15.8, "iProduct": "Secure Key 3.0", "mediaType": "Basic Disk"}
+    ]
+    usb_controllers = [{"ControllerName": "Intel"}]
+    libusb_data = [
+        {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}
+    ]
+    physical_drives = {"SER123": 3}
+    readonly_map = {3: False}
+    drive_letters_map = {3: "F:"}
+
+    with patch("usb_tool.backend.windows.populate_device_version", return_value={}):
+        devices = backend._instantiate_devices(
+            wmi_usb_devices,
+            wmi_usb_drives,
+            usb_controllers,
+            libusb_data,
+            physical_drives,
+            readonly_map,
+            drive_letters_map,
+            include_controller=True,
+            include_drive_letter=True,
+        )
+
+    assert devices and devices[0].to_dict()["driveLetter"] == "F:"
+
+
+def test_instantiate_devices_falls_back_to_powershell_for_drive_letter():
+    backend = object.__new__(WindowsBackend)
+    wmi_usb_devices = [
+        {"pid": "1407", "vid": "0984", "serial": "SER123", "manufacturer": "Apricorn"}
+    ]
+    wmi_usb_drives = [
+        {"size_gb": 15.8, "iProduct": "Secure Key 3.0", "mediaType": "Basic Disk"}
+    ]
+    usb_controllers = [{"ControllerName": "Intel"}]
+    libusb_data = [
+        {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}
+    ]
+    physical_drives = {"SER123": 3}
+    readonly_map = {3: False}
+    drive_letters_map = {}
+
+    with (
+        patch("usb_tool.backend.windows.populate_device_version", return_value={}),
+        patch.object(WindowsBackend, "get_drive_letter_via_ps", return_value="G:"),
+    ):
+        devices = backend._instantiate_devices(
+            wmi_usb_devices,
+            wmi_usb_drives,
+            usb_controllers,
+            libusb_data,
+            physical_drives,
+            readonly_map,
+            drive_letters_map,
+            include_controller=True,
+            include_drive_letter=True,
+        )
+
+    assert devices and devices[0].to_dict()["driveLetter"] == "G:"
+
+
+def test_instantiate_devices_omits_drive_letter_in_minimal_mode():
+    backend = object.__new__(WindowsBackend)
+    wmi_usb_devices = [
+        {"pid": "1407", "vid": "0984", "serial": "SER123", "manufacturer": "Apricorn"}
+    ]
+    wmi_usb_drives = [
+        {"size_gb": 15.8, "iProduct": "Secure Key 3.0", "mediaType": "Basic Disk"}
+    ]
+    usb_controllers = [{"ControllerName": "Intel"}]
+    libusb_data = [
+        {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}
+    ]
+    physical_drives = {"SER123": 3}
+    readonly_map = {3: False}
+    drive_letters_map = {3: "F:"}
+
+    with patch("usb_tool.backend.windows.populate_device_version", return_value={}):
+        devices = backend._instantiate_devices(
+            wmi_usb_devices,
+            wmi_usb_drives,
+            usb_controllers,
+            libusb_data,
+            physical_drives,
+            readonly_map,
+            drive_letters_map,
+            include_controller=False,
+            include_drive_letter=False,
+        )
+
+    assert devices
+    serialized = devices[0].to_dict()
+    assert "driveLetter" not in serialized
+    assert "usbController" not in serialized
