@@ -153,7 +153,7 @@ Returned objects are dataclasses:
 - Linux: `LinuxUsbDeviceInfo`
 - macOS: `macOSUsbDeviceInfo`
 
-Field sets are similar across OSes; some fields are platform-specific (e.g., `usbController` on Windows, `blockDevice` on Linux). Output filtering described above applies only to CLI printing; collected fields remain available on the objects.
+Field sets are similar across OSes; some fields are platform-specific (e.g., `usbController` on Windows, `blockDevice` on Linux). Version-field visibility rules are applied during device shaping, so hidden version fields are omitted from both CLI output and returned objects.
 
 ## Contributing / Dev
 

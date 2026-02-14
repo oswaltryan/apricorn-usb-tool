@@ -1,31 +1,132 @@
 # src/usb_tool/cli.py
 
-import platform
-import sys
 import argparse
 import ctypes
 import json
-from typing import List, Tuple, Any
-
-from .help_text import print_help
-from .services import DeviceManager
-from .models import UsbDeviceInfo
+import os
+import platform
+import sys
+import traceback
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
 
 _SYSTEM = platform.system().lower()
+_TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 
-def is_admin_windows():
+def is_admin_windows() -> bool:
     if not _SYSTEM.startswith("win"):
         return False
     try:
-        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except (AttributeError, Exception):
         return False
 
 
-def _devices_to_json_payload(
-    devices: list[UsbDeviceInfo],
-) -> dict[str, list[dict[str, Any]]]:
+def _is_frozen_app() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _should_pause_before_exit() -> bool:
+    if not _SYSTEM.startswith("win"):
+        return False
+
+    force_pause = os.getenv("USB_TOOL_PAUSE_ON_EXIT", "").strip().lower()
+    if force_pause in _TRUTHY_VALUES:
+        return True
+
+    disable_pause = os.getenv("USB_TOOL_NO_PAUSE", "").strip().lower()
+    if disable_pause in _TRUTHY_VALUES:
+        return False
+
+    if not _is_frozen_app():
+        return False
+
+    # Avoid blocking scripted invocations that pass arguments.
+    if len(sys.argv) > 1:
+        return False
+
+    # Common case: packaged exe launched directly with no arguments.
+    return True
+
+
+def _pause_before_exit_if_needed() -> None:
+    if not _should_pause_before_exit():
+        return
+    _wait_for_user_acknowledgement()
+
+
+def _wait_for_user_acknowledgement() -> None:
+    if _SYSTEM.startswith("win"):
+        try:
+            import msvcrt
+
+            print("\nPress any key to close...", end="", flush=True)
+            msvcrt.getwch()
+            print()
+            return
+        except Exception:
+            pass
+    try:
+        input("\nPress Enter to close...")
+    except Exception:
+        pass
+
+
+def _error_log_path() -> Path:
+    override = os.getenv("USB_TOOL_ERROR_LOG", "").strip()
+    if override:
+        return Path(override)
+
+    for var in ("TEMP", "TMP"):
+        value = os.getenv(var, "").strip()
+        if value:
+            return Path(value) / "usb_tool_error.log"
+    return Path.cwd() / "usb_tool_error.log"
+
+
+def _write_startup_error_log(exc: BaseException) -> str | None:
+    path = _error_log_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+    try:
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        tb_text = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        with path.open("a", encoding="utf-8", newline="\n") as fh:
+            fh.write(f"\n[{timestamp}] usb startup error\n")
+            fh.write(tb_text)
+        return str(path)
+    except OSError:
+        return None
+
+
+def _load_print_help():
+    try:
+        from usb_tool.help_text import print_help as _print_help
+
+        return _print_help
+    except Exception:
+        from .help_text import print_help as _print_help
+
+        return _print_help
+
+
+def _load_device_manager_class():
+    try:
+        from usb_tool.services import DeviceManager as _DeviceManager
+
+        return _DeviceManager
+    except Exception:
+        from .services import DeviceManager as _DeviceManager
+
+        return _DeviceManager
+
+
+def _devices_to_json_payload(devices: list[Any]) -> dict[str, list[dict[str, Any]]]:
     devices_mapping = {str(i + 1): dev.to_dict() for i, dev in enumerate(devices)}
     for dev_dict in devices_mapping.values():
         dev_dict.pop("bridgeFW", None)
@@ -40,7 +141,7 @@ def _json_default(value: Any) -> Any:
     return str(value)
 
 
-def _handle_list_action(devices: list[UsbDeviceInfo], json_mode: bool = False) -> None:
+def _handle_list_action(devices: list[Any], json_mode: bool = False) -> None:
     if json_mode:
         payload = _devices_to_json_payload(devices)
         print(json.dumps(payload, indent=2, default=_json_default))
@@ -62,11 +163,10 @@ def _handle_list_action(devices: list[UsbDeviceInfo], json_mode: bool = False) -
 
 
 def _parse_poke_targets(
-    poke_input: str, devices: list
-) -> Tuple[List[Tuple[str, Any]], List[str]]:
-    # Ported logic from legacy cross_usb.py
-    targets = []
-    skipped: List[str] = []
+    poke_input: str, devices: list[Any]
+) -> tuple[list[tuple[str, Any]], list[str]]:
+    targets: list[tuple[str, Any]] = []
+    skipped: list[str] = []
     if poke_input.lower() == "all":
         for i, d in enumerate(devices):
             targets.append((f"#{i+1}", getattr(d, "physicalDriveNum", -1)))
@@ -83,12 +183,12 @@ def _parse_poke_targets(
                     )
                 else:
                     raise ValueError("Out of range")
-            except (ValueError, TypeError):
-                raise ValueError("Invalid format")
+            except (ValueError, TypeError) as exc:
+                raise ValueError("Invalid format") from exc
     return targets, skipped
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="USB tool for Apricorn devices.", add_help=False
     )
@@ -101,12 +201,14 @@ def main():
     args = parser.parse_args()
 
     if args.help:
+        print_help = _load_print_help()
         print_help()
         sys.exit(0)
 
     if args.json and args.poke:
         parser.error("--json cannot be used together with --poke.")
 
+    DeviceManager = _load_device_manager_class()
     manager = DeviceManager()
 
     scan_message = "Scanning for Apricorn devices..."
@@ -161,4 +263,24 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    exit_code = 0
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user.")
+        exit_code = 130
+    except SystemExit as e:
+        if isinstance(e.code, int):
+            exit_code = e.code
+        else:
+            exit_code = 0 if e.code is None else 1
+    except Exception as e:
+        log_path = _write_startup_error_log(e)
+        print(f"\nAn unexpected error occurred: {e}", file=sys.stderr)
+        if log_path:
+            print(f"Full traceback saved to: {log_path}", file=sys.stderr)
+        traceback.print_exc()
+        exit_code = 1
+    finally:
+        _pause_before_exit_if_needed()
+    sys.exit(exit_code)
