@@ -5,10 +5,25 @@ import re
 import subprocess
 import time
 from collections import defaultdict
+from types import SimpleNamespace
 from typing import List, Any, Tuple
 
-import libusb as usb
-import win32com.client
+try:
+    import libusb as usb
+except Exception:  # pragma: no cover - exercised on non-Windows CI
+    usb = None
+
+try:
+    import win32com.client as _win32com_client
+except Exception:  # pragma: no cover - exercised on non-Windows CI
+
+    class _MissingWin32ComClient:
+        def Dispatch(self, *_args: Any, **_kwargs: Any) -> Any:  # noqa: N802
+            raise ImportError("pywin32 is required for Windows backend")
+
+    win32com = SimpleNamespace(client=_MissingWin32ComClient())
+else:
+    win32com = SimpleNamespace(client=_win32com_client)
 
 from .base import AbstractBackend
 from ..models import UsbDeviceInfo
@@ -44,7 +59,8 @@ class WindowsBackend(AbstractBackend):
     def __init__(self):
         self.locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
         self.service = self.locator.ConnectServer(".", "root\\cimv2")
-        usb.config(LIBUSB=None)
+        if usb is not None:
+            usb.config(LIBUSB=None)
 
     @property
     def service(self):
@@ -316,6 +332,8 @@ class WindowsBackend(AbstractBackend):
         return info
 
     def _get_apricorn_libusb_data(self):
+        if usb is None:
+            return []
         devices = []
         ctx = ct.POINTER(usb.context)()
         if usb.init(ct.byref(ctx)) != 0:
