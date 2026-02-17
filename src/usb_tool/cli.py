@@ -186,7 +186,7 @@ def _parse_poke_targets(
     skipped: list[str] = []
     if poke_input.lower() == "all":
         for i, d in enumerate(devices):
-            targets.append((f"#{i+1}", getattr(d, "physicalDriveNum", -1)))
+            targets.append((f"#{i + 1}", getattr(d, "physicalDriveNum", -1)))
     else:
         elements = [s.strip() for s in poke_input.split(",") if s.strip()]
         if not elements:

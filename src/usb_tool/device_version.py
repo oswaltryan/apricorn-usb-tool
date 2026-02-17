@@ -166,13 +166,15 @@ def _query_usb_core(
 
         ep_out = usb.util.find_descriptor(
             intf,
-            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
-            == usb.util.ENDPOINT_OUT,
+            custom_match=lambda e: (
+                usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT
+            ),
         )
         ep_in = usb.util.find_descriptor(
             intf,
-            custom_match=lambda e: usb.util.endpoint_direction(e.bEndpointAddress)
-            == usb.util.ENDPOINT_IN,
+            custom_match=lambda e: (
+                usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_IN
+            ),
         )
 
         if ep_out is None or ep_in is None:
