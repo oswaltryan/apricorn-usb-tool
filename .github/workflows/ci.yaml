@@ -1,9 +1,10 @@
-name: pre-commit
+name: ci
 
 on:
   push:
     branches: ["**"]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   pre-commit:
@@ -15,10 +16,13 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install ".[dev]"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --dev
 
       - name: Run pre-commit
-        run: pre-commit run --all-files
+        run: uv run pre-commit run --all-files

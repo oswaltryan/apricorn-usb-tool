@@ -19,7 +19,16 @@ def is_admin_windows() -> bool:
     if not _SYSTEM.startswith("win"):
         return False
     try:
-        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return False
+        shell32 = getattr(windll, "shell32", None)
+        if shell32 is None:
+            return False
+        is_user_an_admin = getattr(shell32, "IsUserAnAdmin", None)
+        if is_user_an_admin is None:
+            return False
+        return bool(is_user_an_admin())
     except (AttributeError, Exception):
         return False
 
@@ -63,7 +72,15 @@ def _wait_for_user_acknowledgement() -> None:
             import msvcrt
 
             print("\nPress any key to close...", end="", flush=True)
-            msvcrt.getwch()
+            getwch = getattr(msvcrt, "getwch", None)
+            if callable(getwch):
+                getwch()
+            else:
+                getch = getattr(msvcrt, "getch", None)
+                if callable(getch):
+                    getch()
+                else:
+                    raise RuntimeError("No console key reader available")
             print()
             return
         except Exception:

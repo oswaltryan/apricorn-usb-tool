@@ -146,8 +146,15 @@ class WindowsBackend(AbstractBackend):
                 ("ucSenseBuf", ct.c_ubyte * 32),
             ]
 
+        windll = getattr(ct, "windll", None)
+        if windll is None:
+            return False
+        kernel32 = getattr(windll, "kernel32", None)
+        if kernel32 is None:
+            return False
+
         drive_path = rf"\\.\PhysicalDrive{device_identifier}"
-        h_drive = ct.windll.kernel32.CreateFileW(
+        h_drive = kernel32.CreateFileW(
             drive_path,
             GENERIC_READ | GENERIC_WRITE,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -180,7 +187,7 @@ class WindowsBackend(AbstractBackend):
             ct.memmove(sptd.Cdb, (ct.c_ubyte * 10)(*cdb), 10)
 
             returned = wintypes.DWORD(0)
-            ok = ct.windll.kernel32.DeviceIoControl(
+            ok = kernel32.DeviceIoControl(
                 h_drive,
                 IOCTL_SCSI_PASS_THROUGH_DIRECT,
                 ct.byref(sptd_sense),
@@ -192,7 +199,7 @@ class WindowsBackend(AbstractBackend):
             )
             return bool(ok and sptd.ScsiStatus == 0)
         finally:
-            ct.windll.kernel32.CloseHandle(h_drive)
+            kernel32.CloseHandle(h_drive)
 
     def sort_devices(self, devices: List[UsbDeviceInfo]) -> List[UsbDeviceInfo]:
         def _key(dev):
