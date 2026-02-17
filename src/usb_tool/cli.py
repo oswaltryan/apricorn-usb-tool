@@ -182,26 +182,96 @@ def _handle_list_action(devices: list[Any], json_mode: bool = False) -> None:
 def _parse_poke_targets(
     poke_input: str, devices: list[Any]
 ) -> tuple[list[tuple[str, Any]], list[str]]:
+    def _device_is_oob(device: Any) -> bool:
+        size = str(getattr(device, "driveSizeGB", "")).strip().upper()
+        return size.startswith("N/A")
+
+    def _device_identifier(device: Any) -> Any:
+        if _SYSTEM.startswith("win"):
+            drive_num = getattr(device, "physicalDriveNum", -1)
+            if isinstance(drive_num, int) and drive_num >= 0:
+                return drive_num
+            return -1
+
+        block_device = getattr(device, "blockDevice", "")
+        if isinstance(block_device, str) and block_device.startswith("/dev/"):
+            return block_device
+        return -1
+
     targets: list[tuple[str, Any]] = []
     skipped: list[str] = []
+
     if poke_input.lower() == "all":
-        for i, d in enumerate(devices):
-            targets.append((f"#{i + 1}", getattr(d, "physicalDriveNum", -1)))
-    else:
-        elements = [s.strip() for s in poke_input.split(",") if s.strip()]
-        if not elements:
-            raise ValueError("No targets")
-        for part in elements:
-            try:
-                idx = int(part)
-                if 1 <= idx <= len(devices):
-                    targets.append(
-                        (f"#{idx}", getattr(devices[idx - 1], "physicalDriveNum", -1))
-                    )
-                else:
-                    raise ValueError("Out of range")
-            except (ValueError, TypeError) as exc:
-                raise ValueError("Invalid format") from exc
+        for i, device in enumerate(devices, start=1):
+            label = f"#{i}"
+            identifier = _device_identifier(device)
+            if identifier == -1 or _device_is_oob(device):
+                skipped.append(label)
+                continue
+            targets.append((label, identifier))
+        return targets, skipped
+
+    elements = [s.strip() for s in poke_input.split(",") if s.strip()]
+    if not elements:
+        raise ValueError("No targets")
+
+    invalid: list[str] = []
+    seen: set[tuple[str, Any]] = set()
+
+    for token in elements:
+        try:
+            idx = int(token)
+        except ValueError:
+            idx = -1
+
+        if idx != -1:
+            if not (1 <= idx <= len(devices)):
+                invalid.append(token)
+                continue
+
+            device = devices[idx - 1]
+            identifier = _device_identifier(device)
+            label = f"#{idx}"
+            if identifier == -1 or _device_is_oob(device):
+                skipped.append(label)
+                continue
+            target = (label, identifier)
+            if target not in seen:
+                seen.add(target)
+                targets.append(target)
+            continue
+
+        if _SYSTEM.startswith("win"):
+            invalid.append(token)
+            continue
+
+        if not token.startswith("/dev/"):
+            invalid.append(token)
+            continue
+
+        matched_idx = -1
+        matched_device = None
+        for i, device in enumerate(devices, start=1):
+            if getattr(device, "blockDevice", "") == token:
+                matched_idx = i
+                matched_device = device
+                break
+
+        if matched_idx < 0 or matched_device is None:
+            invalid.append(token)
+            continue
+
+        if _device_is_oob(matched_device):
+            skipped.append(token)
+            continue
+
+        target = (token, token)
+        if target not in seen:
+            seen.add(target)
+            targets.append(target)
+
+    if invalid:
+        raise ValueError(f"Invalid format: {', '.join(invalid)}")
     return targets, skipped
 
 
