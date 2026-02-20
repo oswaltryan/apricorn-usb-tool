@@ -12,7 +12,6 @@ from ..device_config import get_size_options, is_supported_vid, is_supported_vid
 from ..services import populate_device_version, prune_hidden_version_fields
 
 
-
 def _normalize_pid(pid: str) -> str:
     if not isinstance(pid, str):
         return ""

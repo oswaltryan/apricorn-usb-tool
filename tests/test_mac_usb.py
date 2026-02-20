@@ -77,21 +77,21 @@ def test_parse_uasp_info_builds_boolean_map():
     assert uas_dict["Drive One"] is True
 
 
-def test_find_apricorn_device_skips_excluded_pids():
+def test_scan_devices_filters_by_supported_catalog():
     drives = [
         {
-            "_name": "Bad Apricorn",
+            "_name": "Unsupported Device",
             "manufacturer": "Apricorn",
             "vendor_id": "0x0984",
-            "product_id": "0x0221",
+            "product_id": "0x1234",
             "serial_num": "BAD1",
             "Media": [{"size_in_bytes": 100 * 1024**3, "bsd_name": "disk3s1"}],
         },
         {
-            "_name": "Good Apricorn",
-            "manufacturer": "Apricorn",
-            "vendor_id": "0x0984",
-            "product_id": "0x1234",
+            "_name": "Supported Device",
+            "manufacturer": "Harris",
+            "vendor_id": "0x19a5",
+            "product_id": "0x0333",
             "serial_num": "GOOD1",
             "Media": [{"size_in_bytes": 100 * 1024**3, "bsd_name": "disk4s1"}],
         },
@@ -105,4 +105,4 @@ def test_find_apricorn_device_skips_excluded_pids():
         result = backend.scan_devices()
 
     assert result and len(result) == 1
-    assert result[0].idProduct == "1234"
+    assert result[0].idProduct == "0333"

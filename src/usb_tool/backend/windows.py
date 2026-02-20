@@ -53,10 +53,11 @@ def _extract_vendor(device_id: str | None) -> str:
     match = re.search(r"VEN_([^&\\\\]+)", device_id, re.IGNORECASE)
     if not match:
         return ""
-    return match.group(1).replace("_", " ").strip().title()
+    vendor = match.group(1)
+    return str(vendor).replace("_", " ").strip().title()
 
 
-def _pick_manufacturer(device_info: dict, drive_info: dict) -> str:
+def _pick_manufacturer(device_info: dict[str, str], drive_info: dict[str, str]) -> str:
     candidates = [
         drive_info.get("manufacturer", ""),
         drive_info.get("vendor", ""),
@@ -64,7 +65,7 @@ def _pick_manufacturer(device_info: dict, drive_info: dict) -> str:
     ]
     for value in candidates:
         if value:
-            return value
+            return str(value)
     return "Unknown"
 
 
@@ -336,9 +337,7 @@ class WindowsBackend(AbstractBackend):
                         i_product = "Padlock NVX" if i_product == "PADLOCK NVX" else ""
                     elif "PORTABLE" in i_product:
                         i_product = (
-                            "Aegis Portable"
-                            if i_product == " AEGIS PORTABLE"
-                            else ""
+                            "Aegis Portable" if i_product == " AEGIS PORTABLE" else ""
                         )
             except Exception:
                 pass

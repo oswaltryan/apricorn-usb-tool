@@ -6,7 +6,7 @@ associations, plus lookup helpers for size normalization.
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, TypedDict
 
 
 def _normalize_hex(value: str | None, width: int = 4) -> str:
@@ -49,8 +49,19 @@ PRODUCT_SIZES: Dict[str, List[int]] = {
 }
 
 
+class VidPid(TypedDict):
+    vid: str
+    pid: str
+
+
+class ProductInfo(TypedDict):
+    product_hint: str
+    sizes_gb: List[int]
+    customers: Dict[str, List[VidPid]]
+
+
 # Product catalog sourced from "Apricorn Products VID and PID.csv".
-PRODUCTS: Dict[str, Dict[str, object]] = {
+PRODUCTS: Dict[str, ProductInfo] = {
     "Fortress": {
         "product_hint": "Fortress",
         "sizes_gb": PRODUCT_SIZES["Fortress"],
@@ -90,7 +101,10 @@ PRODUCTS: Dict[str, Dict[str, object]] = {
         "customers": {
             "Bloomberg": [{"vid": "1188", "pid": "9001"}],
             "Morgan-Lewis-Bockis": [{"vid": "0984", "pid": "a9f3"}],
-            "UnitedLex": [{"vid": "0984", "pid": "5558"}, {"vid": "0984", "pid": "4745"}],
+            "UnitedLex": [
+                {"vid": "0984", "pid": "5558"},
+                {"vid": "0984", "pid": "4745"},
+            ],
         },
     },
     "Padlock Bio": {
@@ -149,7 +163,10 @@ PRODUCTS: Dict[str, Dict[str, object]] = {
         "customers": {
             "Apricorn": [{"vid": "0984", "pid": "1407"}],
             "Discover": [{"vid": "0984", "pid": "9a1e"}],
-            "Dominion Resources": [{"vid": "0984", "pid": "1422"}, {"vid": "0984", "pid": "0332"}],
+            "Dominion Resources": [
+                {"vid": "0984", "pid": "1422"},
+                {"vid": "0984", "pid": "0332"},
+            ],
             "Harris": [{"vid": "19a5", "pid": "0333"}],
             "Honda": [{"vid": "0984", "pid": "1419"}],
             "Hyundai": [{"vid": "0984", "pid": "1415"}],
@@ -159,7 +176,10 @@ PRODUCTS: Dict[str, Dict[str, object]] = {
         "product_hint": "Secure Key 3z",
         "sizes_gb": PRODUCT_SIZES["Secure Key 3z"],
         "customers": {
-            "Apricorn": [{"vid": "0984", "pid": "1409"}, {"vid": "0984", "pid": "1410"}],
+            "Apricorn": [
+                {"vid": "0984", "pid": "1409"},
+                {"vid": "0984", "pid": "1410"},
+            ],
             "Creavo": [{"vid": "0984", "pid": "c7b0"}],
             "Discover": [{"vid": "0984", "pid": "9a10"}],
             "Dominion Resources": [{"vid": "0984", "pid": "1421"}],
@@ -174,17 +194,15 @@ PRODUCTS: Dict[str, Dict[str, object]] = {
 
 
 def _build_vid_pid_index(
-    products: Dict[str, Dict[str, object]],
+    products: Dict[str, ProductInfo],
 ) -> Dict[Tuple[str, str], List[str]]:
     index: Dict[Tuple[str, str], List[str]] = {}
     for product, info in products.items():
-        customers = info.get("customers", {})
-        if not isinstance(customers, dict):
-            continue
+        customers = info["customers"]
         for entries in customers.values():
             for entry in entries:
-                vid = _normalize_hex(entry.get("vid"))
-                pid = _normalize_hex(entry.get("pid"))
+                vid = _normalize_hex(entry["vid"])
+                pid = _normalize_hex(entry["pid"])
                 if not vid or not pid:
                     continue
                 key = (vid, pid)
@@ -216,7 +234,7 @@ def get_size_options(
 ) -> List[int]:
     sizes: List[int] = []
     for product in get_product_types_for_vid_pid(vid, pid):
-        sizes.extend(PRODUCTS[product].get("sizes_gb", []))
+        sizes.extend(PRODUCTS[product]["sizes_gb"])
 
     if not sizes:
         sizes = LEGACY_CODE_SIZES.get(_normalize_hex(pid), [])
