@@ -28,15 +28,26 @@ function Get-MsiVersion([string]$version) {
 }
 
 function Get-UsbVersion {
+    $pyproject = Join-Path $repoRoot 'pyproject.toml'
+    if (-not (Test-Path $pyproject)) {
+        throw "pyproject.toml not found at $pyproject"
+    }
+    $text = Get-Content -Path $pyproject -Raw
+    if (-not $text) {
+        throw 'Unable to read pyproject.toml for version'
+    }
+    $match = [regex]::Match($text, '^\s*version\s*=\s*["'']([^"'']+)["'']', 'Multiline')
+    if (-not $match.Success) {
+        throw 'Unable to parse version from pyproject.toml'
+    }
+    $version = $match.Groups[1].Value.Trim()
     $versionFile = Join-Path $repoRoot 'src/usb_tool/_cached_version.txt'
-    if (-not (Test-Path $versionFile)) {
-        throw "Version cache not found at $versionFile"
+    try {
+        Set-Content -Path $versionFile -Value ($version + "`n") -Encoding utf8
+    } catch {
+        Write-Warning "Failed to update cached version file at $versionFile"
     }
-    $raw = Get-Content -Path $versionFile -Raw
-    if (-not $raw) {
-        throw 'Unable to determine usb-tool version from cache'
-    }
-    return $raw.Trim()
+    return $version
 }
 
 function Find-PyInstallerBinary {

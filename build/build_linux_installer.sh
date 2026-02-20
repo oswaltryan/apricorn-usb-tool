@@ -28,12 +28,18 @@ find_binary() {
     exit 1
 }
 
-version_file="$REPO_ROOT/src/usb_tool/_cached_version.txt"
-if [[ ! -f "$version_file" ]]; then
-    echo "Version cache not found at $version_file" >&2
+pyproject="$REPO_ROOT/pyproject.toml"
+if [[ ! -f "$pyproject" ]]; then
+    echo "pyproject.toml not found at $pyproject" >&2
     exit 1
 fi
-version=$(tr -d '\r' <"$version_file")
+version=$(grep -E '^[[:space:]]*version[[:space:]]*=' "$pyproject" | head -n 1 | sed -E "s/^[[:space:]]*version[[:space:]]*=[[:space:]]*['\\\"]([^'\\\"]+)['\\\"].*/\\1/")
+if [[ -z "$version" ]]; then
+    echo "Unable to parse version from pyproject.toml" >&2
+    exit 1
+fi
+version_file="$REPO_ROOT/src/usb_tool/_cached_version.txt"
+printf "%s\n" "$version" > "$version_file" || true
 deb_version=${version//+/-}
 binary_path=$(find_binary)
 
