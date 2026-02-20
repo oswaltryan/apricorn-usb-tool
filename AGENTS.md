@@ -98,7 +98,7 @@ pytest -q
 ```
 
 - Tests emphasize **pure parsing** and **target selection** (see `tests/`).
-- Mock‑data collectors live in `tests/collect_*.py`. See `tests/mock_data/mock_data_collection_instructions.md` for capturing live OS snapshots that back unit tests.
+- Mock data collection has been deprecated; do not use or reintroduce collectors.
 - CI hygiene: **all pre‑commit hooks must pass** (black, ruff, pytest).
 
 ---
@@ -186,7 +186,7 @@ pytest -q
 - Repro a user report with `usb` output (attach OS, Admin/root status, and whether device shows OOB).
 - If Linux: verify `lsusb`, `lsblk`, `lshw` availability; check sudoers helpers.
 - If Windows: confirm Administrator session; confirm PowerShell present.
-- Gather mock snapshots via `tests/collect_*.py` and commit sanitized fixtures to `tests/mock_data/`.
+- Mock snapshots are deprecated and should not be collected or committed.
 
 ---
 

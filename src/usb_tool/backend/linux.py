@@ -8,8 +8,7 @@ from typing import List, Any
 from .base import AbstractBackend
 from ..models import UsbDeviceInfo
 from ..utils import bytes_to_gb, find_closest
-from ..constants import EXCLUDED_PIDS
-from ..device_config import closest_values
+from ..device_config import get_size_options, is_supported_vid_pid
 
 # For Phase 3/4, still import from legacy if not moved
 from ..services import populate_device_version, prune_hidden_version_fields
@@ -20,10 +19,6 @@ def _normalize_pid(pid: str) -> str:
         return ""
     cleaned = pid.lower().replace("0x", "")
     return cleaned.split("&", 1)[0][:4]
-
-
-def _is_excluded_pid(pid: str) -> bool:
-    return _normalize_pid(pid) in EXCLUDED_PIDS
 
 
 class LinuxBackend(AbstractBackend):
@@ -50,7 +45,7 @@ class LinuxBackend(AbstractBackend):
 
             vid = lsusb_info.get("idVendor", "").lower()
             pid = _normalize_pid(lsusb_info.get("idProduct", ""))
-            if vid != "0984" or pid in EXCLUDED_PIDS:
+            if not is_supported_vid_pid(vid, pid):
                 continue
 
             bcd_usb = 0.0
@@ -70,10 +65,7 @@ class LinuxBackend(AbstractBackend):
             size_raw = lsblk_info.get("size_gb", 0.0)
             size_gb = "N/A (OOB Mode)"
             if size_raw > 0:
-                opts = (
-                    closest_values.get(pid, (None, []))[1]
-                    or closest_values.get(bcd_dev, (None, []))[1]
-                )
+                opts = get_size_options(vid, pid, bcd_dev)
                 if opts:
                     closest = find_closest(size_raw, opts)
                     size_gb = str(closest) if closest else str(round(size_raw))

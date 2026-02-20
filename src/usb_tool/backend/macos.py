@@ -7,11 +7,10 @@ from typing import List, Any
 from .base import AbstractBackend
 from ..models import UsbDeviceInfo
 from ..utils import bytes_to_gb, find_closest
-from ..device_config import closest_values
+from ..device_config import get_size_options, is_supported_vid, is_supported_vid_pid
 
 from ..services import populate_device_version, prune_hidden_version_fields
 
-from ..constants import EXCLUDED_PIDS
 
 
 def _normalize_pid(pid: str) -> str:
@@ -19,10 +18,6 @@ def _normalize_pid(pid: str) -> str:
         return ""
     cleaned = pid.lower().replace("0x", "")
     return cleaned.split("&", 1)[0][:4]
-
-
-def _is_excluded_pid(pid: str) -> bool:
-    return _normalize_pid(pid) in EXCLUDED_PIDS
 
 
 class MacOSBackend(AbstractBackend):
@@ -39,7 +34,7 @@ class MacOSBackend(AbstractBackend):
             vid = drive.get("vendor_id", "").replace("0x", "")[:4].lower()
             pid_raw = drive.get("product_id", "").replace("0x", "").lower()
             pid = _normalize_pid(pid_raw)
-            if vid != "0984" or _is_excluded_pid(pid):
+            if not is_supported_vid_pid(vid, pid):
                 continue
 
             serial = drive.get("serial_num", "")
@@ -52,8 +47,9 @@ class MacOSBackend(AbstractBackend):
             if "Media" in drive and drive["Media"]:
                 m = drive["Media"][0]
                 size_raw = bytes_to_gb(m.get("size_in_bytes", 0))
-                closest = find_closest(size_raw, closest_values.get(pid, (0, []))[1])
-                size_gb = str(closest) if closest is not None else "0"
+                opts = get_size_options(vid, pid, bcd_dev)
+                closest = find_closest(size_raw, opts) if opts else None
+                size_gb = str(closest) if closest is not None else str(round(size_raw))
                 media_type = (
                     "Removable Media"
                     if m.get("removable_media") == "yes"
@@ -117,7 +113,9 @@ class MacOSBackend(AbstractBackend):
 
             def recurse(obj):
                 if isinstance(obj, dict):
-                    if "0984" in obj.get("vendor_id", "") or "Apricorn" in obj.get(
+                    vendor_id = obj.get("vendor_id", "")
+                    vendor = vendor_id.replace("0x", "").lower()[:4]
+                    if is_supported_vid(vendor) or "Apricorn" in obj.get(
                         "manufacturer", ""
                     ):
                         matches.append(obj)

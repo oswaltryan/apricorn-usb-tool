@@ -165,12 +165,12 @@ def _handle_list_action(devices: list[Any], json_mode: bool = False) -> None:
         return
 
     if not devices:
-        print("\nNo Apricorn devices found.\n")
+        print("\nNo supported devices found.\n")
         return
 
-    print(f"\nFound {len(devices)} Apricorn device(s):")
+    print(f"\nFound {len(devices)} supported device(s):")
     for idx, dev in enumerate(devices, start=1):
-        print(f"\n=== Apricorn Device #{idx} ===")
+        print(f"\n=== Device #{idx} ===")
         printable = dev.to_dict()
         printable.pop("bridgeFW", None)
         max_key_len = max((len(str(k)) for k in printable.keys()), default=0)
@@ -277,7 +277,7 @@ def _parse_poke_targets(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="USB tool for Apricorn devices.", add_help=False
+        description="USB tool for supported devices.", add_help=False
     )
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-p", "--poke", type=str, metavar="TARGETS")
@@ -298,7 +298,7 @@ def main() -> None:
     DeviceManager = _load_device_manager_class()
     manager = DeviceManager()
 
-    scan_message = "Scanning for Apricorn devices..."
+    scan_message = "Scanning for supported devices..."
     if args.json:
         print(scan_message, file=sys.stderr)
     else:

@@ -27,16 +27,15 @@ def test_get_drive_letter_via_ps_parses_output():
         assert backend.get_drive_letter_via_ps(1) == "E:"
 
 
-def test_get_wmi_usb_devices_skips_excluded_pids():
+def test_get_wmi_usb_devices_filters_by_catalog():
     class DummyDevice:
         def __init__(self, device_id, description="USB Mass Storage Device"):
             self.DeviceID = device_id
             self.Description = description
 
     devices = [
-        DummyDevice(r"USB\\VID_0984&PID_0221&REV_0000\\SER_BAD1"),
-        DummyDevice(r"USB\\VID_0984&PID_0301\\SER_BAD2"),
-        DummyDevice(r"USB\\VID_0984&PID_1234&REV_0000\\SER_GOOD"),
+        DummyDevice(r"USB\\VID_19A5&PID_0333&REV_0000\\SER_GOOD"),
+        DummyDevice(r"USB\\VID_0984&PID_1234&REV_0000\\SER_BAD"),
     ]
 
     mock_service = MagicMock()
@@ -52,7 +51,7 @@ def test_get_wmi_usb_devices_skips_excluded_pids():
         result = backend._get_wmi_usb_devices()
 
     assert len(result) == 1
-    assert result[0]["pid"] == "1234"
+    assert result[0]["pid"] == "0333"
     assert result[0]["serial"] == "SER_GOOD"
 
 

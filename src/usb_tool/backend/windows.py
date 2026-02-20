@@ -28,8 +28,7 @@ else:
 from .base import AbstractBackend
 from ..models import UsbDeviceInfo
 from ..utils import bytes_to_gb, find_closest, parse_usb_version
-from ..constants import EXCLUDED_PIDS
-from ..device_config import closest_values
+from ..device_config import get_size_options, is_supported_vid_pid
 from ..services import (
     populate_device_version,
     prune_hidden_version_fields,
@@ -48,11 +47,40 @@ def _extract_vid_pid(device_id: str) -> Tuple[str, str]:
     return vid, pid
 
 
-def _is_excluded_pid(pid: str) -> bool:
-    if not pid:
-        return False
-    normalized = pid.lower().split("&", 1)[0].replace("0x", "")
-    return normalized in EXCLUDED_PIDS
+def _extract_vendor(device_id: str | None) -> str:
+    if not device_id:
+        return ""
+    match = re.search(r"VEN_([^&\\\\]+)", device_id, re.IGNORECASE)
+    if not match:
+        return ""
+    return match.group(1).replace("_", " ").strip().title()
+
+
+def _pick_manufacturer(device_info: dict, drive_info: dict) -> str:
+    candidates = [
+        drive_info.get("manufacturer", ""),
+        drive_info.get("vendor", ""),
+        device_info.get("manufacturer", ""),
+    ]
+    for value in candidates:
+        if value:
+            return value
+    return "Unknown"
+
+
+def _extract_vid_pid_from_ids(
+    device_id: str | None, hardware_ids: list | None
+) -> Tuple[str, str]:
+    vid, pid = _extract_vid_pid(device_id or "")
+    if vid and pid:
+        return vid, pid
+    if not hardware_ids:
+        return "", ""
+    for entry in hardware_ids:
+        vid, pid = _extract_vid_pid(str(entry))
+        if vid and pid:
+            return vid, pid
+    return "", ""
 
 
 class WindowsBackend(AbstractBackend):
@@ -256,13 +284,15 @@ class WindowsBackend(AbstractBackend):
         devices = self.service.ExecQuery(query)
         info = []
         for d in devices:
-            vid, pid = _extract_vid_pid(d.DeviceID)
-            if vid == "0984" and not _is_excluded_pid(pid):
+            vid, pid = _extract_vid_pid_from_ids(
+                getattr(d, "DeviceID", ""), getattr(d, "HardwareID", None)
+            )
+            if is_supported_vid_pid(vid, pid):
                 info.append(
                     {
                         "vid": vid,
                         "pid": pid,
-                        "manufacturer": "Apricorn",
+                        "manufacturer": getattr(d, "Manufacturer", "") or "Apricorn",
                         "description": d.Description or "",
                         "serial": (
                             d.DeviceID.split("\\")[-1] if "\\" in d.DeviceID else ""
@@ -285,50 +315,50 @@ class WindowsBackend(AbstractBackend):
         drives = [d for d in wmi_diskdrives if getattr(d, "InterfaceType", "") == "USB"]
         info = []
         for d in drives:
-            if (
-                "Apricorn" in getattr(d, "Caption", "")
-                and getattr(d, "Size", None) is not None
-            ):
-                pnp = d.PNPDeviceID
-                if not pnp:
-                    continue
-                i_product = ""
-                try:
-                    if "USBSTOR" in pnp:
+            if getattr(d, "Size", None) is None:
+                continue
+            pnp = d.PNPDeviceID
+            if not pnp:
+                continue
+            i_product = ""
+            try:
+                if "USBSTOR" in pnp:
+                    i_product = (
+                        pnp[pnp.index("PROD_") + 5 : pnp.index("&REV")]
+                        .replace("_", " ")
+                        .title()
+                    )
+                elif "SCSI" in pnp:
+                    i_product = (
+                        pnp.split("PROD_", 1)[1].split("\\", 1)[0].replace("_", " ")
+                    )
+                    if "NVX" in i_product:
+                        i_product = "Padlock NVX" if i_product == "PADLOCK NVX" else ""
+                    elif "PORTABLE" in i_product:
                         i_product = (
-                            pnp[pnp.index("PROD_") + 5 : pnp.index("&REV")]
-                            .replace("_", " ")
-                            .title()
+                            "Aegis Portable"
+                            if i_product == " AEGIS PORTABLE"
+                            else ""
                         )
-                    elif "SCSI" in pnp:
-                        i_product = (
-                            pnp.split("PROD_", 1)[1].split("\\", 1)[0].replace("_", " ")
-                        )
-                        if "NVX" in i_product:
-                            i_product = (
-                                "Padlock NVX" if i_product == "PADLOCK NVX" else ""
-                            )
-                        elif "PORTABLE" in i_product:
-                            i_product = (
-                                "Aegis Portable"
-                                if i_product == " AEGIS PORTABLE"
-                                else ""
-                            )
-                except Exception:
-                    pass
-                info.append(
-                    {
-                        "caption": d.Caption,
-                        "size_gb": bytes_to_gb(int(d.Size)),
-                        "iProduct": i_product,
-                        "pnpdeviceid": pnp,
-                        "mediaType": (
-                            "Basic Disk"
-                            if "External hard disk" in d.MediaType
-                            else "Removable Media"
-                        ),
-                    }
-                )
+            except Exception:
+                pass
+            info.append(
+                {
+                    "caption": d.Caption,
+                    "size_gb": bytes_to_gb(int(d.Size)),
+                    "iProduct": i_product,
+                    "index": getattr(d, "Index", -1),
+                    "manufacturer": getattr(d, "Manufacturer", "") or "",
+                    "model": getattr(d, "Model", "") or "",
+                    "vendor": _extract_vendor(pnp),
+                    "pnpdeviceid": pnp,
+                    "mediaType": (
+                        "Basic Disk"
+                        if "External hard disk" in d.MediaType
+                        else "Removable Media"
+                    ),
+                }
+            )
         return info
 
     def _get_apricorn_libusb_data(self):
@@ -347,7 +377,7 @@ class WindowsBackend(AbstractBackend):
                 if usb.get_device_descriptor(dev, ct.byref(desc)) == 0:
                     vid = f"{desc.idVendor:04x}"
                     pid = f"{desc.idProduct:04x}"
-                    if vid == "0984" and not _is_excluded_pid(pid):
+                    if is_supported_vid_pid(vid, pid):
                         devices.append(
                             {
                                 "iProduct": pid,
@@ -367,17 +397,20 @@ class WindowsBackend(AbstractBackend):
         for r in wmi_diskdrives or []:
             if "SATAWIRE" in r.PNPDeviceID or "FLASH_DISK" in r.PNPDeviceID:
                 continue
-            if "APRI" in r.PNPDeviceID:
-                try:
-                    # Index is the physical drive number (e.g., 0 for \\.\PhysicalDrive0)
-                    drive_num = int(r.Index)
-                    # Extract serial from PNPDeviceID (last part before suffix)
-                    # Example: USBSTOR\DISK&VEN_APRICORN&PROD_AEGIS_PADLOCK\0123456789ABCDEF&0
-                    serial_part = r.PNPDeviceID.rsplit("\\", 1)[1]
-                    serial = serial_part.split("&")[0]
-                    drives[serial] = drive_num
-                except (ValueError, TypeError, IndexError):
+            try:
+                pnp_id = r.PNPDeviceID or ""
+                vid, pid = _extract_vid_pid(pnp_id)
+                if not is_supported_vid_pid(vid, pid):
                     continue
+                # Index is the physical drive number (e.g., 0 for \\.\PhysicalDrive0)
+                drive_num = int(r.Index)
+                # Extract serial from PNPDeviceID (last part before suffix)
+                # Example: USBSTOR\DISK&VEN_APRICORN&PROD_AEGIS_PADLOCK\0123456789ABCDEF&0
+                serial_part = pnp_id.rsplit("\\", 1)[1]
+                serial = serial_part.split("&")[0]
+                drives[serial] = drive_num
+            except (ValueError, TypeError, IndexError):
+                continue
         return drives
 
     def _get_usb_controllers_wmi(self):
@@ -389,7 +422,7 @@ class WindowsBackend(AbstractBackend):
                     ctrl = self.service.Get(r.Antecedent)
                     dev = self.service.Get(r.Dependent)
                     vid, pid = _extract_vid_pid(dev.DeviceID)
-                    if vid == "0984" and not _is_excluded_pid(pid):
+                    if is_supported_vid_pid(vid, pid):
                         controllers.append(
                             {
                                 "DeviceID": str(dev.DeviceID).upper(),
@@ -550,13 +583,18 @@ class WindowsBackend(AbstractBackend):
                     if k == serial:
                         drive_num = v
                         break
+            if drive_num == -1:
+                try:
+                    drive_num = int(wmi_usb_drives[i].get("index", -1))
+                except (TypeError, ValueError):
+                    drive_num = -1
 
             size_raw = wmi_usb_drives[i]["size_gb"]
-            size_gb = (
-                "N/A (OOB Mode)"
-                if size_raw == 0.0
-                else find_closest(size_raw, closest_values[pid][1])
-            )
+            if size_raw == 0.0:
+                size_gb = "N/A (OOB Mode)"
+            else:
+                opts = get_size_options(vid, pid, libusb_data[i].get("bcdDevice"))
+                size_gb = find_closest(size_raw, opts) if opts else round(size_raw)
 
             version_info = (
                 populate_device_version(
@@ -574,7 +612,7 @@ class WindowsBackend(AbstractBackend):
                 idVendor=vid,
                 idProduct=pid,
                 bcdDevice=libusb_data[i]["bcdDevice"],
-                iManufacturer="Apricorn",
+                iManufacturer=_pick_manufacturer(wmi_usb_devices[i], wmi_usb_drives[i]),
                 iProduct=wmi_usb_drives[i]["iProduct"],
                 iSerial=serial,
                 SCSIDevice=scsi,
