@@ -11,9 +11,12 @@
 Example:
 
 ```powershell
-$env:USB_TOOL_NO_PAUSE='1'
 usb --profile-scan 2> profile.txt
 ```
+
+When run from PowerShell or `cmd.exe`, the packaged Windows executable should not require
+`USB_TOOL_NO_PAUSE`. That environment variable is only a fallback workaround if pause
+detection is misbehaving on a specific machine.
 
 The output includes:
 
