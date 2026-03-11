@@ -6,7 +6,12 @@ from typing import List, Any
 
 class AbstractBackend(ABC):
     @abstractmethod
-    def scan_devices(self, minimal: bool = False) -> List[Any]:
+    def scan_devices(
+        self,
+        minimal: bool = False,
+        expanded: bool = False,
+        profile_scan: bool = False,
+    ) -> List[Any]:
         """Scan for Apricorn devices on the current platform."""
         pass
 

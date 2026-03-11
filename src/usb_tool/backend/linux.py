@@ -3,6 +3,7 @@
 import subprocess
 import re
 import os
+import json
 from typing import List, Any
 
 from .base import AbstractBackend
@@ -27,7 +28,12 @@ def _is_excluded_pid(pid: str) -> bool:
 
 
 class LinuxBackend(AbstractBackend):
-    def scan_devices(self, minimal: bool = False) -> List[UsbDeviceInfo]:
+    def scan_devices(
+        self,
+        minimal: bool = False,
+        expanded: bool = False,
+        profile_scan: bool = False,
+    ) -> List[UsbDeviceInfo]:
         lshw_data = self._parse_uasp_info()
         lsblk_drives = self._list_usb_drives()
         lsblk_map = {info["name"]: info for info in lsblk_drives if info.get("name")}
@@ -37,7 +43,7 @@ class LinuxBackend(AbstractBackend):
         devices = []
         for block_path, lsblk_info in lsblk_map.items():
             serial = lsblk_info.get("serial")
-            lshw_entry = lshw_data.get(block_path)
+            lshw_entry = lshw_data.get(block_path) or {}
             if lshw_entry and lshw_entry.get("serial"):
                 serial = lshw_entry["serial"]
 
@@ -91,6 +97,7 @@ class LinuxBackend(AbstractBackend):
                 iProduct=lsusb_info.get("iProduct", "Unknown"),
                 iSerial=serial,
                 SCSIDevice=(lshw_entry.get("driver") == "uas"),
+                driverTransport=self._classify_driver_transport(lshw_entry),
                 driveSizeGB=size_gb,
                 mediaType=lsblk_info.get("mediaType", "Unknown"),
                 **version_info,
@@ -170,9 +177,114 @@ class LinuxBackend(AbstractBackend):
         return bytes_to_gb(val)
 
     def _parse_uasp_info(self):
-        # Implementation omitted for brevity, but should match legacy
-        return {}
+        try:
+            res = subprocess.run(
+                ["lshw", "-class", "disk", "-class", "storage", "-json"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception:
+            return {}
+
+        if res.returncode != 0 or not res.stdout.strip():
+            return {}
+
+        try:
+            raw_data = json.loads(res.stdout)
+        except json.JSONDecodeError:
+            return {}
+
+        entries = raw_data if isinstance(raw_data, list) else [raw_data]
+        by_block_device: dict[str, dict[str, str]] = {}
+
+        def _walk(node: Any) -> None:
+            if isinstance(node, list):
+                for item in node:
+                    _walk(item)
+                return
+
+            if not isinstance(node, dict):
+                return
+
+            logical_name = node.get("logicalname")
+            if isinstance(logical_name, str) and logical_name.startswith("/dev/"):
+                by_block_device[logical_name] = {
+                    "driver": str(node.get("driver", "")).strip().lower(),
+                    "serial": str(node.get("serial", "")).strip(),
+                }
+
+            for child in node.get("children", []) or []:
+                _walk(child)
+
+        _walk(entries)
+        return by_block_device
+
+    def _classify_driver_transport(self, lshw_entry: dict[str, Any] | None) -> str:
+        driver_name = str((lshw_entry or {}).get("driver", "")).strip().lower()
+        if driver_name == "uas":
+            return "UAS"
+        if driver_name == "usb-storage":
+            return "BOT"
+        if driver_name:
+            return "Vendor"
+        return "Unknown"
 
     def _get_lsusb_details(self):
-        # Simplified parser
-        return {}
+        try:
+            res = subprocess.run(["lsusb"], capture_output=True, text=True, check=False)
+        except Exception:
+            return {}
+
+        if res.returncode != 0:
+            return {}
+
+        apricorn_pairs = {
+            match.group(1).lower()
+            for match in re.finditer(r"ID\s+0984:([0-9a-fA-F]{4})", res.stdout)
+        }
+        details: dict[str, dict[str, str]] = {}
+
+        for pid in apricorn_pairs:
+            try:
+                verbose = subprocess.run(
+                    ["lsusb", "-v", "-d", f"0984:{pid}"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except Exception:
+                continue
+
+            if verbose.returncode != 0:
+                continue
+
+            current: dict[str, str] = {}
+            for line in verbose.stdout.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("idVendor"):
+                    current["idVendor"] = "0984"
+                elif stripped.startswith("idProduct"):
+                    match = re.search(r"idProduct\s+0x([0-9a-fA-F]{4})", stripped)
+                    if match:
+                        current["idProduct"] = match.group(1).lower()
+                elif stripped.startswith("bcdUSB"):
+                    parts = stripped.split()
+                    if len(parts) >= 2:
+                        current["bcdUSB"] = parts[1]
+                elif stripped.startswith("bcdDevice"):
+                    parts = stripped.split()
+                    if len(parts) >= 2:
+                        current["bcdDevice"] = parts[1]
+                elif stripped.startswith("iManufacturer"):
+                    current["iManufacturer"] = stripped.split(None, 2)[-1]
+                elif stripped.startswith("iProduct"):
+                    current["iProduct"] = stripped.split(None, 2)[-1]
+                elif stripped.startswith("iSerial"):
+                    serial = stripped.split(None, 2)[-1]
+                    if serial and serial != "0":
+                        current["iSerial"] = serial
+                        details[serial] = current.copy()
+                        current = {}
+
+        return details

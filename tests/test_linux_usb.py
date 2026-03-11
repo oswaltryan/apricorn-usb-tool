@@ -30,3 +30,47 @@ def test_list_usb_drives_parses_lsblk_output():
     assert drives[0]["mediaType"] == "Removable Media"
     assert drives[1]["mediaType"] == "Basic Disk"
     assert drives[1]["size_gb"] == 14 * 1024
+
+
+def test_scan_devices_populates_driver_transport_from_lshw():
+    with (
+        patch.object(
+            LinuxBackend,
+            "_parse_uasp_info",
+            return_value={"/dev/sdb": {"driver": "uas", "serial": "SERIAL123"}},
+        ),
+        patch.object(
+            LinuxBackend,
+            "_list_usb_drives",
+            return_value=[
+                {
+                    "name": "/dev/sdb",
+                    "serial": "SERIAL123",
+                    "size_gb": 64.0,
+                    "mediaType": "Removable Media",
+                }
+            ],
+        ),
+        patch.object(
+            LinuxBackend,
+            "_get_lsusb_details",
+            return_value={
+                "SERIAL123": {
+                    "idVendor": "0984",
+                    "idProduct": "1407",
+                    "bcdUSB": "3.0",
+                    "bcdDevice": "0300",
+                    "iManufacturer": "Apricorn",
+                    "iProduct": "Secure Key 3.0",
+                }
+            },
+        ),
+        patch("usb_tool.backend.linux.populate_device_version", return_value={}),
+    ):
+        backend = LinuxBackend()
+        devices = backend.scan_devices()
+
+    assert len(devices) == 1
+    serialized = devices[0].to_dict()
+    assert serialized["driverTransport"] == "UAS"
+    assert serialized["SCSIDevice"] is True

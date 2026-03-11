@@ -158,6 +158,27 @@ def _json_default(value: Any) -> Any:
     return str(value)
 
 
+def _filter_printable_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
+    printable = dict(device_dict)
+    printable.pop("bridgeFW", None)
+    printable.pop("SCSIDevice", None)
+
+    if _SYSTEM.startswith("win"):
+        for field_name in (
+            "usbDriverProvider",
+            "usbDriverVersion",
+            "usbDriverInf",
+            "diskDriverProvider",
+            "diskDriverVersion",
+            "diskDriverInf",
+            "busNumber",
+            "deviceAddress",
+        ):
+            printable.pop(field_name, None)
+
+    return printable
+
+
 def _handle_list_action(devices: list[Any], json_mode: bool = False) -> None:
     if json_mode:
         payload = _devices_to_json_payload(devices)
@@ -171,8 +192,7 @@ def _handle_list_action(devices: list[Any], json_mode: bool = False) -> None:
     print(f"\nFound {len(devices)} Apricorn device(s):")
     for idx, dev in enumerate(devices, start=1):
         print(f"\n=== Apricorn Device #{idx} ===")
-        printable = dev.to_dict()
-        printable.pop("bridgeFW", None)
+        printable = _filter_printable_fields(dev.to_dict())
         max_key_len = max((len(str(k)) for k in printable.keys()), default=0)
         for field_name, value in printable.items():
             print(f"  {str(field_name):<{max_key_len}} : {value}")
@@ -282,6 +302,7 @@ def main() -> None:
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-p", "--poke", type=str, metavar="TARGETS")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--profile-scan", action="store_true", help=argparse.SUPPRESS)
     if _SYSTEM.startswith("win"):
         parser.add_argument("--minimal", action="store_true")
 
@@ -305,7 +326,11 @@ def main() -> None:
         print(scan_message)
 
     try:
-        devices = manager.list_devices(minimal=getattr(args, "minimal", False))
+        devices = manager.list_devices(
+            minimal=getattr(args, "minimal", False),
+            expanded=args.json,
+            profile_scan=args.profile_scan,
+        )
     except Exception as e:
         print(f"Error during device scan: {e}", file=sys.stderr)
         devices = None

@@ -77,3 +77,57 @@ def test_handle_list_action_json_output(capfd):
     device_entry = payload["devices"][0]["1"]
     assert device_entry["iSerial"] == "XYZ123"
     assert "bridgeFW" not in device_entry
+
+
+def test_handle_list_action_hides_deprecated_and_windows_json_only_fields(
+    capfd, monkeypatch
+):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driverTransport": "BOT",
+                "SCSIDevice": False,
+                "usbDriverProvider": "Apricorn",
+                "diskDriverProvider": "Microsoft",
+                "busNumber": 1,
+                "deviceAddress": 3,
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=False)
+    captured = capfd.readouterr()
+    assert "driverTransport" in captured.out
+    assert "usbDriverProvider" not in captured.out
+    assert "SCSIDevice" not in captured.out
+    assert "diskDriverProvider" not in captured.out
+    assert "busNumber" not in captured.out
+    assert "deviceAddress" not in captured.out
+
+
+def test_handle_list_action_json_keeps_compatibility_fields(capfd, monkeypatch):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driverTransport": "BOT",
+                "SCSIDevice": False,
+                "usbDriverProvider": "Apricorn",
+                "diskDriverProvider": "Microsoft",
+                "busNumber": 1,
+                "deviceAddress": 3,
+                "bridgeFW": "1.0",
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=True)
+    captured = capfd.readouterr()
+    payload = json.loads(captured.out)
+    device_entry = payload["devices"][0]["1"]
+    assert device_entry["driverTransport"] == "BOT"
+    assert device_entry["SCSIDevice"] is False
+    assert device_entry["diskDriverProvider"] == "Microsoft"
+    assert device_entry["busNumber"] == 1
+    assert "bridgeFW" not in device_entry
