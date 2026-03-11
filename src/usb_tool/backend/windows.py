@@ -65,6 +65,17 @@ def _escape_wmi_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace("'", "\\'")
 
 
+def _normalize_logical_disk_identifier(value: Any) -> str:
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return ""
+
+    match = re.search(r'DeviceID="([^"]+)"', text)
+    if match:
+        return match.group(1)
+    return text
+
+
 class _StageTimer:
     def __init__(self, enabled: bool):
         self.enabled = enabled
@@ -112,17 +123,16 @@ class WindowsBackend(AbstractBackend):
 
     def scan_devices(
         self,
-        minimal: bool = False,
         expanded: bool = False,
         profile_scan: bool = False,
     ) -> List[UsbDeviceInfo]:
         self._profile_scan_enabled = profile_scan
         self._scan_pass_index = 1
-        devices, lengths = self._perform_scan_pass(minimal=minimal, expanded=expanded)
+        devices, lengths = self._perform_scan_pass(minimal=False, expanded=expanded)
         if not devices and len(set(lengths)) != 1 and any(lengths):
             time.sleep(1.0)
             self._scan_pass_index = 2
-            devices, _ = self._perform_scan_pass(minimal=minimal, expanded=expanded)
+            devices, _ = self._perform_scan_pass(minimal=False, expanded=expanded)
         return devices or []
 
     def _perform_scan_pass(self, minimal: bool = False, expanded: bool = False):
@@ -634,8 +644,11 @@ class WindowsBackend(AbstractBackend):
         partition_to_letters: dict[str, list[str]] = {}
         for link in logical_links:
             antecedent = str(getattr(link, "Antecedent", "") or "")
-            dependent = str(getattr(link, "Dependent", "") or "")
-            partition_to_letters.setdefault(antecedent, []).append(dependent)
+            dependent = _normalize_logical_disk_identifier(
+                getattr(link, "Dependent", "")
+            )
+            if dependent:
+                partition_to_letters.setdefault(antecedent, []).append(dependent)
 
         for d in wmi_diskdrives or []:
             try:

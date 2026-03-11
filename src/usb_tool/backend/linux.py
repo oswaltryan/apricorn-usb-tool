@@ -30,7 +30,6 @@ def _is_excluded_pid(pid: str) -> bool:
 class LinuxBackend(AbstractBackend):
     def scan_devices(
         self,
-        minimal: bool = False,
         expanded: bool = False,
         profile_scan: bool = False,
     ) -> List[UsbDeviceInfo]:

@@ -24,3 +24,10 @@ The output includes:
 - `windows-drive-letter-profile`: bulk WMI drive-letter resolution details and fallback usage
 
 When a scan retries because Windows returned mismatched discovery lists, diagnostics include `pass=1` and `pass=2` so duplicate output is attributable to the retry path.
+
+## Version Cache Sync
+
+`src/usb_tool/_cached_version.txt` is automatically synchronized from `pyproject.toml`
+by the local pre-commit hook `sync-cached-version`.
+
+If you change the project version, running pre-commit will rewrite the cache file for you.

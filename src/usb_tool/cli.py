@@ -385,9 +385,6 @@ def main() -> None:
     parser.add_argument("-p", "--poke", type=str, metavar="TARGETS")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--profile-scan", action="store_true", help=argparse.SUPPRESS)
-    if _SYSTEM.startswith("win"):
-        parser.add_argument("--minimal", action="store_true")
-
     args = parser.parse_args()
 
     if args.help:
@@ -409,7 +406,6 @@ def main() -> None:
 
     try:
         devices = manager.list_devices(
-            minimal=getattr(args, "minimal", False),
             expanded=args.json,
             profile_scan=args.profile_scan,
         )

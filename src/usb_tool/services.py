@@ -128,12 +128,11 @@ class DeviceManager:
 
     def list_devices(
         self,
-        minimal: bool = False,
         expanded: bool = False,
         profile_scan: bool = False,
     ) -> List[UsbDeviceInfo]:
         devices = self.backend.scan_devices(
-            minimal=minimal, expanded=expanded, profile_scan=profile_scan
+            expanded=expanded, profile_scan=profile_scan
         )
         return self.backend.sort_devices(devices)
 

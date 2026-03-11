@@ -8,7 +8,10 @@ from unittest.mock import patch, MagicMock
 # The error "cannot import name 'util'" suggests a broken win32com installation or conflict.
 # Assuming we want to run this test safely:
 
-from usb_tool.backend.windows import WindowsBackend
+from usb_tool.backend.windows import (
+    WindowsBackend,
+    _normalize_logical_disk_identifier,
+)
 
 
 def test_get_drive_letter_via_ps_handles_invalid_index():
@@ -591,9 +594,7 @@ def test_get_drive_letters_map_wmi_uses_bulk_associations_for_drive_letter(capsy
     result = backend._get_drive_letters_map_wmi([DummyDisk()], {1})
 
     captured = capsys.readouterr()
-    assert result == {
-        1: '\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_LogicalDisk.DeviceID="D:"'
-    }
+    assert result == {1: "D:"}
     assert (
         "windows-drive-letter-profile: pass=1 disk_index=1 stage=bulk_partitions count=1"
         in captured.err
@@ -601,8 +602,16 @@ def test_get_drive_letters_map_wmi_uses_bulk_associations_for_drive_letter(capsy
     assert (
         "windows-drive-letter-profile: pass=1 disk_index=1 stage=bulk_partition_result "
         'partition=\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_DiskPartition.DeviceID="Disk #1, Partition #0" '
-        'letters=\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_LogicalDisk.DeviceID="D:"'
-        in captured.err
+        "letters=D:" in captured.err
+    )
+
+
+def test_normalize_logical_disk_identifier_extracts_drive_letter():
+    assert (
+        _normalize_logical_disk_identifier(
+            '\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_LogicalDisk.DeviceID="D:"'
+        )
+        == "D:"
     )
 
 

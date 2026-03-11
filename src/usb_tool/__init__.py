@@ -6,14 +6,11 @@ from .services import DeviceManager
 
 
 def find_apricorn_device(
-    minimal: bool = False,
     expanded: bool = False,
     profile_scan: bool = False,
 ):
     manager = DeviceManager()
-    return manager.list_devices(
-        minimal=minimal, expanded=expanded, profile_scan=profile_scan
-    )
+    return manager.list_devices(expanded=expanded, profile_scan=profile_scan)
 
 
 def __getattr__(name: str) -> Any:

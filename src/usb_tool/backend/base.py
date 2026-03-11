@@ -8,7 +8,6 @@ class AbstractBackend(ABC):
     @abstractmethod
     def scan_devices(
         self,
-        minimal: bool = False,
         expanded: bool = False,
         profile_scan: bool = False,
     ) -> List[Any]:

@@ -32,6 +32,12 @@ repos:
 
 -   repo: local
     hooks:
+    -   id: sync-cached-version
+        name: Sync cached version
+        entry: uv run python scripts/sync_cached_version.py
+        language: system
+        pass_filenames: false
+        always_run: true
     -   id: pytest
         name: Pytest
         entry: uv run pytest
