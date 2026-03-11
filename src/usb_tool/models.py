@@ -13,11 +13,17 @@ class UsbDeviceInfo:
     iManufacturer: str
     iProduct: str
     iSerial: str
-    SCSIDevice: bool
     driveSizeGB: str
     mediaType: str
+    driverTransport: str = "Unknown"
     # These might be added dynamically or during instantiation
     usbController: str = "N/A"
+    usbDriverProvider: str = "N/A"
+    usbDriverVersion: str = "N/A"
+    usbDriverInf: str = "N/A"
+    diskDriverProvider: str = "N/A"
+    diskDriverVersion: str = "N/A"
+    diskDriverInf: str = "N/A"
     busNumber: int = -1
     deviceAddress: int = -1
     physicalDriveNum: int = -1

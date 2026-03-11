@@ -26,7 +26,11 @@ def _is_excluded_pid(pid: str) -> bool:
 
 
 class MacOSBackend(AbstractBackend):
-    def scan_devices(self, minimal: bool = False) -> List[UsbDeviceInfo]:
+    def scan_devices(
+        self,
+        expanded: bool = False,
+        profile_scan: bool = False,
+    ) -> List[UsbDeviceInfo]:
         all_drives = self._list_usb_drives()
         uas_status = self._parse_uasp_info(all_drives)
 
@@ -75,7 +79,7 @@ class MacOSBackend(AbstractBackend):
                 iManufacturer=drive.get("manufacturer", "Apricorn"),
                 iProduct=name,
                 iSerial=serial,
-                SCSIDevice=uas_status.get(name, False),
+                driverTransport=("UAS" if uas_status.get(name, False) else "Unknown"),
                 driveSizeGB=str(size_gb),
                 mediaType=media_type,
                 **version_info,

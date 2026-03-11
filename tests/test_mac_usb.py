@@ -106,3 +106,32 @@ def test_find_apricorn_device_skips_excluded_pids():
 
     assert result and len(result) == 1
     assert result[0].idProduct == "1234"
+
+
+def test_scan_devices_populates_driver_transport():
+    drives = [
+        {
+            "_name": "Good Apricorn",
+            "manufacturer": "Apricorn",
+            "vendor_id": "0x0984",
+            "product_id": "0x1234",
+            "serial_num": "GOOD1",
+            "bus_power": "900",
+            "bcd_device": "3.00",
+            "Media": [{"size_in_bytes": 100 * 1024**3, "bsd_name": "disk4s1"}],
+        }
+    ]
+
+    with (
+        patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
+        patch.object(
+            MacOSBackend, "_parse_uasp_info", return_value={"Good Apricorn": True}
+        ),
+        patch("usb_tool.backend.macos.populate_device_version", return_value={}),
+    ):
+        backend = MacOSBackend()
+        result = backend.scan_devices()
+
+    assert len(result) == 1
+    serialized = result[0].to_dict()
+    assert serialized["driverTransport"] == "UAS"

@@ -58,10 +58,6 @@ OPTIONS
               Each object key matches the numbered list output. Mutually
               exclusive with --poke.
 
-       --minimal
-              Faster scan that omits controller name and drive letter fields.
-              Output remains otherwise unchanged.
-
 EXAMPLES
        usb
               List all detected Apricorn devices.

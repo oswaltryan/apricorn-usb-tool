@@ -126,8 +126,14 @@ class DeviceManager:
         else:
             raise NotImplementedError(f"Unsupported platform: {system}")
 
-    def list_devices(self, minimal: bool = False) -> List[UsbDeviceInfo]:
-        devices = self.backend.scan_devices(minimal=minimal)
+    def list_devices(
+        self,
+        expanded: bool = False,
+        profile_scan: bool = False,
+    ) -> List[UsbDeviceInfo]:
+        devices = self.backend.scan_devices(
+            expanded=expanded, profile_scan=profile_scan
+        )
         return self.backend.sort_devices(devices)
 
     def poke(self, device_identifier: Any) -> bool:

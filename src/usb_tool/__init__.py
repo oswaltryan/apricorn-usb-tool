@@ -5,9 +5,12 @@ from typing import Any
 from .services import DeviceManager
 
 
-def find_apricorn_device(minimal: bool = False):
+def find_apricorn_device(
+    expanded: bool = False,
+    profile_scan: bool = False,
+):
     manager = DeviceManager()
-    return manager.list_devices(minimal=minimal)
+    return manager.list_devices(expanded=expanded, profile_scan=profile_scan)
 
 
 def __getattr__(name: str) -> Any:

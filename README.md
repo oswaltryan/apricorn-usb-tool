@@ -84,8 +84,15 @@ Outputs a deterministic structure tailored for automation:
         "iProduct": "Secure Key 3.0",
         "iSerial": "147250000408",
         "SCSIDevice": false,
+        "driverTransport": "BOT",
         "driveSizeGB": 16,
         "mediaType": "Basic Disk",
+        "usbDriverProvider": "Apricorn",
+        "usbDriverVersion": "21.46.5.13",
+        "usbDriverInf": "oem17.inf",
+        "diskDriverProvider": "Microsoft",
+        "diskDriverVersion": "10.0.26100.7705",
+        "diskDriverInf": "disk.inf",
         "usbController": "Intel",
         "busNumber": 1,
         "deviceAddress": 16,
@@ -110,15 +117,20 @@ The CLI prints normalized device fields. Typical keys include:
 - `idVendor`, `idProduct`: vendor/product IDs (lowercase hex)
 - `bcdDevice`: device revision (4-hex digits)
 - `iManufacturer`, `iProduct`, `iSerial`: user-friendly descriptors
-- `SCSIDevice`: whether UAS/SCSI is in use
+- `driverTransport`: active transport classification such as `UAS`, `BOT`, `Vendor`, or `Unknown`
 - `driveSizeGB`: normalized capacity or `N/A (OOB Mode)`
 - `usbController`: Windows only (e.g., Intel, ASMedia)
 - Platform identifiers: Windows physical drive number, Linux block path, macOS disk path
 
+Visibility rules:
+- Default text output hides `SCSIDevice` and `bridgeFW` on all platforms.
+- Default Windows text output also hides `usbDriverProvider`, `usbDriverVersion`, `usbDriverInf`, `diskDriverProvider`, `diskDriverVersion`, `diskDriverInf`, `busNumber`, and `deviceAddress`.
+- `usb --json` includes those Windows driver/debug fields.
+
 Version details (best-effort, safely parsed from a vendor READ BUFFER):
 - `scbPartNumber`, `hardwareVersion`, `modelID`, `mcuFW`
 
-Visibility rules:
+Additional visibility rules:
 - The tool always hides `bridgeFW` from user output.
 - If `bridgeFW` does not match `bcdDevice`, the version fields listed above are omitted.
 - Devices reporting no size (OOB Mode) are automatically skipped for poke.

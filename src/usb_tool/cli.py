@@ -13,6 +13,15 @@ from typing import Any
 
 _SYSTEM = platform.system().lower()
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
+_WINDOWS_TERMINAL_PARENTS = {
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+    "wt.exe",
+    "windowsterminal.exe",
+    "bash.exe",
+    "mintty.exe",
+}
 
 
 def is_admin_windows() -> bool:
@@ -37,6 +46,83 @@ def _is_frozen_app() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def _get_parent_process_chain_windows() -> list[str]:
+    if not _SYSTEM.startswith("win"):
+        return []
+
+    try:
+        import ctypes.wintypes as wintypes
+
+        TH32CS_SNAPPROCESS = 0x00000002
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+        class PROCESSENTRY32W(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.POINTER(ctypes.c_ulong)),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", ctypes.c_long),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        windll = getattr(ctypes, "windll", None)
+        if windll is None:
+            return []
+        kernel32 = getattr(windll, "kernel32", None)
+        if kernel32 is None:
+            return []
+
+        current_pid = os.getpid()
+        snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if snapshot == INVALID_HANDLE_VALUE:
+            return []
+
+        try:
+            entry = PROCESSENTRY32W()
+            entry.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+            if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+                return []
+
+            process_map: dict[int, tuple[int, str]] = {}
+            while True:
+                process_map[int(entry.th32ProcessID)] = (
+                    int(entry.th32ParentProcessID),
+                    str(entry.szExeFile).lower(),
+                )
+                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                    break
+
+            chain: list[str] = []
+            seen: set[int] = set()
+            pid = current_pid
+            while pid > 0 and pid not in seen and pid in process_map:
+                seen.add(pid)
+                parent_pid, _name = process_map[pid]
+                if parent_pid <= 0 or parent_pid not in process_map:
+                    break
+                pid = parent_pid
+                chain.append(process_map[pid][1])
+            return chain
+        finally:
+            kernel32.CloseHandle(snapshot)
+    except (AttributeError, ValueError, TypeError, OSError, Exception):
+        return []
+
+
+def _is_standalone_windows_console_launch() -> bool:
+    for process_name in _get_parent_process_chain_windows():
+        if process_name in _WINDOWS_TERMINAL_PARENTS:
+            return False
+        if process_name == "explorer.exe":
+            return True
+    return False
+
+
 def _should_pause_before_exit() -> bool:
     if not _SYSTEM.startswith("win"):
         return False
@@ -45,10 +131,6 @@ def _should_pause_before_exit() -> bool:
     if force_pause in _TRUTHY_VALUES:
         return True
 
-    disable_pause = os.getenv("USB_TOOL_NO_PAUSE", "").strip().lower()
-    if disable_pause in _TRUTHY_VALUES:
-        return False
-
     if not _is_frozen_app():
         return False
 
@@ -56,8 +138,8 @@ def _should_pause_before_exit() -> bool:
     if len(sys.argv) > 1:
         return False
 
-    # Common case: packaged exe launched directly with no arguments.
-    return True
+    # Pause only when the packaged exe appears to have been launched from Explorer.
+    return _is_standalone_windows_console_launch()
 
 
 def _pause_before_exit_if_needed() -> None:
@@ -158,6 +240,26 @@ def _json_default(value: Any) -> Any:
     return str(value)
 
 
+def _filter_printable_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
+    printable = dict(device_dict)
+    printable.pop("bridgeFW", None)
+
+    if _SYSTEM.startswith("win"):
+        for field_name in (
+            "usbDriverProvider",
+            "usbDriverVersion",
+            "usbDriverInf",
+            "diskDriverProvider",
+            "diskDriverVersion",
+            "diskDriverInf",
+            "busNumber",
+            "deviceAddress",
+        ):
+            printable.pop(field_name, None)
+
+    return printable
+
+
 def _handle_list_action(devices: list[Any], json_mode: bool = False) -> None:
     if json_mode:
         payload = _devices_to_json_payload(devices)
@@ -171,8 +273,7 @@ def _handle_list_action(devices: list[Any], json_mode: bool = False) -> None:
     print(f"\nFound {len(devices)} Apricorn device(s):")
     for idx, dev in enumerate(devices, start=1):
         print(f"\n=== Apricorn Device #{idx} ===")
-        printable = dev.to_dict()
-        printable.pop("bridgeFW", None)
+        printable = _filter_printable_fields(dev.to_dict())
         max_key_len = max((len(str(k)) for k in printable.keys()), default=0)
         for field_name, value in printable.items():
             print(f"  {str(field_name):<{max_key_len}} : {value}")
@@ -282,9 +383,7 @@ def main() -> None:
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-p", "--poke", type=str, metavar="TARGETS")
     parser.add_argument("--json", action="store_true")
-    if _SYSTEM.startswith("win"):
-        parser.add_argument("--minimal", action="store_true")
-
+    parser.add_argument("--profile-scan", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     if args.help:
@@ -305,7 +404,10 @@ def main() -> None:
         print(scan_message)
 
     try:
-        devices = manager.list_devices(minimal=getattr(args, "minimal", False))
+        devices = manager.list_devices(
+            expanded=args.json,
+            profile_scan=args.profile_scan,
+        )
     except Exception as e:
         print(f"Error during device scan: {e}", file=sys.stderr)
         devices = None
