@@ -837,7 +837,6 @@ class WindowsBackend(AbstractBackend):
                 iManufacturer="Apricorn",
                 iProduct=wmi_usb_drives[i]["iProduct"],
                 iSerial=serial,
-                SCSIDevice=scsi,
                 driverTransport=driver_transport,
                 driveSizeGB=size_gb,
                 mediaType=wmi_usb_drives[i].get("mediaType", "Unknown"),

@@ -89,7 +89,6 @@ def test_handle_list_action_hides_deprecated_and_windows_json_only_fields(
             return {
                 "iSerial": "XYZ123",
                 "driverTransport": "BOT",
-                "SCSIDevice": False,
                 "usbDriverProvider": "Apricorn",
                 "diskDriverProvider": "Microsoft",
                 "busNumber": 1,
@@ -100,7 +99,6 @@ def test_handle_list_action_hides_deprecated_and_windows_json_only_fields(
     captured = capfd.readouterr()
     assert "driverTransport" in captured.out
     assert "usbDriverProvider" not in captured.out
-    assert "SCSIDevice" not in captured.out
     assert "diskDriverProvider" not in captured.out
     assert "busNumber" not in captured.out
     assert "deviceAddress" not in captured.out
@@ -114,7 +112,6 @@ def test_handle_list_action_json_keeps_compatibility_fields(capfd, monkeypatch):
             return {
                 "iSerial": "XYZ123",
                 "driverTransport": "BOT",
-                "SCSIDevice": False,
                 "usbDriverProvider": "Apricorn",
                 "diskDriverProvider": "Microsoft",
                 "busNumber": 1,
@@ -127,7 +124,7 @@ def test_handle_list_action_json_keeps_compatibility_fields(capfd, monkeypatch):
     payload = json.loads(captured.out)
     device_entry = payload["devices"][0]["1"]
     assert device_entry["driverTransport"] == "BOT"
-    assert device_entry["SCSIDevice"] is False
+    assert "SCSIDevice" not in device_entry
     assert device_entry["diskDriverProvider"] == "Microsoft"
     assert device_entry["busNumber"] == 1
     assert "bridgeFW" not in device_entry

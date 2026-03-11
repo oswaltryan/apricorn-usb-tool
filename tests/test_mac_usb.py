@@ -135,4 +135,3 @@ def test_scan_devices_populates_driver_transport():
     assert len(result) == 1
     serialized = result[0].to_dict()
     assert serialized["driverTransport"] == "UAS"
-    assert serialized["SCSIDevice"] is True

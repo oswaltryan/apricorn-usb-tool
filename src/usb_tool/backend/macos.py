@@ -79,7 +79,6 @@ class MacOSBackend(AbstractBackend):
                 iManufacturer=drive.get("manufacturer", "Apricorn"),
                 iProduct=name,
                 iSerial=serial,
-                SCSIDevice=uas_status.get(name, False),
                 driverTransport=("UAS" if uas_status.get(name, False) else "Unknown"),
                 driveSizeGB=str(size_gb),
                 mediaType=media_type,

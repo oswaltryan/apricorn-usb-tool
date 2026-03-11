@@ -95,7 +95,6 @@ class LinuxBackend(AbstractBackend):
                 iManufacturer=lsusb_info.get("iManufacturer", "Apricorn"),
                 iProduct=lsusb_info.get("iProduct", "Unknown"),
                 iSerial=serial,
-                SCSIDevice=(lshw_entry.get("driver") == "uas"),
                 driverTransport=self._classify_driver_transport(lshw_entry),
                 driveSizeGB=size_gb,
                 mediaType=lsblk_info.get("mediaType", "Unknown"),

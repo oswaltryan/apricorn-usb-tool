@@ -13,7 +13,6 @@ class UsbDeviceInfo:
     iManufacturer: str
     iProduct: str
     iSerial: str
-    SCSIDevice: bool
     driveSizeGB: str
     mediaType: str
     driverTransport: str = "Unknown"

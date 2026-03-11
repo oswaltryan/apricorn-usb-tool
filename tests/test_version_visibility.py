@@ -22,7 +22,6 @@ def _make_device(**overrides):
         "iManufacturer": "Apricorn",
         "iProduct": "Secure Key 3.0",
         "iSerial": "SER123",
-        "SCSIDevice": False,
         "driveSizeGB": "16",
         "mediaType": "Basic Disk",
         "scbPartNumber": "12-3456",

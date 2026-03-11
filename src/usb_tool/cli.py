@@ -243,7 +243,6 @@ def _json_default(value: Any) -> Any:
 def _filter_printable_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
     printable = dict(device_dict)
     printable.pop("bridgeFW", None)
-    printable.pop("SCSIDevice", None)
 
     if _SYSTEM.startswith("win"):
         for field_name in (
