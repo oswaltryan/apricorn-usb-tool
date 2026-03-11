@@ -8,7 +8,6 @@
            UpgradeCode="C0A5BA8C-019E-4A37-B1FD-5072F1D7C89F">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" Description="Apricorn USB Tool CLI"/>
     <MajorUpgrade AllowDowngrades="no"
-                  AllowSameVersionUpgrades="yes"
                   DowngradeErrorMessage="A newer version of Apricorn USB Tool is already installed." />
     <MediaTemplate EmbedCab="yes"/>
     <CustomActionRef Id="WixBroadcastEnvironmentChange" />

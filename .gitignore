@@ -173,3 +173,4 @@ cython_debug/
 
 # Build artificats
 *.egg-info
+installers/windows/build/
