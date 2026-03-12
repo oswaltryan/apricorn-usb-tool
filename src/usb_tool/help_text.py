@@ -1,36 +1,27 @@
-# src/usb_tool/help_text.py
+"""Man-page-style help output for the usb CLI."""
+
+from __future__ import annotations
 
 import platform
+
 from ._version import get_version as get_local_version
 
 _SYSTEM = platform.system().lower()
+_HEADER = "USB(1)                              User Commands                              USB(1)"
 
 
-def print_help():
-    """
-    Prints platform-specific help text (Man page style) with dynamic versioning.
-    Includes a standard Unix-style header and footer.
-    """
-    # 1. Resolve Version safely
-    tool_ver = get_local_version()
+def _footer(version: str) -> str:
+    return f"\nVERSION\n       v{version}"
 
-    # 2. Define Header and Footer
-    # Header: COMMAND(Section) | Title | Source/Version
-    header = "USB(1)                              User Commands                              USB(1)"
 
-    # Footer: Standard man pages often repeat the name/version at the bottom
-    footer = f"\nVERSION\n       v{tool_ver}"
-
-    help_text = ""
-
-    if _SYSTEM.startswith("win"):
-        help_text = rf"""{header}
+def _windows_help() -> str:
+    return rf"""{_HEADER}
 
 NAME
        usb - Cross-platform USB tool for Apricorn devices (Windows)
 
 SYNOPSIS
-       usb [-h] [-p TARGETS]
+       usb [-h] [-p TARGETS] [--json]
 
 DESCRIPTION
        The usb-tool utility scans the system for connected Apricorn USB devices
@@ -46,12 +37,12 @@ OPTIONS
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
               drives. TARGETS should be a comma-separated list of physical
-              drive numbers (e.g., '1', '0,2' - corresponding to \\.\PhysicalDriveX)
-              or the keyword 'all' to target all detected, non-OOB Apricorn drives.
-              This operation requires Administrator privileges.
+              drive numbers (for example '1' or '1,3', matching the numbered
+              device list) or the keyword 'all' to target all detected,
+              non-OOB Apricorn drives.
 
               Devices detected in Out-Of-Box (OOB) mode (reporting size as N/A)
-              will be skipped.
+              are skipped automatically.
 
        --json
               Emit JSON as {{"devices":[{{"<index>":{{...}}}}]}} for automation.
@@ -63,26 +54,31 @@ EXAMPLES
               List all detected Apricorn devices.
 
        usb -p 1
-              (Run as Admin) Send a SCSI READ(10) command to PhysicalDrive1.
+              (Run as Administrator) Send a SCSI READ(10) command to the
+              device shown as Apricorn Device #1.
 
        usb -p all
-              (Run as Admin) Poke all valid Apricorn devices.
+              (Run as Administrator) Poke all valid Apricorn devices.
 """
-    elif _SYSTEM.startswith("linux"):
-        help_text = rf"""{header}
+
+
+def _linux_help() -> str:
+    return rf"""{_HEADER}
 
 NAME
        usb - Cross-platform USB tool for Apricorn devices (Linux)
 
 SYNOPSIS
-       usb [-h] [-p TARGETS]
+       usb [-h] [-p TARGETS] [--json]
 
 DESCRIPTION
-       The usb-tool utility scans the system for connected Apricorn USB devices.
+       The usb-tool utility scans the system for connected Apricorn USB devices
+       (Vendor ID 0984) and prints normalized USB, storage, and transport
+       details.
 
-       On Linux, full scanning details (lshw, fdisk) often require root or
-       specific sudoers configuration. The poke operation strictly requires
-       root privileges to access block devices.
+       Linux enumeration can run as a standard user, but full detail often
+       depends on tools such as lsusb, lsblk, and lshw. The poke operation
+       requires root privileges because it opens the underlying block device.
 
 OPTIONS
        -h, --help
@@ -90,11 +86,15 @@ OPTIONS
 
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
-              drives. TARGETS should be a comma-separated list of block device
-              paths (e.g., '/dev/sda', '/dev/sda,/dev/sdb') or the keyword
+              drives. TARGETS should be a comma-separated list of numbered
+              device entries (for example '1' or '1,3'), block device paths
+              (for example '/dev/sdb' or '/dev/sdb,/dev/sdc'), or the keyword
               'all'.
 
-              This operation requires root privileges (e.g., sudo).
+              Devices detected in Out-Of-Box (OOB) mode (reporting size as N/A)
+              are skipped automatically.
+
+              This operation requires root privileges (for example sudo).
 
        --json
               Emit JSON as {{"devices":[{{"<index>":{{...}}}}]}} for automation.
@@ -103,19 +103,29 @@ OPTIONS
 
 EXAMPLES
        usb
-              List devices (details may be limited without root).
+              List detected Apricorn devices. Some detail may be unavailable
+              without root or optional helper tools.
+
+       sudo usb -p 1
+              Send a SCSI READ(10) command to the device shown as Apricorn
+              Device #1.
 
        sudo usb -p /dev/sdb
               Send a SCSI READ(10) command to the Apricorn device at /dev/sdb.
+
+       sudo usb -p all
+              Poke all valid Apricorn devices.
 """
-    elif _SYSTEM.startswith("darwin"):
-        help_text = rf"""{header}
+
+
+def _macos_help() -> str:
+    return rf"""{_HEADER}
 
 NAME
        usb - Cross-platform USB tool for Apricorn devices (macOS)
 
 SYNOPSIS
-       usb [-h] [-p TARGETS]
+       usb [-h] [-p TARGETS] [--json]
 
 DESCRIPTION
        The usb-tool utility scans the system for connected Apricorn USB devices
@@ -123,8 +133,8 @@ DESCRIPTION
        command (poke) to specified devices.
 
        On macOS, scanning is generally allowed as a standard user, but sending
-       SCSI commands (poking) requires root privileges (sudo) to access the
-       raw disk devices.
+       SCSI commands (poking) requires root privileges to access raw disk
+       devices. End-to-end CLI poke remains disabled for now.
 
 OPTIONS
        -h, --help
@@ -133,8 +143,8 @@ OPTIONS
        -p TARGETS, --poke TARGETS
               Send a SCSI READ(10) command to specified detected Apricorn
               drives. TARGETS should be a comma-separated list of disk paths
-              (e.g., '/dev/disk2', '/dev/disk2,/dev/disk3') or the keyword
-              'all'.
+              (for example '/dev/disk2' or '/dev/disk2,/dev/disk3') or the
+              keyword 'all'.
 
               This operation requires root privileges.
 
@@ -148,18 +158,30 @@ EXAMPLES
               List all detected Apricorn devices.
 
        sudo usb -p /dev/disk2
-              (Run with sudo) Send a SCSI READ(10) command to the Apricorn
-              device identified as /dev/disk2.
+              Attempt to poke the Apricorn device identified as /dev/disk2.
 
        sudo usb -p all
-              (Run with sudo) Poke all valid Apricorn devices.
+              Attempt to poke all valid Apricorn devices.
 """
+
+
+def print_help() -> None:
+    """Print platform-specific help text with runtime version information."""
+    tool_ver = get_local_version()
+    version_banner = f"usb-tool {tool_ver}\n"
+
+    if _SYSTEM.startswith("win"):
+        help_text = _windows_help()
+    elif _SYSTEM.startswith("linux"):
+        help_text = _linux_help()
+    elif _SYSTEM.startswith("darwin"):
+        help_text = _macos_help()
     else:
-        # Fallback for unknown operating systems
         help_text = (
             f"usb-tool {tool_ver}: Platform {_SYSTEM} not supported for help text.\n"
-            "Please refer to the README or run with valid arguments."
+            "Please refer to the README or run with valid arguments.\n"
         )
+        print(help_text)
+        return
 
-    # Print the body followed by the footer
-    print(help_text + footer)
+    print(version_banner + help_text + _footer(tool_ver))

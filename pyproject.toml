@@ -49,7 +49,10 @@ dev = [
 # ``wheels`` directory used for vendored dependencies.
 [tool.setuptools]
 package-dir = {"" = "src"}
-packages = ["usb_tool"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["usb_tool*"]
 
 [tool.setuptools.package-data]
 usb_tool = ["_cached_version.txt"]
