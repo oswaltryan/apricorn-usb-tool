@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
+import os
 import re
 
 
@@ -9,6 +10,12 @@ import subprocess
 import time
 import ctypes
 import errno
+
+
+def _build_read_buffer_cdb() -> bytes:
+    # READ BUFFER (6) - 0x3C
+    return bytes([0x3C, 0x01, 0x00, 0x00, 0x00, 0x00])
+
 
 # --- Windows Logic ---
 if sys.platform == "win32":
@@ -45,10 +52,6 @@ if sys.platform == "win32":
             ("sptd", SCSI_PASS_THROUGH_DIRECT),
             ("ucSenseBuf", ctypes.c_ubyte * 32),
         ]
-
-    def _build_read_buffer_cdb() -> bytes:
-        # READ BUFFER (6) - 0x3C
-        return bytes([0x3C, 0x01, 0x00, 0x00, 0x00, 0x00])
 
     def _windows_read_buffer(physical_drive_num: int, timeout_sec: int = 5) -> bytes:
         drive_path = rf"\\.\PhysicalDrive{physical_drive_num}"
@@ -106,6 +109,69 @@ if sys.platform == "win32":
         finally:
             if h != INVALID_HANDLE_VALUE:
                 ctypes.windll.kernel32.CloseHandle(h)
+
+
+if sys.platform.startswith("linux"):
+    import fcntl
+
+    SG_IO = 0x2285
+    SG_DXFER_FROM_DEV = -3
+
+    class SG_IO_HDR(ctypes.Structure):
+        _fields_ = [
+            ("interface_id", ctypes.c_int),
+            ("dxfer_direction", ctypes.c_int),
+            ("cmd_len", ctypes.c_ubyte),
+            ("mx_sb_len", ctypes.c_ubyte),
+            ("iovec_count", ctypes.c_ushort),
+            ("dxfer_len", ctypes.c_uint),
+            ("dxferp", ctypes.c_void_p),
+            ("cmdp", ctypes.c_void_p),
+            ("sbp", ctypes.c_void_p),
+            ("timeout", ctypes.c_uint),
+            ("flags", ctypes.c_uint),
+            ("pack_id", ctypes.c_int),
+            ("usr_ptr", ctypes.c_void_p),
+            ("status", ctypes.c_ubyte),
+            ("masked_status", ctypes.c_ubyte),
+            ("msg_status", ctypes.c_ubyte),
+            ("sb_len_wr", ctypes.c_ubyte),
+            ("host_status", ctypes.c_ushort),
+            ("driver_status", ctypes.c_ushort),
+            ("resid", ctypes.c_int),
+            ("duration", ctypes.c_uint),
+            ("info", ctypes.c_uint),
+        ]
+
+    def _linux_read_buffer(device_path: str, timeout_sec: int = 5) -> bytes:
+        fd = -1
+        try:
+            fd = os.open(device_path, os.O_RDONLY)
+
+            cdb_bytes = _build_read_buffer_cdb()
+            cdb = ctypes.create_string_buffer(cdb_bytes, len(cdb_bytes))
+            data_len = 1024
+            data_buf = ctypes.create_string_buffer(data_len)
+            sense_buf = ctypes.create_string_buffer(32)
+
+            sg_io = SG_IO_HDR()
+            ctypes.memset(ctypes.byref(sg_io), 0, ctypes.sizeof(sg_io))
+            sg_io.interface_id = ord("S")
+            sg_io.dxfer_direction = SG_DXFER_FROM_DEV
+            sg_io.cmd_len = len(cdb_bytes)
+            sg_io.mx_sb_len = ctypes.sizeof(sense_buf)
+            sg_io.dxfer_len = data_len
+            sg_io.dxferp = ctypes.cast(data_buf, ctypes.c_void_p)
+            sg_io.cmdp = ctypes.cast(cdb, ctypes.c_void_p)
+            sg_io.sbp = ctypes.cast(sense_buf, ctypes.c_void_p)
+            sg_io.timeout = int(timeout_sec * 1000)
+
+            fcntl.ioctl(fd, SG_IO, sg_io)
+            actual_len = max(0, data_len - max(sg_io.resid, 0))
+            return data_buf.raw[:actual_len]
+        finally:
+            if fd >= 0:
+                os.close(fd)
 
 
 @dataclass
@@ -233,6 +299,7 @@ def query_device_version(
     serial_number: str,
     bsd_name: Optional[str] = None,
     physical_drive_num: Optional[int] = None,
+    device_path: Optional[str] = None,
 ) -> DeviceVersionInfo:
     data = b""
 
@@ -242,6 +309,11 @@ def query_device_version(
             data = _windows_read_buffer(physical_drive_num)
         except Exception:
             # Fallback or just empty
+            data = b""
+    elif sys.platform.startswith("linux") and device_path:
+        try:
+            data = _linux_read_buffer(device_path)
+        except Exception:
             data = b""
     else:
         # Fallback to libusb (macOS/Linux)

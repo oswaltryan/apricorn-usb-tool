@@ -89,7 +89,12 @@ class LinuxBackend(AbstractBackend):
                 else:
                     size_gb = str(round(size_raw))
 
-            version_info = populate_device_version(int(vid, 16), int(pid, 16), serial)
+            version_info = populate_device_version(
+                int(vid, 16),
+                int(pid, 16),
+                serial,
+                device_path=block_path,
+            )
 
             dev_info = UsbDeviceInfo(
                 bcdUSB=bcd_usb,

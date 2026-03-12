@@ -17,7 +17,8 @@ VERSION_FIELD_NAMES = (
 
 
 def _should_probe_device_version() -> bool:
-    return platform.system().lower().startswith("win")
+    system = platform.system().lower()
+    return system.startswith("win") or system.startswith("linux")
 
 
 def _normalize_revision(value: Any) -> str:
@@ -64,6 +65,7 @@ def populate_device_version(
     serial_number: str,
     bsd_name: Optional[str] = None,
     physical_drive_num: Optional[int] = None,
+    device_path: Optional[str] = None,
 ) -> dict:
     """
     Queries the device version and returns a dictionary of formatted strings.
@@ -86,6 +88,7 @@ def populate_device_version(
             serial_number,
             bsd_name=bsd_name,
             physical_drive_num=physical_drive_num,
+            device_path=device_path,
         )
 
         if getattr(_ver, "scb_part_number", "N/A") != "N/A":

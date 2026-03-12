@@ -48,9 +48,9 @@ def test_should_display_version_fields_allows_matching_bridge_and_bcd():
     assert should_display_version_fields(_make_device(bridgeFW="0x502")) is True
 
 
-def test_should_probe_device_version_only_on_windows(monkeypatch):
+def test_should_probe_device_version_on_windows_and_linux(monkeypatch):
     monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Linux")
-    assert _should_probe_device_version() is False
+    assert _should_probe_device_version() is True
 
     monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Darwin")
     assert _should_probe_device_version() is False
@@ -75,23 +75,72 @@ def test_prune_hidden_version_fields_keeps_version_keys_when_visible():
         assert name in serialized
 
 
-def test_populate_device_version_skips_non_windows_probe(monkeypatch):
+def test_populate_device_version_queries_linux(monkeypatch):
     monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Linux")
 
-    def _unexpected(*_args, **_kwargs):
-        raise AssertionError("query_device_version should not run on Linux scans")
+    captured = {}
 
-    monkeypatch.setattr("usb_tool.services.query_device_version", _unexpected)
+    def _fake_query(*_args, **kwargs):
+        captured["device_path"] = kwargs.get("device_path")
+        return device_version.DeviceVersionInfo(
+            scb_part_number="21-0010",
+            hardware_version="00",
+            model_id="00",
+            mcu_fw=(1, 0, 0),
+            bridge_fw="0463",
+        )
 
-    info = populate_device_version(0x0984, 0x1400, "SER123")
+    monkeypatch.setattr("usb_tool.services.query_device_version", _fake_query)
+
+    info = populate_device_version(
+        0x0984,
+        0x1400,
+        "SER123",
+        device_path="/dev/sda",
+    )
 
     assert info == {
-        "scbPartNumber": "N/A",
-        "hardwareVersion": "N/A",
-        "modelID": "N/A",
-        "mcuFW": "N/A",
-        "bridgeFW": "N/A",
+        "scbPartNumber": "21-0010",
+        "hardwareVersion": "00",
+        "modelID": "00",
+        "mcuFW": "1.0.0",
+        "bridgeFW": "0463",
     }
+    assert captured["device_path"] == "/dev/sda"
+
+
+def test_query_device_version_uses_linux_sg_io(monkeypatch):
+    payload = bytes.fromhex(
+        "5917046341707269636f726e536563757265204b657920332e3020203678000328"
+        "43292032303131202d2032302020202032312d3030313030303030303031e0"
+    )
+
+    monkeypatch.setattr(device_version.sys, "platform", "linux")
+    monkeypatch.setattr(
+        device_version,
+        "_linux_read_buffer",
+        lambda path: payload,
+        raising=False,
+    )
+
+    def _unexpected(*_args, **_kwargs):
+        raise AssertionError("_query_usb_core should not run for Linux block devices")
+
+    monkeypatch.setattr(device_version, "_query_usb_core", _unexpected)
+
+    info = device_version.query_device_version(
+        0x0984,
+        0x1407,
+        "000000000001",
+        device_path="/dev/sda",
+    )
+
+    assert info.raw_data == payload
+    assert info.scb_part_number == "21-0010"
+    assert info.model_id == "00"
+    assert info.hardware_version == "00"
+    assert info.mcu_fw == (1, 0, 0)
+    assert info.bridge_fw == "0463"
 
 
 def test_linux_scan_hides_version_fields_when_bridge_mismatches_bcd():
