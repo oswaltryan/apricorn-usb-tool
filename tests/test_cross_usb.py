@@ -130,6 +130,43 @@ def test_handle_list_action_json_keeps_compatibility_fields(capfd, monkeypatch):
     assert "bridgeFW" not in device_entry
 
 
+def test_handle_list_action_linux_json_hides_windows_only_fields(capfd, monkeypatch):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "linux")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driverTransport": "BOT",
+                "usbController": "Intel",
+                "busNumber": -1,
+                "deviceAddress": -1,
+                "physicalDriveNum": -1,
+                "driveLetter": "Not Formatted",
+                "readOnly": False,
+                "blockDevice": "/dev/sda",
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=True)
+    captured = capfd.readouterr()
+    payload = json.loads(captured.out)
+    device_entry = payload["devices"][0]["1"]
+    assert device_entry["driverTransport"] == "BOT"
+    assert device_entry["usbController"] == "Intel"
+    assert device_entry["readOnly"] is False
+    assert device_entry["blockDevice"] == "/dev/sda"
+    assert "usbDriverProvider" not in device_entry
+    assert "usbDriverVersion" not in device_entry
+    assert "usbDriverInf" not in device_entry
+    assert "diskDriverProvider" not in device_entry
+    assert "diskDriverVersion" not in device_entry
+    assert "diskDriverInf" not in device_entry
+    assert "busNumber" not in device_entry
+    assert "deviceAddress" not in device_entry
+    assert "physicalDriveNum" not in device_entry
+    assert "driveLetter" not in device_entry
+
+
 def test_handle_list_action_linux_hides_windows_only_fields(capfd, monkeypatch):
     monkeypatch.setattr(cross_usb, "_SYSTEM", "linux")
 
@@ -139,8 +176,6 @@ def test_handle_list_action_linux_hides_windows_only_fields(capfd, monkeypatch):
                 "iSerial": "XYZ123",
                 "driverTransport": "UAS",
                 "usbController": "N/A",
-                "usbDriverProvider": "N/A",
-                "diskDriverProvider": "N/A",
                 "busNumber": -1,
                 "deviceAddress": -1,
                 "physicalDriveNum": -1,
@@ -155,7 +190,11 @@ def test_handle_list_action_linux_hides_windows_only_fields(capfd, monkeypatch):
     assert "blockDevice" in captured.out
     assert "usbController" in captured.out
     assert "usbDriverProvider" not in captured.out
+    assert "usbDriverVersion" not in captured.out
+    assert "usbDriverInf" not in captured.out
     assert "diskDriverProvider" not in captured.out
+    assert "diskDriverVersion" not in captured.out
+    assert "diskDriverInf" not in captured.out
     assert "busNumber" not in captured.out
     assert "deviceAddress" not in captured.out
     assert "physicalDriveNum" not in captured.out

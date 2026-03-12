@@ -225,10 +225,37 @@ def _load_device_manager_class():
         return _DeviceManager
 
 
+def _filter_json_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
+    filtered = dict(device_dict)
+    filtered.pop("bridgeFW", None)
+
+    if _SYSTEM.startswith("win"):
+        return filtered
+
+    for field_name in (
+        "usbDriverProvider",
+        "usbDriverVersion",
+        "usbDriverInf",
+        "diskDriverProvider",
+        "diskDriverVersion",
+        "diskDriverInf",
+        "physicalDriveNum",
+        "driveLetter",
+    ):
+        filtered.pop(field_name, None)
+
+    for field_name in ("busNumber", "deviceAddress"):
+        value = filtered.get(field_name)
+        if isinstance(value, int) and value < 0:
+            filtered.pop(field_name, None)
+
+    return filtered
+
+
 def _devices_to_json_payload(devices: list[Any]) -> dict[str, list[dict[str, Any]]]:
-    devices_mapping = {str(i + 1): dev.to_dict() for i, dev in enumerate(devices)}
-    for dev_dict in devices_mapping.values():
-        dev_dict.pop("bridgeFW", None)
+    devices_mapping = {
+        str(i + 1): _filter_json_fields(dev.to_dict()) for i, dev in enumerate(devices)
+    }
     return {"devices": [devices_mapping] if devices_mapping else []}
 
 
