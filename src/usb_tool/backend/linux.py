@@ -36,8 +36,10 @@ class LinuxBackend(AbstractBackend):
         lshw_data = self._parse_uasp_info()
         lsblk_drives = self._list_usb_drives()
         lsblk_map = {info["name"]: info for info in lsblk_drives if info.get("name")}
+        udev_map = self._get_udev_info_map(lsblk_map.keys())
         transport_by_serial = self._get_transport_map_by_serial()
-        transport_map = self._get_transport_map(lsblk_map.keys())
+        transport_map = self._get_transport_map(udev_map)
+        controller_map = self._get_controller_map(udev_map)
 
         lsusb_details = self._get_lsusb_details()
 
@@ -105,6 +107,8 @@ class LinuxBackend(AbstractBackend):
                 **version_info,
             )
             setattr(dev_info, "blockDevice", block_path)
+            setattr(dev_info, "usbController", controller_map.get(block_path, "N/A"))
+            setattr(dev_info, "readOnly", bool(lsblk_info.get("readOnly", False)))
 
             prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
@@ -134,15 +138,25 @@ class LinuxBackend(AbstractBackend):
         return self._list_usb_drives()
 
     def _list_usb_drives(self):
-        cmd = ["lsblk", "-p", "-o", "NAME,SERIAL,SIZE,RM", "-d", "-n", "-l", "-e", "7"]
+        cmd = [
+            "lsblk",
+            "-p",
+            "-o",
+            "NAME,SERIAL,SIZE,RM,RO",
+            "-d",
+            "-n",
+            "-l",
+            "-e",
+            "7",
+        ]
         try:
             res = subprocess.run(cmd, capture_output=True, text=True)
             if res.returncode != 0:
                 return []
             drives = []
             for line in res.stdout.splitlines():
-                parts = line.split(None, 3)
-                if len(parts) < 4 or not parts[1] or parts[1] == "-":
+                parts = line.split(None, 4)
+                if len(parts) < 5 or not parts[1] or parts[1] == "-":
                     continue
                 drives.append(
                     {
@@ -152,6 +166,7 @@ class LinuxBackend(AbstractBackend):
                         "mediaType": (
                             "Removable Media" if parts[3] == "1" else "Basic Disk"
                         ),
+                        "readOnly": parts[4] == "1",
                     }
                 )
             return drives
@@ -232,10 +247,10 @@ class LinuxBackend(AbstractBackend):
             return "Vendor"
         return "Unknown"
 
-    def _get_transport_map(self, block_devices) -> dict[str, str]:
+    def _get_transport_map(self, udev_map: dict[str, dict[str, str]]) -> dict[str, str]:
         transport_map: dict[str, str] = {}
-        for block_device in block_devices:
-            driver_name = self._get_udev_usb_driver(block_device)
+        for block_device, udev_info in udev_map.items():
+            driver_name = udev_info.get("ID_USB_DRIVER", "").strip().lower()
             transport_map[block_device] = self._classify_driver_transport(
                 {"driver": driver_name}
             )
@@ -273,7 +288,13 @@ class LinuxBackend(AbstractBackend):
                 )
         return transport_map
 
-    def _get_udev_usb_driver(self, block_device: str) -> str:
+    def _get_udev_info_map(self, block_devices) -> dict[str, dict[str, str]]:
+        return {
+            block_device: self._get_udev_info(block_device)
+            for block_device in block_devices
+        }
+
+    def _get_udev_info(self, block_device: str) -> dict[str, str]:
         try:
             res = subprocess.run(
                 ["udevadm", "info", "--query=all", f"--name={block_device}"],
@@ -282,15 +303,66 @@ class LinuxBackend(AbstractBackend):
                 check=False,
             )
         except Exception:
-            return ""
+            return {}
 
         if res.returncode != 0:
-            return ""
+            return {}
 
+        info: dict[str, str] = {}
         for line in res.stdout.splitlines():
-            if line.startswith("E: ID_USB_DRIVER="):
-                return line.partition("=")[2].strip().lower()
+            if not line.startswith("E: "):
+                continue
+            key, _, value = line[3:].partition("=")
+            if key:
+                info[key.strip()] = value.strip()
+        return info
+
+    def _get_controller_map(
+        self, udev_map: dict[str, dict[str, str]]
+    ) -> dict[str, str]:
+        cache: dict[str, str] = {}
+        controller_map: dict[str, str] = {}
+        for block_device, udev_info in udev_map.items():
+            pci_addr = self._extract_pci_controller_address(udev_info)
+            if not pci_addr:
+                controller_map[block_device] = "N/A"
+                continue
+            if pci_addr not in cache:
+                cache[pci_addr] = self._get_pci_controller_name(pci_addr)
+            controller_map[block_device] = cache[pci_addr]
+        return controller_map
+
+    def _extract_pci_controller_address(self, udev_info: dict[str, str]) -> str:
+        for key in ("ID_PATH", "DEVPATH"):
+            value = udev_info.get(key, "")
+            match = re.search(
+                r"(?:^|/)pci-?(0000:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7])", value
+            )
+            if match:
+                return match.group(1)
         return ""
+
+    def _get_pci_controller_name(self, pci_addr: str) -> str:
+        try:
+            res = subprocess.run(
+                ["lspci", "-s", pci_addr],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception:
+            return "N/A"
+
+        if res.returncode != 0:
+            return "N/A"
+
+        line = res.stdout.strip().splitlines()
+        if not line:
+            return "N/A"
+        parts = line[0].split(": ", 1)
+        description = parts[1].strip() if len(parts) == 2 else line[0].strip()
+        manufacturer = description.split(None, 1)[0].strip()
+        return manufacturer or "N/A"
 
     def _get_lsusb_details(self):
         try:

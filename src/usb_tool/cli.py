@@ -259,7 +259,6 @@ def _filter_printable_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
         return printable
 
     for field_name in (
-        "usbController",
         "usbDriverProvider",
         "usbDriverVersion",
         "usbDriverInf",
@@ -268,7 +267,6 @@ def _filter_printable_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
         "diskDriverInf",
         "physicalDriveNum",
         "driveLetter",
-        "readOnly",
     ):
         printable.pop(field_name, None)
 

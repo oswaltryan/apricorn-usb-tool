@@ -18,7 +18,7 @@ def test_parse_lsblk_size_parses_various_units():
 
 def test_list_usb_drives_parses_lsblk_output():
     """list_usb_drives should parse lsblk output into structured data."""
-    lsblk_output = "/dev/sda SERIAL123 465G 1\n/dev/sdb SERIAL456 14T 0\n"
+    lsblk_output = "/dev/sda SERIAL123 465G 1 0\n/dev/sdb SERIAL456 14T 0 1\n"
     mock_result = SimpleNamespace(returncode=0, stdout=lsblk_output, stderr="")
 
     with patch("subprocess.run", return_value=mock_result):
@@ -28,8 +28,10 @@ def test_list_usb_drives_parses_lsblk_output():
     assert drives[0]["name"] == "/dev/sda"
     assert drives[0]["serial"] == "SERIAL123"
     assert drives[0]["mediaType"] == "Removable Media"
+    assert drives[0]["readOnly"] is False
     assert drives[1]["mediaType"] == "Basic Disk"
     assert drives[1]["size_gb"] == 14 * 1024
+    assert drives[1]["readOnly"] is True
 
 
 def test_scan_devices_populates_driver_transport_from_usb_serial():
@@ -48,6 +50,7 @@ def test_scan_devices_populates_driver_transport_from_usb_serial():
                     "serial": "SERIAL123",
                     "size_gb": 64.0,
                     "mediaType": "Removable Media",
+                    "readOnly": False,
                 }
             ],
         ),
@@ -67,6 +70,16 @@ def test_scan_devices_populates_driver_transport_from_usb_serial():
         ),
         patch.object(
             LinuxBackend,
+            "_get_udev_info_map",
+            return_value={
+                "/dev/sdb": {
+                    "ID_USB_DRIVER": "uas",
+                    "ID_PATH": "pci-0000:00:14.0-usb-0:1:1.0-scsi-0:0:0:0",
+                }
+            },
+        ),
+        patch.object(
+            LinuxBackend,
             "_get_transport_map_by_serial",
             return_value={"SERIAL123": "UAS"},
         ),
@@ -74,6 +87,11 @@ def test_scan_devices_populates_driver_transport_from_usb_serial():
             LinuxBackend,
             "_get_transport_map",
             return_value={"/dev/sdb": "Unknown"},
+        ),
+        patch.object(
+            LinuxBackend,
+            "_get_controller_map",
+            return_value={"/dev/sdb": "Intel"},
         ),
         patch("usb_tool.backend.linux.populate_device_version", return_value={}),
     ):
@@ -83,36 +101,74 @@ def test_scan_devices_populates_driver_transport_from_usb_serial():
     assert len(devices) == 1
     serialized = devices[0].to_dict()
     assert serialized["driverTransport"] == "UAS"
+    assert serialized["usbController"] == "Intel"
+    assert serialized["readOnly"] is False
 
 
-def test_get_udev_usb_driver_parses_usb_storage_driver():
+def test_get_udev_info_parses_usb_storage_driver():
     mock_result = SimpleNamespace(
         returncode=0,
-        stdout="E: ID_USB_DRIVER=usb-storage\n",
+        stdout=(
+            "E: ID_USB_DRIVER=usb-storage\n"
+            "E: ID_PATH=pci-0000:00:14.0-usb-0:1:1.0-scsi-0:0:0:0\n"
+        ),
         stderr="",
     )
 
     with patch("usb_tool.backend.linux.subprocess.run", return_value=mock_result):
         backend = LinuxBackend()
-        driver = backend._get_udev_usb_driver("/dev/sda")
+        info = backend._get_udev_info("/dev/sda")
 
-    assert driver == "usb-storage"
+    assert info["ID_USB_DRIVER"] == "usb-storage"
+    assert info["ID_PATH"] == "pci-0000:00:14.0-usb-0:1:1.0-scsi-0:0:0:0"
 
 
 def test_get_transport_map_classifies_udev_driver():
-    with patch.object(
-        LinuxBackend,
-        "_get_udev_usb_driver",
-        side_effect=["usb-storage", "uas", ""],
-    ):
-        backend = LinuxBackend()
-        transport_map = backend._get_transport_map(["/dev/sda", "/dev/sdb", "/dev/sdc"])
+    backend = LinuxBackend()
+    transport_map = backend._get_transport_map(
+        {
+            "/dev/sda": {"ID_USB_DRIVER": "usb-storage"},
+            "/dev/sdb": {"ID_USB_DRIVER": "uas"},
+            "/dev/sdc": {},
+        }
+    )
 
     assert transport_map == {
         "/dev/sda": "BOT",
         "/dev/sdb": "UAS",
         "/dev/sdc": "Unknown",
     }
+
+
+def test_get_controller_map_resolves_controller_name_from_pci_address():
+    with patch.object(
+        LinuxBackend,
+        "_get_pci_controller_name",
+        return_value="Intel",
+    ):
+        backend = LinuxBackend()
+        controller_map = backend._get_controller_map(
+            {"/dev/sda": {"ID_PATH": "pci-0000:00:14.0-usb-0:1:1.0-scsi-0:0:0:0"}}
+        )
+
+    assert controller_map == {"/dev/sda": "Intel"}
+
+
+def test_get_pci_controller_name_returns_manufacturer_only():
+    mock_result = SimpleNamespace(
+        returncode=0,
+        stdout=(
+            "00:14.0 USB controller: "
+            "Intel Corporation Alder Lake PCH USB 3.2 xHCI Host Controller (rev 01)\n"
+        ),
+        stderr="",
+    )
+
+    with patch("usb_tool.backend.linux.subprocess.run", return_value=mock_result):
+        backend = LinuxBackend()
+        controller_name = backend._get_pci_controller_name("0000:00:14.0")
+
+    assert controller_name == "Intel"
 
 
 def test_get_transport_map_by_serial_parses_usb_devices_output():

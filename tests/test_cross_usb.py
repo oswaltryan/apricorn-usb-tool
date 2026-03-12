@@ -153,11 +153,11 @@ def test_handle_list_action_linux_hides_windows_only_fields(capfd, monkeypatch):
     captured = capfd.readouterr()
     assert "driverTransport" in captured.out
     assert "blockDevice" in captured.out
-    assert "usbController" not in captured.out
+    assert "usbController" in captured.out
     assert "usbDriverProvider" not in captured.out
     assert "diskDriverProvider" not in captured.out
     assert "busNumber" not in captured.out
     assert "deviceAddress" not in captured.out
     assert "physicalDriveNum" not in captured.out
     assert "driveLetter" not in captured.out
-    assert "readOnly" not in captured.out
+    assert "readOnly" in captured.out
