@@ -16,6 +16,10 @@ VERSION_FIELD_NAMES = (
 )
 
 
+def _should_probe_device_version() -> bool:
+    return platform.system().lower().startswith("win")
+
+
 def _normalize_revision(value: Any) -> str:
     if value is None:
         return ""
@@ -71,6 +75,9 @@ def populate_device_version(
         "mcuFW": "N/A",
         "bridgeFW": "N/A",
     }
+
+    if not _should_probe_device_version():
+        return version_info
 
     try:
         _ver = query_device_version(

@@ -8,6 +8,8 @@ from usb_tool.backend.linux import LinuxBackend
 from usb_tool.models import UsbDeviceInfo
 from usb_tool.services import (
     VERSION_FIELD_NAMES,
+    _should_probe_device_version,
+    populate_device_version,
     prune_hidden_version_fields,
     should_display_version_fields,
 )
@@ -46,6 +48,17 @@ def test_should_display_version_fields_allows_matching_bridge_and_bcd():
     assert should_display_version_fields(_make_device(bridgeFW="0x502")) is True
 
 
+def test_should_probe_device_version_only_on_windows(monkeypatch):
+    monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Linux")
+    assert _should_probe_device_version() is False
+
+    monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Darwin")
+    assert _should_probe_device_version() is False
+
+    monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Windows")
+    assert _should_probe_device_version() is True
+
+
 def test_prune_hidden_version_fields_removes_all_version_keys_when_hidden():
     device = _make_device(bridgeFW="0503")
     prune_hidden_version_fields(device)
@@ -60,6 +73,25 @@ def test_prune_hidden_version_fields_keeps_version_keys_when_visible():
     serialized = device.to_dict()
     for name in VERSION_FIELD_NAMES:
         assert name in serialized
+
+
+def test_populate_device_version_skips_non_windows_probe(monkeypatch):
+    monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Linux")
+
+    def _unexpected(*_args, **_kwargs):
+        raise AssertionError("query_device_version should not run on Linux scans")
+
+    monkeypatch.setattr("usb_tool.services.query_device_version", _unexpected)
+
+    info = populate_device_version(0x0984, 0x1400, "SER123")
+
+    assert info == {
+        "scbPartNumber": "N/A",
+        "hardwareVersion": "N/A",
+        "modelID": "N/A",
+        "mcuFW": "N/A",
+        "bridgeFW": "N/A",
+    }
 
 
 def test_linux_scan_hides_version_fields_when_bridge_mismatches_bcd():

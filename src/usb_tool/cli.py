@@ -256,6 +256,26 @@ def _filter_printable_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
             "deviceAddress",
         ):
             printable.pop(field_name, None)
+        return printable
+
+    for field_name in (
+        "usbController",
+        "usbDriverProvider",
+        "usbDriverVersion",
+        "usbDriverInf",
+        "diskDriverProvider",
+        "diskDriverVersion",
+        "diskDriverInf",
+        "physicalDriveNum",
+        "driveLetter",
+        "readOnly",
+    ):
+        printable.pop(field_name, None)
+
+    for field_name in ("busNumber", "deviceAddress"):
+        value = printable.get(field_name)
+        if isinstance(value, int) and value < 0:
+            printable.pop(field_name, None)
 
     return printable
 

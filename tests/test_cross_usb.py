@@ -128,3 +128,36 @@ def test_handle_list_action_json_keeps_compatibility_fields(capfd, monkeypatch):
     assert device_entry["diskDriverProvider"] == "Microsoft"
     assert device_entry["busNumber"] == 1
     assert "bridgeFW" not in device_entry
+
+
+def test_handle_list_action_linux_hides_windows_only_fields(capfd, monkeypatch):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "linux")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driverTransport": "UAS",
+                "usbController": "N/A",
+                "usbDriverProvider": "N/A",
+                "diskDriverProvider": "N/A",
+                "busNumber": -1,
+                "deviceAddress": -1,
+                "physicalDriveNum": -1,
+                "driveLetter": "Not Formatted",
+                "readOnly": False,
+                "blockDevice": "/dev/sda",
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=False)
+    captured = capfd.readouterr()
+    assert "driverTransport" in captured.out
+    assert "blockDevice" in captured.out
+    assert "usbController" not in captured.out
+    assert "usbDriverProvider" not in captured.out
+    assert "diskDriverProvider" not in captured.out
+    assert "busNumber" not in captured.out
+    assert "deviceAddress" not in captured.out
+    assert "physicalDriveNum" not in captured.out
+    assert "driveLetter" not in captured.out
+    assert "readOnly" not in captured.out
