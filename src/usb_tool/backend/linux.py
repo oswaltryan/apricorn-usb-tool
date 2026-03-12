@@ -36,6 +36,8 @@ class LinuxBackend(AbstractBackend):
         lshw_data = self._parse_uasp_info()
         lsblk_drives = self._list_usb_drives()
         lsblk_map = {info["name"]: info for info in lsblk_drives if info.get("name")}
+        transport_by_serial = self._get_transport_map_by_serial()
+        transport_map = self._get_transport_map(lsblk_map.keys())
 
         lsusb_details = self._get_lsusb_details()
 
@@ -95,7 +97,9 @@ class LinuxBackend(AbstractBackend):
                 iManufacturer=lsusb_info.get("iManufacturer", "Apricorn"),
                 iProduct=lsusb_info.get("iProduct", "Unknown"),
                 iSerial=serial,
-                driverTransport=self._classify_driver_transport(lshw_entry),
+                driverTransport=transport_by_serial.get(
+                    serial, transport_map.get(block_path, "Unknown")
+                ),
                 driveSizeGB=size_gb,
                 mediaType=lsblk_info.get("mediaType", "Unknown"),
                 **version_info,
@@ -227,6 +231,66 @@ class LinuxBackend(AbstractBackend):
         if driver_name:
             return "Vendor"
         return "Unknown"
+
+    def _get_transport_map(self, block_devices) -> dict[str, str]:
+        transport_map: dict[str, str] = {}
+        for block_device in block_devices:
+            driver_name = self._get_udev_usb_driver(block_device)
+            transport_map[block_device] = self._classify_driver_transport(
+                {"driver": driver_name}
+            )
+        return transport_map
+
+    def _get_transport_map_by_serial(self) -> dict[str, str]:
+        try:
+            res = subprocess.run(
+                ["usb-devices"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception:
+            return {}
+
+        if res.returncode != 0 or not res.stdout.strip():
+            return {}
+
+        transport_map: dict[str, str] = {}
+        for block in res.stdout.strip().split("\n\n"):
+            serial = ""
+            driver_name = ""
+            for line in block.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("S:  SerialNumber="):
+                    serial = stripped.partition("=")[2].strip()
+                elif stripped.startswith("I:") and "Driver=" in stripped:
+                    match = re.search(r"Driver=([^\s]+)", stripped)
+                    if match:
+                        driver_name = match.group(1).strip().lower()
+            if serial and driver_name:
+                transport_map[serial] = self._classify_driver_transport(
+                    {"driver": driver_name}
+                )
+        return transport_map
+
+    def _get_udev_usb_driver(self, block_device: str) -> str:
+        try:
+            res = subprocess.run(
+                ["udevadm", "info", "--query=all", f"--name={block_device}"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception:
+            return ""
+
+        if res.returncode != 0:
+            return ""
+
+        for line in res.stdout.splitlines():
+            if line.startswith("E: ID_USB_DRIVER="):
+                return line.partition("=")[2].strip().lower()
+        return ""
 
     def _get_lsusb_details(self):
         try:
