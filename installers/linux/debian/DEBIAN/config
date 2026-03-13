@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+. /usr/share/debconf/confmodule
+
+QUESTION="usb-tool/install_nopasswd_sudo"
+LAST_CONFIGURED_VERSION="${1:-}"
+
+if [ ! -x /usr/bin/sudo ] || [ ! -d /etc/sudoers.d ]; then
+    db_set "$QUESTION" false || true
+    db_fset "$QUESTION" seen true || true
+    exit 0
+fi
+
+if [ -z "$LAST_CONFIGURED_VERSION" ]; then
+    db_fset "$QUESTION" seen false || true
+fi
+
+db_input high "$QUESTION" || true
+db_go || true
+
+exit 0

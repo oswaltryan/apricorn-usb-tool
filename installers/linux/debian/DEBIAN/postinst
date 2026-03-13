@@ -1,13 +1,36 @@
 #!/bin/sh
 set -e
 
+. /usr/share/debconf/confmodule
+
 BIN_DIR="/usr/local/lib/usb-tool"
 LINK_TARGET="/usr/local/bin/usb"
+SUDOERS_FILE="/etc/sudoers.d/usb-tool-nopasswd"
+QUESTION="usb-tool/install_nopasswd_sudo"
 
 if [ ! -x "$BIN_DIR/usb" ]; then
     chmod 755 "$BIN_DIR/usb" 2>/dev/null || true
 fi
 
 ln -sf "$BIN_DIR/usb" "$LINK_TARGET"
+
+if db_get "$QUESTION" && [ "$RET" = "true" ]; then
+    if [ -x /usr/sbin/visudo ] && [ -d /etc/sudoers.d ]; then
+        tmp_file="${SUDOERS_FILE}.tmp"
+        cat >"$tmp_file" <<EOF
+ALL ALL=(root) NOPASSWD: /usr/local/bin/usb
+EOF
+        chmod 0440 "$tmp_file"
+        chown root:root "$tmp_file"
+        if /usr/sbin/visudo -cf "$tmp_file" >/dev/null 2>&1; then
+            mv "$tmp_file" "$SUDOERS_FILE"
+        else
+            rm -f "$tmp_file"
+            echo "usb-tool: generated sudoers file failed validation; skipping NOPASSWD setup." >&2
+        fi
+    fi
+else
+    rm -f "$SUDOERS_FILE"
+fi
 
 exit 0

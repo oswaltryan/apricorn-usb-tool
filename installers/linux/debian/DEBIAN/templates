@@ -1,0 +1,8 @@
+Template: usb-tool/install_nopasswd_sudo
+Type: boolean
+Default: false
+Description: Allow passwordless sudo for the usb command?
+ Installing this option creates a sudoers.d rule that allows any local user to
+ run /usr/local/bin/usb with sudo without entering a password.
+ .
+ Choose this only on systems where that convenience is appropriate.

@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+
+SUDOERS_FILE="/etc/sudoers.d/usb-tool-nopasswd"
+
+case "$1" in
+    remove|purge)
+        rm -f "$SUDOERS_FILE"
+        ;;
+esac
+
+exit 0

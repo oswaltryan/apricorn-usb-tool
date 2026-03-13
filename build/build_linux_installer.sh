@@ -42,8 +42,11 @@ install -m 644 "$REPO_ROOT/README.md" "$STAGING_ROOT/usr/share/doc/usb-tool/READ
 
 sed "s/@DEB_VERSION@/$deb_version/g" "$DEBIAN_TEMPLATE/control" > "$STAGING_ROOT/DEBIAN/control"
 cp "$DEBIAN_TEMPLATE/postinst" "$STAGING_ROOT/DEBIAN/postinst"
+cp "$DEBIAN_TEMPLATE/postrm" "$STAGING_ROOT/DEBIAN/postrm"
 cp "$DEBIAN_TEMPLATE/prerm" "$STAGING_ROOT/DEBIAN/prerm"
-chmod 755 "$STAGING_ROOT/DEBIAN/postinst" "$STAGING_ROOT/DEBIAN/prerm"
+cp "$DEBIAN_TEMPLATE/config" "$STAGING_ROOT/DEBIAN/config"
+cp "$DEBIAN_TEMPLATE/templates" "$STAGING_ROOT/DEBIAN/templates"
+chmod 755 "$STAGING_ROOT/DEBIAN/config" "$STAGING_ROOT/DEBIAN/postinst" "$STAGING_ROOT/DEBIAN/postrm" "$STAGING_ROOT/DEBIAN/prerm"
 
 dpkg-deb --build "$STAGING_ROOT" "$DIST_DIR/usb-tool-$deb_version-amd64.deb"
 

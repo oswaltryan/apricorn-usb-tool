@@ -73,7 +73,7 @@ jobs:
       - name: Build (Linux)
         if: runner.os == 'Linux'
         run: |
-          chmod +x build/build_linux.sh build/build_linux_installer.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/debian/DEBIAN/postinst installers/linux/debian/DEBIAN/prerm
+          chmod +x build/build_linux.sh build/build_linux_installer.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/debian/DEBIAN/config installers/linux/debian/DEBIAN/postinst installers/linux/debian/DEBIAN/postrm installers/linux/debian/DEBIAN/prerm
           ./build/build_linux.sh
 
       - name: Build Linux installer

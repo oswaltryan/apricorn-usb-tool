@@ -144,6 +144,7 @@ Additional visibility rules:
 **Linux**
 - Full detail may require root. Helpful tools: `lsusb`, `lshw`, `lsblk`.
 - Optional helper: run `./update_sudoersd.sh` to allow passwordless reads for `lshw`/`fdisk -l` (review before using).
+- Debian package installs can optionally add a passwordless `sudo usb` rule via `/etc/sudoers.d/usb-tool-nopasswd`; the interactive installer defaults to `No`.
 
 **macOS**
 - Enumeration uses `system_profiler` + `ioreg`. Poke is not yet enabled.

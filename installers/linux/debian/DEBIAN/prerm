@@ -2,6 +2,7 @@
 set -e
 
 LINK_TARGET="/usr/local/bin/usb"
+
 if [ -L "$LINK_TARGET" ]; then
     CURRENT_TARGET=$(readlink "$LINK_TARGET" 2>/dev/null || true)
     case "$CURRENT_TARGET" in

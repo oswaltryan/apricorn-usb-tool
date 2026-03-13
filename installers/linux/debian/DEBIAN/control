@@ -4,7 +4,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Maintainer: Apricorn <support@apricorn.com>
-Depends: libc6 (>= 2.31)
+Depends: libc6 (>= 2.31), debconf (>= 0.5) | debconf-2.0
 Homepage: https://github.com/apricorn/usb-tool
 Description: Apricorn USB enumeration and diagnostics CLI
  usb-tool lists Apricorn USB devices (VID 0984) and performs safe

@@ -8,6 +8,7 @@
 ## Linux (.deb + scripts)
 - Build with `./build/build_linux_installer.sh` (needs `dpkg-deb`). The script stages the payload, copies docs, applies `installers/linux/debian/DEBIAN/*`, and emits `dist/usb-tool-<version>-amd64.deb`.
 - Install via `sudo apt install ./dist/usb-tool-<version>-amd64.deb`. The package installs to `/usr/local/lib/usb-tool` and symlinks `/usr/local/bin/usb`.
+- During interactive Debian installs, the package can optionally create `/etc/sudoers.d/usb-tool-nopasswd` so `sudo usb` does not prompt for a password. The default is `No`; noninteractive installs also default to `No`.
 - Uninstall via `sudo apt remove usb-tool`.
 - Manual path (non-Debian): run `sudo bash installers/linux/install.sh --binary dist/usb-linux` to copy the standalone binary into place. Remove manual installs with `sudo bash installers/linux/uninstall.sh` (deletes `/usr/local/lib/usb-tool` and the `/usr/local/bin/usb` symlink if it points to that directory).
 
