@@ -163,6 +163,7 @@ class MacOSBackend(AbstractBackend):
                 driverTransport=transport_map.get(serial)
                 or transport_map.get(name)
                 or "Unknown",
+                usbController=drive.get("host_controller", "N/A"),
                 driveSizeGB=str(size_gb),
                 mediaType=media_type,
                 **version_info,
@@ -223,17 +224,23 @@ class MacOSBackend(AbstractBackend):
             data = json.loads(res.stdout)
             matches = []
 
-            def recurse(obj):
+            def recurse(obj, host_controller: str = ""):
                 if isinstance(obj, dict):
+                    current_host_controller = (
+                        obj.get("host_controller", "") or host_controller
+                    )
                     if "0984" in obj.get("vendor_id", "") or "Apricorn" in obj.get(
                         "manufacturer", ""
                     ):
-                        matches.append(obj)
+                        drive = dict(obj)
+                        if current_host_controller:
+                            drive["host_controller"] = current_host_controller
+                        matches.append(drive)
                     for v in obj.values():
-                        recurse(v)
+                        recurse(v, current_host_controller)
                 elif isinstance(obj, list):
                     for i in obj:
-                        recurse(i)
+                        recurse(i, host_controller)
 
             recurse(data.get("SPUSBDataType", []))
             return matches

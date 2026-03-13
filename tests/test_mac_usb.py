@@ -11,6 +11,7 @@ def test_list_usb_drives_filters_apricorn_devices():
         "SPUSBDataType": [
             {
                 "_name": "Root",
+                "host_controller": "Controller A",
                 "_items": [
                     {
                         "manufacturer": "Apricorn",
@@ -43,6 +44,8 @@ def test_list_usb_drives_filters_apricorn_devices():
         drives = backend.list_usb_drives()
 
     assert len(drives) == 2
+    assert drives[0]["host_controller"] == "Controller A"
+    assert drives[1]["host_controller"] == "Controller A"
 
 
 def test_parse_uasp_info_builds_boolean_map():
@@ -127,6 +130,31 @@ def test_scan_devices_populates_driver_transport():
     assert len(result) == 1
     serialized = result[0].to_dict()
     assert serialized["driverTransport"] == "UAS"
+
+
+def test_scan_devices_populates_usb_controller():
+    drives = [
+        {
+            "_name": "Secure Key 3.0",
+            "manufacturer": "Apricorn",
+            "vendor_id": "0x0984",
+            "product_id": "0x1407",
+            "serial_num": "GOOD1",
+            "bcd_device": "4.63",
+            "host_controller": "AppleT8103USBXHCI",
+        }
+    ]
+
+    with (
+        patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
+        patch.object(MacOSBackend, "_get_transport_map", return_value={}),
+        patch("usb_tool.backend.macos.populate_device_version", return_value={}),
+    ):
+        backend = MacOSBackend()
+        result = backend.scan_devices()
+
+    assert len(result) == 1
+    assert result[0].to_dict()["usbController"] == "AppleT8103USBXHCI"
 
 
 def test_get_transport_map_parses_transport_from_mass_storage_driver_nub():
