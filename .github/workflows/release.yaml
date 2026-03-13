@@ -9,7 +9,43 @@ permissions:
   contents: write
 
 jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    outputs:
+      project_version: ${{ steps.versions.outputs.project_version }}
+      expected_tag: ${{ steps.versions.outputs.expected_tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: versions
+        name: Resolve repo versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(python3 scripts/project_version.py read)
+          expected_tag="v${version}"
+
+          {
+            echo "project_version=${version}"
+            echo "expected_tag=${expected_tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          project_version="${{ steps.versions.outputs.project_version }}"
+          expected_tag="${{ steps.versions.outputs.expected_tag }}"
+
+          if [[ "$tag" != "$expected_tag" ]]; then
+            echo "Release tag ${tag} does not match pyproject.toml version ${project_version}." >&2
+            echo "Expected release tag: ${expected_tag}" >&2
+            exit 1
+          fi
+
   build:
+    needs: validate-version
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -100,9 +136,14 @@ jobs:
           path: release/*
 
   release:
-    needs: build
+    needs: [validate-version, build]
     runs-on: ubuntu-latest
     steps:
+      - name: Confirm validated tag
+        run: |
+          echo "Releasing ${{ github.ref_name }}"
+          echo "Project version: ${{ needs.validate-version.outputs.project_version }}"
+
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:

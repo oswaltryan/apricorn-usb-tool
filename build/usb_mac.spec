@@ -6,7 +6,7 @@ a = Analysis(
     ['../src/usb_tool/cli.py'],
     pathex=[],
     binaries=[],
-    datas=[('../src/usb_tool/_cached_version.txt', 'usb_tool')],
+    datas=[('../pyproject.toml', '.')],
     hiddenimports=[
         'ctypes',
         'pkg_about',

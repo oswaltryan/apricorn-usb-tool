@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import importlib.metadata
-import importlib.resources as resources
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Iterable, Optional
@@ -12,83 +12,75 @@ from typing import Iterable, Optional
 __all__ = ["get_version"]
 
 PACKAGE_NAME = "apricorn-usb-tool"
-CACHE_FILE = Path(__file__).with_name("_cached_version.txt")
+PACKAGE_DIR = Path(__file__).resolve().parent
+PROJECT_FILE_NAME = "pyproject.toml"
+PROJECT_SECTION_RE = re.compile(r"(?ms)^\[project\]\s*$\n(?P<body>.*?)(?=^\[|\Z)")
+PROJECT_NAME_RE = re.compile(
+    r'^\s*name\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE
+)
+PROJECT_VERSION_RE = re.compile(
+    r'^\s*version\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE
+)
 
 
-def _candidate_roots() -> Iterable[Path]:
-    """Yield directories that may contain packaging metadata while avoiding duplicates."""
-    module_path = Path(__file__).resolve()
-    locations = [
-        module_path.parent,
-        *module_path.parents,
-        Path.cwd(),
-    ]
-    exe_path = Path(sys.argv[0]).resolve()
-    locations.append(exe_path.parent)
-    frozen_root = Path(getattr(sys, "_MEIPASS", module_path.parent))
-    locations.append(frozen_root)
+def _module_root_candidates() -> Iterable[Path]:
     seen: set[Path] = set()
-    for loc in locations:
-        if not isinstance(loc, Path):
-            continue
-        resolved = loc if loc.is_dir() else loc.parent
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        yield resolved
+    package_dir = PACKAGE_DIR
+    trusted_source_dir = Path("src") / "usb_tool"
 
-
-def _read_version_from_pkg_info() -> Optional[str]:
-    for root in _candidate_roots():
-        candidate = root / "usb_tool.egg-info" / "PKG-INFO"
-        if not candidate.is_file():
-            continue
+    for root in package_dir.parents:
+        candidate_source_dir = root / trusted_source_dir
         try:
-            for line in candidate.read_text(
-                encoding="utf-8", errors="ignore"
-            ).splitlines():
-                if line.startswith("Version:"):
-                    return line.split(":", 1)[1].strip()
-        except OSError:
+            is_trusted = candidate_source_dir.is_dir() and package_dir.is_relative_to(
+                candidate_source_dir
+            )
+        except ValueError:
+            is_trusted = False
+        if not is_trusted or root in seen:
             continue
-    return None
+        seen.add(root)
+        yield root
 
-
-def _read_version_resource() -> Optional[str]:
-    try:
-        # Adjusted for src/usb_tool
-        data = resources.files("usb_tool").joinpath("_cached_version.txt")
-        return data.read_text(encoding="utf-8").strip()
-    except (FileNotFoundError, OSError):
-        return None
-    except Exception:
-        return None
-
-
-def _read_cached_version() -> Optional[str]:
-    try:
-        text = CACHE_FILE.read_text(encoding="utf-8").strip()
-        if text:
-            return text
-    except OSError:
-        pass
-    return _read_version_resource()
-
-
-def _write_cached_version(version: str) -> None:
-    normalized = version.strip()
-    if not normalized:
+    frozen_root_raw = getattr(sys, "_MEIPASS", "")
+    if not frozen_root_raw:
         return
-    expected = f"{normalized}\n"
+    frozen_root = Path(frozen_root_raw).resolve()
+    if frozen_root in seen:
+        return
+    seen.add(frozen_root)
+    yield frozen_root
+
+
+def _parse_pyproject_version(path: Path) -> Optional[str]:
     try:
-        try:
-            if CACHE_FILE.read_text(encoding="utf-8") == expected:
-                return
-        except OSError:
-            pass
-        CACHE_FILE.write_text(expected, encoding="utf-8", newline="\n")
+        text = path.read_text(encoding="utf-8")
     except OSError:
-        pass
+        return None
+
+    project_match = PROJECT_SECTION_RE.search(text)
+    if not project_match:
+        return None
+    body = project_match.group("body")
+
+    name_match = PROJECT_NAME_RE.search(body)
+    if not name_match or name_match.group(1).strip() != PACKAGE_NAME:
+        return None
+
+    version_match = PROJECT_VERSION_RE.search(body)
+    if not version_match:
+        return None
+    normalized = version_match.group(1).strip()
+    if not normalized:
+        return None
+    return normalized
+
+
+def _read_repo_pyproject_version() -> Optional[str]:
+    for root in _module_root_candidates():
+        version = _parse_pyproject_version(root / PROJECT_FILE_NAME)
+        if version:
+            return version
+    return None
 
 
 def get_version(dist_name: str = PACKAGE_NAME) -> str:
@@ -96,19 +88,13 @@ def get_version(dist_name: str = PACKAGE_NAME) -> str:
     env_override = os.getenv("USB_TOOL_VERSION")
     if env_override:
         return env_override
-    cached = _read_cached_version()
-    if cached:
-        return cached
+    repo_version = _read_repo_pyproject_version()
+    if repo_version:
+        return repo_version
     try:
-        resolved = importlib.metadata.version(dist_name)
-        _write_cached_version(resolved)
-        return resolved
+        return importlib.metadata.version(dist_name)
     except importlib.metadata.PackageNotFoundError:
         pass
     except Exception:
         pass
-    pkg_info_version = _read_version_from_pkg_info()
-    if pkg_info_version:
-        _write_cached_version(pkg_info_version)
-        return pkg_info_version
     return "Unknown"

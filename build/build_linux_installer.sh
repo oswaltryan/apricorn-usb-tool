@@ -28,12 +28,7 @@ find_binary() {
     exit 1
 }
 
-version_file="$REPO_ROOT/src/usb_tool/_cached_version.txt"
-if [[ ! -f "$version_file" ]]; then
-    echo "Version cache not found at $version_file" >&2
-    exit 1
-fi
-version=$(tr -d '\r' <"$version_file")
+version=$(python3 "$REPO_ROOT/scripts/project_version.py" read)
 deb_version=${version//+/-}
 binary_path=$(find_binary)
 

@@ -30,7 +30,7 @@ a = Analysis(
             ),
             "libusb\\_platform\\windows\\x86_64",
         ),
-        ('..\\src\\usb_tool\\_cached_version.txt', 'usb_tool'),
+        ('..\\pyproject.toml', '.'),
     ],
     hiddenimports=[
         'winreg',

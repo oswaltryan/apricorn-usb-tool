@@ -32,14 +32,14 @@ repos:
 
 -   repo: local
     hooks:
-    -   id: sync-cached-version
-        name: Sync cached version
-        entry: uv run python scripts/sync_cached_version.py
+    -   id: bump-project-version
+        name: versioning
+        entry: uv run python scripts/project_version.py bump-if-needed
         language: system
         pass_filenames: false
         always_run: true
     -   id: pytest
-        name: Pytest
+        name: pytest
         entry: uv run pytest
         language: system
         types: [python]

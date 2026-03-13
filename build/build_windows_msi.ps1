@@ -28,13 +28,13 @@ function Get-MsiVersion([string]$version) {
 }
 
 function Get-UsbVersion {
-    $versionFile = Join-Path $repoRoot 'src/usb_tool/_cached_version.txt'
-    if (-not (Test-Path $versionFile)) {
-        throw "Version cache not found at $versionFile"
+    $version = & python (Join-Path $repoRoot 'scripts/project_version.py') read
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Unable to determine usb-tool version from pyproject.toml'
     }
-    $raw = Get-Content -Path $versionFile -Raw
+    $raw = ($version | Out-String).Trim()
     if (-not $raw) {
-        throw 'Unable to determine usb-tool version from cache'
+        throw 'Unable to determine usb-tool version from pyproject.toml'
     }
     return $raw.Trim()
 }

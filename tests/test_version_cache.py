@@ -1,19 +1,15 @@
-from pathlib import Path
-from uuid import uuid4
-
 import importlib.metadata
 import importlib.util
+from pathlib import Path
 
 from usb_tool import _version as version_mod
 
-
-def _repo_temp_cache_file() -> Path:
-    return Path.cwd() / f".tmp_cached_version_{uuid4().hex}.txt"
+PROJECT_NAME = "apricorn-usb-tool"
 
 
-def _load_sync_version_module():
-    script_path = Path.cwd() / "scripts" / "sync_cached_version.py"
-    spec = importlib.util.spec_from_file_location("sync_cached_version", script_path)
+def _load_project_version_module():
+    script_path = Path.cwd() / "scripts" / "project_version.py"
+    spec = importlib.util.spec_from_file_location("project_version", script_path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -21,98 +17,109 @@ def _load_sync_version_module():
     return module
 
 
-def test_write_cached_version_uses_trailing_newline(monkeypatch):
-    cache_file = _repo_temp_cache_file()
-    try:
-        monkeypatch.setattr(version_mod, "CACHE_FILE", cache_file)
-
-        version_mod._write_cached_version("1.2.3")
-
-        assert cache_file.read_text(encoding="utf-8") == "1.2.3\n"
-    finally:
-        cache_file.unlink(missing_ok=True)
-
-
-def test_write_cached_version_ignores_blank_values(monkeypatch):
-    cache_file = _repo_temp_cache_file()
-    try:
-        monkeypatch.setattr(version_mod, "CACHE_FILE", cache_file)
-
-        version_mod._write_cached_version("   ")
-
-        assert not cache_file.exists()
-    finally:
-        cache_file.unlink(missing_ok=True)
+def _write_pyproject(path: Path, version: str, name: str = PROJECT_NAME) -> None:
+    path.write_text(
+        (
+            "[project]\n"
+            f'name = "{name}"\n'
+            f'version = "{version}"\n'
+            'description = "test"\n'
+        ),
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
-def test_get_version_prefers_cached_version_over_installed_metadata(monkeypatch):
-    cache_file = _repo_temp_cache_file()
-    try:
-        cache_file.write_text("1.4.7\n", encoding="utf-8", newline="\n")
-        monkeypatch.setattr(version_mod, "CACHE_FILE", cache_file)
-        monkeypatch.delenv("USB_TOOL_VERSION", raising=False)
-        monkeypatch.setattr(
-            version_mod.importlib.metadata, "version", lambda _name: "9.8.7"
-        )
-
-        resolved = version_mod.get_version()
-
-        assert resolved == "1.4.7"
-        assert cache_file.read_text(encoding="utf-8") == "1.4.7\n"
-    finally:
-        cache_file.unlink(missing_ok=True)
-
-
-def test_get_version_falls_back_to_cached_version_when_metadata_missing(monkeypatch):
-    cache_file = _repo_temp_cache_file()
-    try:
-        cache_file.write_text("1.4.0\n", encoding="utf-8", newline="\n")
-        monkeypatch.setattr(version_mod, "CACHE_FILE", cache_file)
-        monkeypatch.delenv("USB_TOOL_VERSION", raising=False)
-
-        def _missing(_name: str) -> str:
-            raise importlib.metadata.PackageNotFoundError
-
-        monkeypatch.setattr(version_mod.importlib.metadata, "version", _missing)
-
-        resolved = version_mod.get_version()
-
-        assert resolved == "1.4.0"
-    finally:
-        cache_file.unlink(missing_ok=True)
-
-
-def test_sync_cached_version_bumps_patch_when_head_base_matches(monkeypatch):
-    sync_mod = _load_sync_version_module()
-
+def test_get_version_prefers_repo_pyproject_over_installed_metadata(
+    monkeypatch, tmp_path
+):
+    pyproject = tmp_path / "pyproject.toml"
+    _write_pyproject(pyproject, "1.4.7")
+    monkeypatch.delenv("USB_TOOL_VERSION", raising=False)
     monkeypatch.setattr(
-        sync_mod, "_read_pyproject_version", lambda path=sync_mod.PYPROJECT: "1.4.0"
+        version_mod, "_module_root_candidates", lambda: iter([tmp_path])
     )
     monkeypatch.setattr(
-        sync_mod,
+        version_mod.importlib.metadata, "version", lambda _name: "9.8.7"
+    )
+
+    resolved = version_mod.get_version()
+
+    assert resolved == "1.4.7"
+
+
+def test_get_version_falls_back_to_metadata_when_repo_name_mismatches(
+    monkeypatch, tmp_path
+):
+    pyproject = tmp_path / "pyproject.toml"
+    _write_pyproject(pyproject, "1.4.7", name="not-apricorn-usb-tool")
+    monkeypatch.delenv("USB_TOOL_VERSION", raising=False)
+    monkeypatch.setattr(
+        version_mod, "_module_root_candidates", lambda: iter([tmp_path])
+    )
+    monkeypatch.setattr(
+        version_mod.importlib.metadata, "version", lambda _name: "9.8.7"
+    )
+
+    resolved = version_mod.get_version()
+
+    assert resolved == "9.8.7"
+
+
+def test_get_version_returns_unknown_when_no_source_is_available(monkeypatch):
+    monkeypatch.delenv("USB_TOOL_VERSION", raising=False)
+    monkeypatch.setattr(version_mod, "_module_root_candidates", lambda: iter(()))
+
+    def _missing(_name: str) -> str:
+        raise importlib.metadata.PackageNotFoundError
+
+    monkeypatch.setattr(version_mod.importlib.metadata, "version", _missing)
+
+    resolved = version_mod.get_version()
+
+    assert resolved == "Unknown"
+
+
+def test_read_version_requires_expected_project_name(tmp_path):
+    project_mod = _load_project_version_module()
+    pyproject = tmp_path / "pyproject.toml"
+    _write_pyproject(pyproject, "1.4.0", name="other-project")
+
+    try:
+        project_mod.read_version(pyproject)
+    except RuntimeError as exc:
+        assert PROJECT_NAME in str(exc)
+    else:
+        raise AssertionError("Expected read_version() to reject the wrong project name")
+
+
+def test_bump_if_needed_updates_pyproject_when_head_matches(monkeypatch, tmp_path):
+    project_mod = _load_project_version_module()
+    pyproject = tmp_path / "pyproject.toml"
+    _write_pyproject(pyproject, "1.4.0")
+
+    monkeypatch.setattr(project_mod, "PYPROJECT", pyproject)
+    monkeypatch.setattr(
+        project_mod,
         "_read_head_file",
-        lambda path: {
-            "pyproject.toml": '[project]\nversion = "1.4.0"\n',
-            "src/usb_tool/_cached_version.txt": "1.4.7",
-        }.get(path),
+        lambda path: '[project]\nname = "apricorn-usb-tool"\nversion = "1.4.0"\n',
     )
 
-    assert sync_mod._resolve_target_version() == "1.4.8"
+    assert project_mod.bump_if_needed() == 0
+    assert project_mod.read_version(pyproject) == "1.4.1"
 
 
-def test_sync_cached_version_resets_when_pyproject_base_changes(monkeypatch):
-    sync_mod = _load_sync_version_module()
+def test_bump_if_needed_preserves_manual_version_change(monkeypatch, tmp_path):
+    project_mod = _load_project_version_module()
+    pyproject = tmp_path / "pyproject.toml"
+    _write_pyproject(pyproject, "1.5.0")
 
+    monkeypatch.setattr(project_mod, "PYPROJECT", pyproject)
     monkeypatch.setattr(
-        sync_mod, "_read_pyproject_version", lambda path=sync_mod.PYPROJECT: "1.5.0"
-    )
-    monkeypatch.setattr(
-        sync_mod,
+        project_mod,
         "_read_head_file",
-        lambda path: {
-            "pyproject.toml": '[project]\nversion = "1.4.0"\n',
-            "src/usb_tool/_cached_version.txt": "1.4.7",
-        }.get(path),
+        lambda path: '[project]\nname = "apricorn-usb-tool"\nversion = "1.4.0"\n',
     )
 
-    assert sync_mod._resolve_target_version() == "1.5.0"
+    assert project_mod.bump_if_needed() == 0
+    assert project_mod.read_version(pyproject) == "1.5.0"
