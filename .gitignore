@@ -174,4 +174,5 @@ cython_debug/
 # Build artificats
 *.egg-info
 installers/windows/build/
+installers/linux/build/
 build/usb_linux/
