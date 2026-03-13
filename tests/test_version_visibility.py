@@ -53,7 +53,7 @@ def test_should_probe_device_version_on_windows_and_linux(monkeypatch):
     assert _should_probe_device_version() is True
 
     monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Darwin")
-    assert _should_probe_device_version() is False
+    assert _should_probe_device_version() is True
 
     monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Windows")
     assert _should_probe_device_version() is True
@@ -69,6 +69,34 @@ def test_prune_hidden_version_fields_removes_all_version_keys_when_hidden():
 
 def test_prune_hidden_version_fields_keeps_version_keys_when_visible():
     device = _make_device(bridgeFW="0502")
+    prune_hidden_version_fields(device)
+    serialized = device.to_dict()
+    for name in VERSION_FIELD_NAMES:
+        assert name in serialized
+
+
+def test_should_display_version_fields_keeps_oob_devices_visible():
+    assert should_display_version_fields(
+        _make_device(
+            driveSizeGB="N/A (OOB Mode)",
+            scbPartNumber="N/A",
+            hardwareVersion="N/A",
+            modelID="N/A",
+            mcuFW="N/A",
+            bridgeFW="N/A",
+        )
+    )
+
+
+def test_prune_hidden_version_fields_keeps_oob_version_placeholders():
+    device = _make_device(
+        driveSizeGB="N/A (OOB Mode)",
+        scbPartNumber="N/A",
+        hardwareVersion="N/A",
+        modelID="N/A",
+        mcuFW="N/A",
+        bridgeFW="N/A",
+    )
     prune_hidden_version_fields(device)
     serialized = device.to_dict()
     for name in VERSION_FIELD_NAMES:
@@ -107,6 +135,40 @@ def test_populate_device_version_queries_linux(monkeypatch):
         "bridgeFW": "0463",
     }
     assert captured["device_path"] == "/dev/sda"
+
+
+def test_populate_device_version_queries_macos(monkeypatch):
+    monkeypatch.setattr("usb_tool.services.platform.system", lambda: "Darwin")
+
+    captured = {}
+
+    def _fake_query(*_args, **kwargs):
+        captured["bsd_name"] = kwargs.get("bsd_name")
+        return device_version.DeviceVersionInfo(
+            scb_part_number="21-0010",
+            hardware_version="00",
+            model_id="00",
+            mcu_fw=(1, 0, 0),
+            bridge_fw="0463",
+        )
+
+    monkeypatch.setattr("usb_tool.services.query_device_version", _fake_query)
+
+    info = populate_device_version(
+        0x0984,
+        0x1407,
+        "SER123",
+        bsd_name="/dev/disk4",
+    )
+
+    assert info == {
+        "scbPartNumber": "21-0010",
+        "hardwareVersion": "00",
+        "modelID": "00",
+        "mcuFW": "1.0.0",
+        "bridgeFW": "0463",
+    }
+    assert captured["bsd_name"] == "/dev/disk4"
 
 
 def test_query_device_version_uses_linux_sg_io(monkeypatch):

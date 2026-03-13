@@ -18,7 +18,11 @@ VERSION_FIELD_NAMES = (
 
 def _should_probe_device_version() -> bool:
     system = platform.system().lower()
-    return system.startswith("win") or system.startswith("linux")
+    return (
+        system.startswith("win")
+        or system.startswith("linux")
+        or system.startswith("darwin")
+    )
 
 
 def _normalize_revision(value: Any) -> str:
@@ -36,6 +40,10 @@ def _normalize_revision(value: Any) -> str:
 
 
 def should_display_version_fields(device: UsbDeviceInfo) -> bool:
+    drive_size = str(getattr(device, "driveSizeGB", "") or "").strip()
+    if drive_size == "N/A (OOB Mode)":
+        return True
+
     scb_part = str(getattr(device, "scbPartNumber", "N/A") or "").strip()
     if not scb_part or scb_part.upper() == "N/A":
         return False
