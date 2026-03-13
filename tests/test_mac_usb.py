@@ -121,7 +121,11 @@ def test_scan_devices_populates_driver_transport():
 
     with (
         patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
-        patch.object(MacOSBackend, "_get_transport_map", return_value={"GOOD1": "UAS"}),
+        patch.object(
+            MacOSBackend,
+            "_get_mass_storage_info_map",
+            return_value={"GOOD1": {"driverTransport": "UAS"}},
+        ),
         patch("usb_tool.backend.macos.populate_device_version", return_value={}),
     ):
         backend = MacOSBackend()
@@ -147,7 +151,7 @@ def test_scan_devices_populates_usb_controller():
 
     with (
         patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
-        patch.object(MacOSBackend, "_get_transport_map", return_value={}),
+        patch.object(MacOSBackend, "_get_mass_storage_info_map", return_value={}),
         patch("usb_tool.backend.macos.populate_device_version", return_value={}),
     ):
         backend = MacOSBackend()
@@ -157,7 +161,43 @@ def test_scan_devices_populates_usb_controller():
     assert result[0].to_dict()["usbController"] == "AppleT8103USBXHCI"
 
 
-def test_get_transport_map_parses_transport_from_mass_storage_driver_nub():
+def test_scan_devices_populates_read_only_from_mass_storage_info():
+    drives = [
+        {
+            "_name": "Secure Key 3.0",
+            "manufacturer": "Apricorn",
+            "vendor_id": "0x0984",
+            "product_id": "0x1407",
+            "serial_num": "147250002822",
+            "bcd_device": "4.63",
+        }
+    ]
+
+    with (
+        patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
+        patch.object(
+            MacOSBackend,
+            "_get_mass_storage_info_map",
+            return_value={
+                "147250002822": {
+                    "driverTransport": "UAS",
+                    "readOnly": True,
+                    "blockDevice": "/dev/disk4",
+                }
+            },
+        ),
+        patch("usb_tool.backend.macos.populate_device_version", return_value={}),
+    ):
+        backend = MacOSBackend()
+        result = backend.scan_devices()
+
+    assert len(result) == 1
+    serialized = result[0].to_dict()
+    assert serialized["readOnly"] is True
+    assert serialized["blockDevice"] == "/dev/disk4"
+
+
+def test_get_mass_storage_info_map_parses_transport_and_read_only():
     ioreg_out = """
 +-o IOUSBMassStorageDriverNub  <class IOUSBMassStorageDriverNub>
   | {
@@ -167,6 +207,12 @@ def test_get_transport_map_parses_transport_from_mass_storage_driver_nub():
   |   "bInterfaceProtocol" = 98
   |   "USB Device Info" = {"kUSBSerialNumberString"="147250002822","USB Product Name"="Secure Key 3.0","bInterfaceProtocol"=98,"bInterfaceSubClass"=6,"bInterfaceClass"=8}
   | }
+  |
+  +-o Apricorn Secure Key 3.0 Media  <class IOMedia>
+    | {
+    |   "BSD Name" = "disk4"
+    |   "Writable" = No
+    | }
 """
 
     with patch(
@@ -174,10 +220,12 @@ def test_get_transport_map_parses_transport_from_mass_storage_driver_nub():
         return_value=SimpleNamespace(returncode=0, stdout=ioreg_out),
     ):
         backend = MacOSBackend()
-        transport_map = backend._get_transport_map()
+        storage_info_map = backend._get_mass_storage_info_map()
 
-    assert transport_map["147250002822"] == "UAS"
-    assert transport_map["Secure Key 3.0"] == "UAS"
+    assert storage_info_map["147250002822"]["driverTransport"] == "UAS"
+    assert storage_info_map["Secure Key 3.0"]["driverTransport"] == "UAS"
+    assert storage_info_map["147250002822"]["readOnly"] is True
+    assert storage_info_map["147250002822"]["blockDevice"] == "/dev/disk4"
 
 
 def test_scan_devices_normalizes_partition_to_whole_disk_path():

@@ -96,10 +96,19 @@ def _extract_ioreg_dict_value(payload: str, key: str) -> str:
     if not isinstance(payload, str) or not payload:
         return ""
 
-    match = re.search(rf'"{re.escape(key)}"=("[^"]*"|[^,}}]+)', payload)
+    match = re.search(rf'"{re.escape(key)}"\s*=\s*("[^"]*"|[^,}}\n]+)', payload)
     if not match:
         return ""
     return match.group(1).strip().strip('"')
+
+
+def _parse_ioreg_bool(value: Any) -> bool | None:
+    text = str(value).strip().lower()
+    if text in {"yes", "true", "1"}:
+        return True
+    if text in {"no", "false", "0"}:
+        return False
+    return None
 
 
 class MacOSBackend(AbstractBackend):
@@ -109,7 +118,7 @@ class MacOSBackend(AbstractBackend):
         profile_scan: bool = False,
     ) -> List[UsbDeviceInfo]:
         all_drives = self._list_usb_drives()
-        transport_map = self._get_transport_map()
+        storage_info_map = self._get_mass_storage_info_map()
 
         devices = []
         for drive in all_drives:
@@ -125,11 +134,14 @@ class MacOSBackend(AbstractBackend):
 
             serial = drive.get("serial_num", "")
             bcd_dev = drive.get("bcd_device", "").replace(".", "")
+            storage_info = (
+                storage_info_map.get(serial) or storage_info_map.get(name) or {}
+            )
 
             size_gb = "0"
             media_type = "Unknown"
             bsd_name = ""
-            block_device = ""
+            block_device = storage_info.get("blockDevice", "")
 
             if "Media" in drive and drive["Media"]:
                 m = drive["Media"][0]
@@ -160,12 +172,11 @@ class MacOSBackend(AbstractBackend):
                 iManufacturer=drive.get("manufacturer", "Apricorn"),
                 iProduct=name,
                 iSerial=serial,
-                driverTransport=transport_map.get(serial)
-                or transport_map.get(name)
-                or "Unknown",
+                driverTransport=storage_info.get("driverTransport", "Unknown"),
                 usbController=drive.get("host_controller", "N/A"),
                 driveSizeGB=str(size_gb),
                 mediaType=media_type,
+                readOnly=bool(storage_info.get("readOnly", False)),
                 **version_info,
             )
             if block_device:
@@ -269,6 +280,13 @@ class MacOSBackend(AbstractBackend):
         return uas
 
     def _get_transport_map(self) -> dict[str, str]:
+        return {
+            key: info["driverTransport"]
+            for key, info in self._get_mass_storage_info_map().items()
+            if info.get("driverTransport")
+        }
+
+    def _get_mass_storage_info_map(self) -> dict[str, dict[str, Any]]:
         try:
             res = subprocess.run(
                 ["ioreg", "-r", "-c", "IOUSBMassStorageDriverNub", "-w0", "-l"],
@@ -282,63 +300,68 @@ class MacOSBackend(AbstractBackend):
         if res.returncode != 0 or not res.stdout.strip():
             return {}
 
-        transport_map: dict[str, str] = {}
-        current: dict[str, str] = {}
+        storage_info_map: dict[str, dict[str, Any]] = {}
+        block_lines: list[str] = []
 
         def _flush() -> None:
-            if current.get("IOClass", "").strip() != "IOUSBMassStorageDriverNub":
+            if not block_lines:
                 return
 
-            device_info = current.get("USB Device Info", "")
-            interface_class = current.get("bInterfaceClass", "").strip() or (
+            block = "\n".join(block_lines)
+            if "IOClass" not in block or "IOUSBMassStorageDriverNub" not in block:
+                return
+
+            device_info = _extract_ioreg_dict_value(block, "USB Device Info")
+            interface_class = _extract_ioreg_dict_value(block, "bInterfaceClass") or (
                 _extract_ioreg_dict_value(device_info, "bInterfaceClass")
             )
-            interface_subclass = current.get("bInterfaceSubClass", "").strip() or (
-                _extract_ioreg_dict_value(device_info, "bInterfaceSubClass")
-            )
+            interface_subclass = _extract_ioreg_dict_value(
+                block, "bInterfaceSubClass"
+            ) or (_extract_ioreg_dict_value(device_info, "bInterfaceSubClass"))
             if interface_class != "8" or interface_subclass != "6":
                 return
 
             protocol = _classify_mass_storage_protocol(
-                current.get("bInterfaceProtocol")
+                _extract_ioreg_dict_value(block, "bInterfaceProtocol")
                 or _extract_ioreg_dict_value(device_info, "bInterfaceProtocol")
             )
-            if protocol == "Unknown":
-                return
+            writable = _parse_ioreg_bool(_extract_ioreg_dict_value(block, "Writable"))
+            bsd_name = _extract_ioreg_dict_value(block, "BSD Name")
+
+            info: dict[str, Any] = {}
+            if protocol != "Unknown":
+                info["driverTransport"] = protocol
+            if writable is not None:
+                info["readOnly"] = not writable
+            if bsd_name:
+                info["blockDevice"] = _normalize_whole_disk_path(bsd_name)
 
             keys = (
-                current.get("USB Serial Number", "").strip(),
-                current.get("kUSBSerialNumberString", "").strip(),
+                _extract_ioreg_dict_value(block, "USB Serial Number"),
+                _extract_ioreg_dict_value(block, "kUSBSerialNumberString"),
                 _extract_ioreg_dict_value(device_info, "kUSBSerialNumberString"),
-                current.get("USB Product Name", "").strip(),
-                current.get("kUSBProductString", "").strip(),
+                _extract_ioreg_dict_value(block, "USB Product Name"),
+                _extract_ioreg_dict_value(block, "kUSBProductString"),
                 _extract_ioreg_dict_value(device_info, "USB Product Name"),
                 _extract_ioreg_dict_value(device_info, "kUSBProductString"),
             )
             for value in keys:
                 if value:
-                    transport_map[value] = protocol
+                    storage_info_map[value] = dict(info)
 
         for line in res.stdout.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("+-o "):
-                if current:
+            if line.startswith("+-o IOUSBMassStorageDriverNub "):
+                if block_lines:
                     _flush()
-                current = {}
+                block_lines = [line]
                 continue
+            if block_lines:
+                block_lines.append(line)
 
-            normalized = stripped.removeprefix("|").strip()
-            match = re.match(r'"([^"]+)"\s*=\s*(.+)$', normalized)
-            if not match:
-                continue
-
-            key, value = match.groups()
-            current[key] = value.strip().strip('"')
-
-        if current:
+        if block_lines:
             _flush()
 
-        return transport_map
+        return storage_info_map
 
     def _get_media_type_from_diskutil(self, block_device: str) -> str:
         try:
