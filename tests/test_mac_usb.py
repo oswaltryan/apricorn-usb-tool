@@ -135,3 +135,97 @@ def test_scan_devices_populates_driver_transport():
     assert len(result) == 1
     serialized = result[0].to_dict()
     assert serialized["driverTransport"] == "UAS"
+
+
+def test_scan_devices_normalizes_partition_to_whole_disk_path():
+    drives = [
+        {
+            "_name": "Good Apricorn",
+            "manufacturer": "Apricorn",
+            "vendor_id": "0x0984",
+            "product_id": "0x1234",
+            "serial_num": "GOOD1",
+            "bcd_device": "3.00",
+            "Media": [{"size_in_bytes": 100 * 1024**3, "bsd_name": "disk4s1"}],
+        }
+    ]
+
+    with (
+        patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
+        patch.object(MacOSBackend, "_parse_uasp_info", return_value={}),
+        patch("usb_tool.backend.macos.populate_device_version", return_value={}),
+    ):
+        backend = MacOSBackend()
+        result = backend.scan_devices()
+
+    assert len(result) == 1
+    assert result[0].to_dict()["blockDevice"] == "/dev/disk4"
+
+
+def test_scan_devices_uses_diskutil_media_type_when_profiler_omits_it():
+    drives = [
+        {
+            "_name": "Good Apricorn",
+            "manufacturer": "Apricorn",
+            "vendor_id": "0x0984",
+            "product_id": "0x1234",
+            "serial_num": "GOOD1",
+            "bcd_device": "3.00",
+            "Media": [{"size_in_bytes": 100 * 1024**3, "bsd_name": "disk4"}],
+        }
+    ]
+
+    with (
+        patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
+        patch.object(MacOSBackend, "_parse_uasp_info", return_value={}),
+        patch.object(MacOSBackend, "_get_media_type_from_diskutil", return_value="Basic Disk"),
+        patch("usb_tool.backend.macos.populate_device_version", return_value={}),
+    ):
+        backend = MacOSBackend()
+        result = backend.scan_devices()
+
+    assert len(result) == 1
+    assert result[0].to_dict()["mediaType"] == "Basic Disk"
+
+
+def test_scan_devices_falls_back_to_known_product_media_type():
+    drives = [
+        {
+            "_name": "Secure Key 3.0",
+            "manufacturer": "Apricorn",
+            "vendor_id": "0x0984",
+            "product_id": "0x1407",
+            "serial_num": "GOOD1",
+            "bcd_device": "4.63",
+        }
+    ]
+
+    with (
+        patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
+        patch.object(MacOSBackend, "_parse_uasp_info", return_value={}),
+        patch("usb_tool.backend.macos.populate_device_version", return_value={}),
+    ):
+        backend = MacOSBackend()
+        result = backend.scan_devices()
+
+    assert len(result) == 1
+    assert result[0].to_dict()["mediaType"] == "Basic Disk"
+
+
+def test_poke_device_reads_from_matching_raw_disk():
+    open_calls = []
+
+    def _fake_open(path, flags):
+        open_calls.append((path, flags))
+        return 11
+
+    with (
+        patch("usb_tool.backend.macos.os.open", side_effect=_fake_open),
+        patch("usb_tool.backend.macos.os.lseek"),
+        patch("usb_tool.backend.macos.os.read", return_value=b"\x00" * 512),
+        patch("usb_tool.backend.macos.os.close"),
+    ):
+        backend = MacOSBackend()
+        assert backend.poke_device("/dev/disk4") is True
+
+    assert open_calls == [("/dev/rdisk4", 0)]

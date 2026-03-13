@@ -129,21 +129,22 @@ SYNOPSIS
 
 DESCRIPTION
        The usb-tool utility scans the system for connected Apricorn USB devices
-       using IOKit/system_profiler. It can also send a basic SCSI READ(10)
-       command (poke) to specified devices.
+       using IOKit/system_profiler. It can also issue a safe diagnostic read
+       (poke) to specified devices.
 
        On macOS, scanning is generally allowed as a standard user, but sending
-       SCSI commands (poking) requires root privileges to access raw disk
-       devices. End-to-end CLI poke remains disabled for now.
+       the diagnostic poke requires root privileges to access the raw disk
+       device.
 
 OPTIONS
        -h, --help
               Show this help message and exit.
 
        -p TARGETS, --poke TARGETS
-              Send a SCSI READ(10) command to specified detected Apricorn
-              drives. TARGETS should be a comma-separated list of disk paths
-              (for example '/dev/disk2' or '/dev/disk2,/dev/disk3') or the
+              Send a safe diagnostic read to specified detected Apricorn
+              drives. TARGETS should be a comma-separated list of numbered
+              device entries (for example '1' or '1,3'), disk paths (for
+              example '/dev/disk2' or '/dev/disk2,/dev/disk3'), or the
               keyword 'all'.
 
               This operation requires root privileges.
@@ -157,11 +158,14 @@ EXAMPLES
        usb
               List all detected Apricorn devices.
 
+       sudo usb -p 1
+              Poke the device shown as Apricorn Device #1.
+
        sudo usb -p /dev/disk2
-              Attempt to poke the Apricorn device identified as /dev/disk2.
+              Poke the Apricorn device identified as /dev/disk2.
 
        sudo usb -p all
-              Attempt to poke all valid Apricorn devices.
+              Poke all valid Apricorn devices.
 """
 
 

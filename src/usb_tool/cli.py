@@ -42,6 +42,20 @@ def is_admin_windows() -> bool:
         return False
 
 
+def is_root_posix() -> bool:
+    if not (_SYSTEM.startswith("linux") or _SYSTEM.startswith("darwin")):
+        return False
+
+    geteuid = getattr(os, "geteuid", None)
+    if not callable(geteuid):
+        return False
+
+    try:
+        return geteuid() == 0
+    except OSError:
+        return False
+
+
 def _is_frozen_app() -> bool:
     return bool(getattr(sys, "frozen", False))
 
@@ -464,6 +478,8 @@ def main() -> None:
     if args.poke:
         if _SYSTEM.startswith("win") and not is_admin_windows():
             parser.error("--poke requires Administrator privileges on Windows.")
+        if _SYSTEM.startswith("darwin") and not is_root_posix():
+            parser.error("--poke requires root privileges on macOS.")
 
         try:
             targets, skipped = _parse_poke_targets(args.poke, devices)

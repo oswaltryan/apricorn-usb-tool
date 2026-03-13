@@ -53,6 +53,13 @@ def test_parse_poke_targets_rejects_invalid_values():
         cross_usb._parse_poke_targets("3", devices)
 
 
+def test_is_root_posix_uses_geteuid_on_supported_platforms(monkeypatch):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "darwin")
+    monkeypatch.setattr(cross_usb.os, "geteuid", lambda: 0)
+
+    assert cross_usb.is_root_posix() is True
+
+
 def test_handle_list_action_json_output(capfd):
     # Mock UsbDeviceInfo with to_dict
     class MockDevice:
