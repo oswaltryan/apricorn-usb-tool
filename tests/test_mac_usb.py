@@ -46,35 +46,29 @@ def test_list_usb_drives_filters_apricorn_devices():
 
 
 def test_parse_uasp_info_builds_boolean_map():
-    profiler_json = json.dumps(
-        {
-            "SPUSBDataType": [
-                {
-                    "_name": "Drive One",
-                    "vendor_id": "0984",
-                    "Media": [{"bsd_name": "disk2s1"}],
-                }
-            ]
-        }
-    )
-    diskutil_out = "Protocol: USB\nTransport: UAS"
+    ioreg_out = """
++-o IOUSBMassStorageDriverNub  <class IOUSBMassStorageDriverNub>
+  | {
+  |   "IOClass" = "IOUSBMassStorageDriverNub"
+  |   "bInterfaceClass" = 8
+  |   "bInterfaceSubClass" = 6
+  |   "bInterfaceProtocol" = 98
+  |   "USB Device Info" = {"kUSBSerialNumberString"="SER123","USB Product Name"="Drive One","bInterfaceProtocol"=98,"bInterfaceSubClass"=6,"bInterfaceClass"=8}
+  | }
+"""
 
     def mock_subprocess_run(cmd, **kwargs):
-        if "system_profiler" in cmd:
-            return SimpleNamespace(returncode=0, stdout=profiler_json)
-        if "diskutil" in cmd:
-            return SimpleNamespace(returncode=0, stdout=diskutil_out)
+        if cmd[:3] == ["ioreg", "-r", "-c"]:
+            return SimpleNamespace(returncode=0, stdout=ioreg_out)
         return SimpleNamespace(returncode=1, stdout="")
 
     with patch("subprocess.run", side_effect=mock_subprocess_run):
         backend = MacOSBackend()
-        # Note: parse_uasp_info now takes 'drives' argument in the new backend
-        # We need to feed it the drives list that list_usb_drives would produce
-        drives = backend.list_usb_drives()
-        uas_dict = backend.parse_uasp_info(drives)
+        uas_dict = backend.parse_uasp_info([])
 
     assert "Drive One" in uas_dict
     assert uas_dict["Drive One"] is True
+    assert uas_dict["SER123"] is True
 
 
 def test_find_apricorn_device_skips_excluded_pids():
@@ -124,9 +118,7 @@ def test_scan_devices_populates_driver_transport():
 
     with (
         patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
-        patch.object(
-            MacOSBackend, "_parse_uasp_info", return_value={"Good Apricorn": True}
-        ),
+        patch.object(MacOSBackend, "_get_transport_map", return_value={"GOOD1": "UAS"}),
         patch("usb_tool.backend.macos.populate_device_version", return_value={}),
     ):
         backend = MacOSBackend()
@@ -135,6 +127,29 @@ def test_scan_devices_populates_driver_transport():
     assert len(result) == 1
     serialized = result[0].to_dict()
     assert serialized["driverTransport"] == "UAS"
+
+
+def test_get_transport_map_parses_transport_from_mass_storage_driver_nub():
+    ioreg_out = """
++-o IOUSBMassStorageDriverNub  <class IOUSBMassStorageDriverNub>
+  | {
+  |   "IOClass" = "IOUSBMassStorageDriverNub"
+  |   "bInterfaceClass" = 8
+  |   "bInterfaceSubClass" = 6
+  |   "bInterfaceProtocol" = 98
+  |   "USB Device Info" = {"kUSBSerialNumberString"="147250002822","USB Product Name"="Secure Key 3.0","bInterfaceProtocol"=98,"bInterfaceSubClass"=6,"bInterfaceClass"=8}
+  | }
+"""
+
+    with patch(
+        "usb_tool.backend.macos.subprocess.run",
+        return_value=SimpleNamespace(returncode=0, stdout=ioreg_out),
+    ):
+        backend = MacOSBackend()
+        transport_map = backend._get_transport_map()
+
+    assert transport_map["147250002822"] == "UAS"
+    assert transport_map["Secure Key 3.0"] == "UAS"
 
 
 def test_scan_devices_normalizes_partition_to_whole_disk_path():

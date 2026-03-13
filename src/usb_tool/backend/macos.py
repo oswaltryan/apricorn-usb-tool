@@ -77,6 +77,31 @@ def _fallback_media_type(pid: str, product_name: str) -> str:
     return "Unknown"
 
 
+def _classify_mass_storage_protocol(protocol_value: Any) -> str:
+    try:
+        protocol = int(str(protocol_value).strip(), 0)
+    except (TypeError, ValueError):
+        return "Unknown"
+
+    if protocol == 0x62:
+        return "UAS"
+    if protocol == 0x50:
+        return "BOT"
+    if protocol >= 0:
+        return "Vendor"
+    return "Unknown"
+
+
+def _extract_ioreg_dict_value(payload: str, key: str) -> str:
+    if not isinstance(payload, str) or not payload:
+        return ""
+
+    match = re.search(rf'"{re.escape(key)}"=("[^"]*"|[^,}}]+)', payload)
+    if not match:
+        return ""
+    return match.group(1).strip().strip('"')
+
+
 class MacOSBackend(AbstractBackend):
     def scan_devices(
         self,
@@ -84,7 +109,7 @@ class MacOSBackend(AbstractBackend):
         profile_scan: bool = False,
     ) -> List[UsbDeviceInfo]:
         all_drives = self._list_usb_drives()
-        uas_status = self._parse_uasp_info(all_drives)
+        transport_map = self._get_transport_map()
 
         devices = []
         for drive in all_drives:
@@ -135,7 +160,9 @@ class MacOSBackend(AbstractBackend):
                 iManufacturer=drive.get("manufacturer", "Apricorn"),
                 iProduct=name,
                 iSerial=serial,
-                driverTransport=("UAS" if uas_status.get(name, False) else "Unknown"),
+                driverTransport=transport_map.get(serial)
+                or transport_map.get(name)
+                or "Unknown",
                 driveSizeGB=str(size_gb),
                 mediaType=media_type,
                 **version_info,
@@ -178,7 +205,8 @@ class MacOSBackend(AbstractBackend):
         return self._list_usb_drives()
 
     def parse_uasp_info(self, drives=None):
-        return self._parse_uasp_info(drives or [])
+        transport_map = self._get_transport_map()
+        return {key: (value == "UAS") for key, value in transport_map.items()}
 
     def find_apricorn_device(self):
         return self.scan_devices()
@@ -232,6 +260,78 @@ class MacOSBackend(AbstractBackend):
                     except Exception:
                         pass
         return uas
+
+    def _get_transport_map(self) -> dict[str, str]:
+        try:
+            res = subprocess.run(
+                ["ioreg", "-r", "-c", "IOUSBMassStorageDriverNub", "-w0", "-l"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception:
+            return {}
+
+        if res.returncode != 0 or not res.stdout.strip():
+            return {}
+
+        transport_map: dict[str, str] = {}
+        current: dict[str, str] = {}
+
+        def _flush() -> None:
+            if current.get("IOClass", "").strip() != "IOUSBMassStorageDriverNub":
+                return
+
+            device_info = current.get("USB Device Info", "")
+            interface_class = current.get("bInterfaceClass", "").strip() or (
+                _extract_ioreg_dict_value(device_info, "bInterfaceClass")
+            )
+            interface_subclass = current.get("bInterfaceSubClass", "").strip() or (
+                _extract_ioreg_dict_value(device_info, "bInterfaceSubClass")
+            )
+            if interface_class != "8" or interface_subclass != "6":
+                return
+
+            protocol = _classify_mass_storage_protocol(
+                current.get("bInterfaceProtocol")
+                or _extract_ioreg_dict_value(device_info, "bInterfaceProtocol")
+            )
+            if protocol == "Unknown":
+                return
+
+            keys = (
+                current.get("USB Serial Number", "").strip(),
+                current.get("kUSBSerialNumberString", "").strip(),
+                _extract_ioreg_dict_value(device_info, "kUSBSerialNumberString"),
+                current.get("USB Product Name", "").strip(),
+                current.get("kUSBProductString", "").strip(),
+                _extract_ioreg_dict_value(device_info, "USB Product Name"),
+                _extract_ioreg_dict_value(device_info, "kUSBProductString"),
+            )
+            for value in keys:
+                if value:
+                    transport_map[value] = protocol
+
+        for line in res.stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("+-o "):
+                if current:
+                    _flush()
+                current = {}
+                continue
+
+            normalized = stripped.removeprefix("|").strip()
+            match = re.match(r'"([^"]+)"\s*=\s*(.+)$', normalized)
+            if not match:
+                continue
+
+            key, value = match.groups()
+            current[key] = value.strip().strip('"')
+
+        if current:
+            _flush()
+
+        return transport_map
 
     def _get_media_type_from_diskutil(self, block_device: str) -> str:
         try:
