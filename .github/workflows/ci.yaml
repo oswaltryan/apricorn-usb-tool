@@ -25,13 +25,13 @@ jobs:
         run: uv sync --extra dev
 
       - name: Black (format check)
-        run: uv run black --check src tests
+        run: uv run pre-commit run black --all-files
 
       - name: Ruff (lint)
-        run: uv run ruff check src tests
+        run: uv run pre-commit run ruff --all-files
 
       - name: Ruff Format (check)
-        run: uv run ruff format --check src tests
+        run: uv run pre-commit run ruff-format --all-files
 
       - name: Mypy (type check)
         run: uv run --with mypy mypy --config-file=pyproject.toml src tests

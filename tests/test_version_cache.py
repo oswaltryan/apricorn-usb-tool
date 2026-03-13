@@ -19,12 +19,7 @@ def _load_project_version_module():
 
 def _write_pyproject(path: Path, version: str, name: str = PROJECT_NAME) -> None:
     path.write_text(
-        (
-            "[project]\n"
-            f'name = "{name}"\n'
-            f'version = "{version}"\n'
-            'description = "test"\n'
-        ),
+        (f'[project]\nname = "{name}"\nversion = "{version}"\ndescription = "test"\n'),
         encoding="utf-8",
         newline="\n",
     )

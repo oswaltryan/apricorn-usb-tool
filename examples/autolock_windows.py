@@ -24,7 +24,7 @@ class UsbAutoLockTest:
         if len(devices) > 1:
             logging.warning(f"Found {len(devices)} devices. Using first one:")
             for idx, dev in enumerate(devices):
-                logging.warning(f"{idx+1}. {dev.iProduct} (SN: {dev.iSerial})")
+                logging.warning(f"{idx + 1}. {dev.iProduct} (SN: {dev.iSerial})")
 
         logging.info(
             f"Target device selected: {self.target_device.iProduct} "
