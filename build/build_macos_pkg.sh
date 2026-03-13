@@ -46,7 +46,11 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$REPO_ROOT/dist"
 STAGING_ROOT="$REPO_ROOT/installers/macos/build/root"
 UNIVERSAL_DIR="$REPO_ROOT/installers/macos/build/universal"
-SCRIPTS_DIR="$REPO_ROOT/installers/macos/scripts"
+PKG_BUILD_DIR="$REPO_ROOT/installers/macos/build/pkg"
+BASE_SCRIPTS_DIR="$REPO_ROOT/installers/macos/scripts"
+NOPASSWD_SCRIPTS_DIR="$REPO_ROOT/installers/macos/nopasswd/scripts"
+DIST_TEMPLATE="$REPO_ROOT/installers/macos/distribution.xml"
+SUDOERS_HELPER="$REPO_ROOT/update_sudoersd_macos.sh"
 
 mkdir -p "$DIST_DIR"
 
@@ -102,15 +106,36 @@ patch=${patch:-0}
 pkg_version="$major.$minor.$patch"
 
 rm -rf "$STAGING_ROOT"
+rm -rf "$PKG_BUILD_DIR"
 mkdir -p "$STAGING_ROOT/usr/local/lib/usb-tool"
+mkdir -p "$PKG_BUILD_DIR"
 install -m 755 "$selected_binary" "$STAGING_ROOT/usr/local/lib/usb-tool/usb"
+install -m 755 "$SUDOERS_HELPER" "$STAGING_ROOT/usr/local/lib/usb-tool/update_sudoersd_macos.sh"
 
-pkg_path="$DIST_DIR/usb-tool-$version-macos.pkg"
+base_pkg="$PKG_BUILD_DIR/usb-tool-base.pkg"
+nopasswd_pkg="$PKG_BUILD_DIR/usb-tool-nopasswd.pkg"
+
 /usr/bin/pkgbuild \
     --root "$STAGING_ROOT" \
-    --scripts "$SCRIPTS_DIR" \
-    --identifier "com.apricorn.usbtool" \
+    --scripts "$BASE_SCRIPTS_DIR" \
+    --identifier "com.apricorn.usbtool.base" \
     --version "$pkg_version" \
+    "$base_pkg"
+
+/usr/bin/pkgbuild \
+    --nopayload \
+    --scripts "$NOPASSWD_SCRIPTS_DIR" \
+    --identifier "com.apricorn.usbtool.nopasswd" \
+    --version "$pkg_version" \
+    "$nopasswd_pkg"
+
+distribution_path="$PKG_BUILD_DIR/distribution.xml"
+cp "$DIST_TEMPLATE" "$distribution_path"
+
+pkg_path="$DIST_DIR/usb-tool-$version-macos.pkg"
+/usr/bin/productbuild \
+    --distribution "$distribution_path" \
+    --package-path "$PKG_BUILD_DIR" \
     "$pkg_path"
 
 echo "Created macOS installer at $pkg_path"

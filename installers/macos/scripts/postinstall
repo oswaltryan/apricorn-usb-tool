@@ -10,6 +10,9 @@ LINK="/usr/local/bin/usb"
 if [ -f "$INSTALL_DIR/usb" ]; then
     /bin/chmod 755 "$INSTALL_DIR/usb"
 fi
+if [ -f "$INSTALL_DIR/update_sudoersd_macos.sh" ]; then
+    /bin/chmod 755 "$INSTALL_DIR/update_sudoersd_macos.sh"
+fi
 
 /bin/ln -sf "$INSTALL_DIR/usb" "$LINK"
 

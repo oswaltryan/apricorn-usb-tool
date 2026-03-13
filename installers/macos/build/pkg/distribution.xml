@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="1">
+    <title>Apricorn USB Tool</title>
+    <options customize="always" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <choices-outline>
+        <line choice="com.apricorn.usbtool.base.choice"/>
+        <line choice="com.apricorn.usbtool.nopasswd.choice"/>
+    </choices-outline>
+    <choice
+        id="com.apricorn.usbtool.base.choice"
+        title="usb-tool CLI"
+        description="Install the Apricorn USB Tool CLI."
+        start_selected="true"
+        start_enabled="false"
+        visible="true">
+        <pkg-ref id="com.apricorn.usbtool.base"/>
+    </choice>
+    <choice
+        id="com.apricorn.usbtool.nopasswd.choice"
+        title="Allow passwordless sudo for usb"
+        description="Optional: create /etc/sudoers.d/usb-tool-nopasswd so scripted sudo -n usb runs without a password prompt."
+        start_selected="false"
+        start_enabled="true"
+        visible="true">
+        <pkg-ref id="com.apricorn.usbtool.nopasswd"/>
+    </choice>
+    <pkg-ref id="com.apricorn.usbtool.base">usb-tool-base.pkg</pkg-ref>
+    <pkg-ref id="com.apricorn.usbtool.nopasswd">usb-tool-nopasswd.pkg</pkg-ref>
+</installer-gui-script>

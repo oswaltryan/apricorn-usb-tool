@@ -1,0 +1,37 @@
+#!/bin/bash
+set -euo pipefail
+
+DEST_DIR="/etc/sudoers.d"
+DEST_FILE="$DEST_DIR/usb-tool-nopasswd"
+VISUDO="${VISUDO:-/usr/sbin/visudo}"
+LINK="/usr/local/bin/usb"
+
+if [ ! -d "$DEST_DIR" ]; then
+    echo "usb-tool: $DEST_DIR not found; skipping sudoers installation." >&2
+    exit 0
+fi
+
+if [ ! -x "$VISUDO" ]; then
+    echo "usb-tool: visudo not found at $VISUDO; skipping sudoers installation." >&2
+    exit 0
+fi
+
+tmp_file="$(mktemp "$DEST_DIR/usb-tool-nopasswd.XXXXXX")"
+trap 'rm -f "$tmp_file"' EXIT INT TERM
+
+cat >"$tmp_file" <<EOF
+ALL ALL=(root) NOPASSWD: $LINK
+EOF
+
+chmod 0440 "$tmp_file"
+chown root:wheel "$tmp_file"
+
+if ! "$VISUDO" -cf "$tmp_file" >/dev/null 2>&1; then
+    echo "usb-tool: generated sudoers rule failed validation; skipping NOPASSWD setup." >&2
+    exit 0
+fi
+
+mv "$tmp_file" "$DEST_FILE"
+trap - EXIT INT TERM
+
+exit 0

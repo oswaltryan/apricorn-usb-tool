@@ -65,6 +65,10 @@ pre-commit install
 
 **macOS**
 - For tests and some utilities: `brew install lsusb`
+- Optional noninteractive sudo helper:
+  ```bash
+  sudo /usr/local/lib/usb-tool/update_sudoersd_macos.sh
+  ```
 - Poke path exists in `poke_device.py`, but end‑to‑end CLI poke is **currently disabled**; future‑enable here.
 
 ---

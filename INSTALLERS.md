@@ -13,8 +13,10 @@
 - Manual path (non-Debian): run `sudo bash installers/linux/install.sh --binary dist/usb-linux` to copy the standalone binary into place. Remove manual installs with `sudo bash installers/linux/uninstall.sh` (deletes `/usr/local/lib/usb-tool` and the `/usr/local/bin/usb` symlink if it points to that directory).
 
 ## macOS (.pkg)
-- Build with `./build/build_macos_pkg.sh --arm64 <path> --x86_64 <path>` after producing PyInstaller binaries for both architectures. The script combines them with `lipo` (universal) and calls `pkgbuild`, creating `dist/usb-tool-<version>-macos.pkg`.
+- Build with `./build/build_macos_pkg.sh --arm64 <path> --x86_64 <path>` after producing PyInstaller binaries for both architectures. The script combines them with `lipo` (universal), builds component packages, and wraps them with `productbuild`, creating `dist/usb-tool-<version>-macos.pkg`.
 - Install by double-clicking the PKG or running `sudo installer -pkg dist/usb-tool-<version>-macos.pkg -target /`. The package places the CLI at `/usr/local/lib/usb-tool/usb` and symlinks `/usr/local/bin/usb`. It runs natively on Intel and Apple Silicon Macs (including the Mac mini M4).
+- The macOS installer now includes an opt-in choice, `Allow passwordless sudo for usb`, that creates `/etc/sudoers.d/usb-tool-nopasswd` for `/usr/local/bin/usb`. This is intended for scripted `sudo -n usb ...` usage.
+- Manual path: run `sudo sh installers/macos/install.sh --binary dist/usb-macos` to copy the standalone binary into place. Add `--install-nopasswd-sudo` to install the same sudoers rule during the manual install.
 - Uninstall manually: remove `/usr/local/lib/usb-tool` and `/usr/local/bin/usb` (if it points to that directory).
 
 ## Verification Checklist
