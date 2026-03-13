@@ -9,7 +9,7 @@ import sys
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, cast
 
 _SYSTEM = platform.system().lower()
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
@@ -50,8 +50,10 @@ def is_root_posix() -> bool:
     if not callable(geteuid):
         return False
 
+    geteuid_fn = cast(Callable[[], int], geteuid)
+
     try:
-        return geteuid() == 0
+        return geteuid_fn() == 0
     except OSError:
         return False
 

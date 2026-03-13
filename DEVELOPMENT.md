@@ -38,3 +38,15 @@ The local pre-commit hook `bump-project-version` compares the working-tree
 
 This keeps ordinary commits from going out with a stale version while avoiding
 a second version file in the repo.
+
+## Tooling Versions
+
+`uv.lock` is the source of truth for developer tool versions used by local hooks
+and CI.
+
+- `pre-commit` runs `uv run ...` commands for `black`, `ruff`, and `mypy`.
+- GitHub Actions uses the same `uv` environment, so type/lint failures should
+  reproduce locally after `uv sync --extra dev`.
+- To refresh to newer tool releases, update intentionally with
+  `uv lock --upgrade-package black --upgrade-package ruff --upgrade-package mypy`
+  or `uv lock --upgrade`, then commit the lockfile changes.

@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Package metadata
 name = "apricorn-usb-tool"
-version = "1.4.19"
+version = "1.4.20"
 description = "Cross-platform USB tool for Apricorn devices"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,7 +42,8 @@ dev = [
     "pre-commit",
     "black",
     "ruff",
-    "pytest"
+    "pytest",
+    "mypy",
 ]
 
 # Explicitly specify which packages are included to avoid picking up the

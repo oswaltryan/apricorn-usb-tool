@@ -37,7 +37,7 @@ Recommended with Python 3.10+.
    ```
 3. For development
    ```bash
-   pip install -e .[dev]
+   uv sync --extra dev
    pre-commit install
    ```
 
@@ -171,6 +171,7 @@ Field sets are similar across OSes; some fields are platform-specific (e.g., `us
 
 ## Contributing / Dev
 
-- Code style: `black` + `ruff` via pre-commit.
+- Tooling is managed by `uv`; `pre-commit` runs the `uv`-managed `black`, `ruff`, and `mypy` commands.
+- Refresh tool versions intentionally with `uv lock --upgrade-package black --upgrade-package ruff --upgrade-package mypy` or `uv lock --upgrade`, then commit the updated `uv.lock`.
 - Tests: `pytest -q`.
 - Python 3.10+.

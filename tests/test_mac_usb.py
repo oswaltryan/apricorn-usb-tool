@@ -97,6 +97,7 @@ def test_find_apricorn_device_skips_excluded_pids():
     with (
         patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
         patch.object(MacOSBackend, "_parse_uasp_info", return_value={}),
+        patch("usb_tool.backend.macos.populate_device_version", return_value={}),
     ):
         backend = MacOSBackend()
         result = backend.scan_devices()
