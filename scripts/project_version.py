@@ -10,7 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 PROJECT_NAME = "apricorn-usb-tool"
 PROJECT_SECTION_RE = re.compile(r"(?ms)^\[project\]\s*$\n(?P<body>.*?)(?=^\[|\Z)")
-PROJECT_NAME_RE = re.compile(r'^\s*name\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE)
+PROJECT_NAME_RE = re.compile(
+    r'^\s*name\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE
+)
 PROJECT_VERSION_RE = re.compile(
     r'^\s*version\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE
 )
@@ -88,7 +90,10 @@ def _parse_version(version: str) -> tuple[int, int, int]:
         raise RuntimeError(
             "Version auto-bump requires dotted numeric versions like '1.4.0'"
         )
-    return tuple(int(part) for part in parts)
+    major = int(parts[0])
+    minor = int(parts[1])
+    patch = int(parts[2])
+    return major, minor, patch
 
 
 def bump_patch(version: str) -> str:
@@ -111,7 +116,11 @@ def _replace_version_in_text(text: str, version: str) -> str:
         + f"{version_match.group('prefix')}{version}{version_match.group('suffix')}"
         + body[version_match.end() :]
     )
-    return text[: project_match.start("body")] + updated_body + text[project_match.end("body") :]
+    return (
+        text[: project_match.start("body")]
+        + updated_body
+        + text[project_match.end("body") :]
+    )
 
 
 def write_version(version: str, path: Path | None = None) -> None:
