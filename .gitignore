@@ -176,3 +176,11 @@ cython_debug/
 installers/windows/build/
 installers/linux/build/
 build/usb_linux/
+build/build/
+build/usb_mac/
+build/USBTool.icns
+ioreg_output.txt
+
+# Local macOS / workstation clutter
+.DS_Store
+.gemini-clipboard/

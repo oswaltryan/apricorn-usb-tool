@@ -178,7 +178,9 @@ def test_scan_devices_uses_diskutil_media_type_when_profiler_omits_it():
     with (
         patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
         patch.object(MacOSBackend, "_parse_uasp_info", return_value={}),
-        patch.object(MacOSBackend, "_get_media_type_from_diskutil", return_value="Basic Disk"),
+        patch.object(
+            MacOSBackend, "_get_media_type_from_diskutil", return_value="Basic Disk"
+        ),
         patch("usb_tool.backend.macos.populate_device_version", return_value={}),
     ):
         backend = MacOSBackend()

@@ -71,8 +71,7 @@ def _fallback_media_type(pid: str, product_name: str) -> str:
     product_hint = closest_values.get(pid, ("", []))[0]
     normalized = " ".join(part for part in (product_name, product_hint) if part).lower()
     if any(
-        token in normalized
-        for token in ("secure key", "fortress", "padlock", "aegis")
+        token in normalized for token in ("secure key", "fortress", "padlock", "aegis")
     ):
         return "Basic Disk"
     return "Unknown"
