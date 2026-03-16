@@ -1,7 +1,6 @@
 # src/usb_tool/backend/macos.py
 
 import json
-import os
 import plistlib
 import re
 import subprocess
@@ -188,21 +187,7 @@ class MacOSBackend(AbstractBackend):
         return devices
 
     def poke_device(self, device_identifier: Any) -> bool:
-        raw_disk_path = _normalize_raw_disk_path(str(device_identifier))
-        if not raw_disk_path:
-            return False
-
-        fd = -1
-        try:
-            # A single-sector read is the macOS equivalent of a safe diagnostic poke.
-            fd = os.open(raw_disk_path, os.O_RDONLY)
-            os.lseek(fd, 0, os.SEEK_SET)
-            return len(os.read(fd, 512)) > 0
-        except OSError:
-            return False
-        finally:
-            if fd >= 0:
-                os.close(fd)
+        raise RuntimeError("macOS poke is not currently supported.")
 
     def sort_devices(self, devices: List[UsbDeviceInfo]) -> List[UsbDeviceInfo]:
         def _key(device: UsbDeviceInfo) -> str:

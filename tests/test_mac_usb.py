@@ -3,6 +3,7 @@
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
+import pytest
 from usb_tool.backend.macos import MacOSBackend
 
 
@@ -306,20 +307,7 @@ def test_scan_devices_falls_back_to_known_product_media_type():
     assert result[0].to_dict()["mediaType"] == "Basic Disk"
 
 
-def test_poke_device_reads_from_matching_raw_disk():
-    open_calls = []
-
-    def _fake_open(path, flags):
-        open_calls.append((path, flags))
-        return 11
-
-    with (
-        patch("usb_tool.backend.macos.os.open", side_effect=_fake_open),
-        patch("usb_tool.backend.macos.os.lseek"),
-        patch("usb_tool.backend.macos.os.read", return_value=b"\x00" * 512),
-        patch("usb_tool.backend.macos.os.close"),
-    ):
-        backend = MacOSBackend()
-        assert backend.poke_device("/dev/disk4") is True
-
-    assert open_calls == [("/dev/rdisk4", 0)]
+def test_poke_device_raises_not_supported():
+    backend = MacOSBackend()
+    with pytest.raises(RuntimeError, match="not currently supported"):
+        backend.poke_device("/dev/disk4")

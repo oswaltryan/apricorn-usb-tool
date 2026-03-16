@@ -209,7 +209,7 @@ def test_handle_list_action_linux_hides_windows_only_fields(capfd, monkeypatch):
     assert "readOnly" in captured.out
 
 
-def test_main_rejects_macos_poke_before_scan_when_not_root(monkeypatch):
+def test_main_rejects_macos_poke_before_scan_when_unsupported(monkeypatch):
     calls = {"device_manager": 0}
 
     class _SentinelManager:
@@ -217,7 +217,6 @@ def test_main_rejects_macos_poke_before_scan_when_not_root(monkeypatch):
             calls["device_manager"] += 1
 
     monkeypatch.setattr(cross_usb, "_SYSTEM", "darwin")
-    monkeypatch.setattr(cross_usb, "is_root_posix", lambda: False)
     monkeypatch.setattr(cross_usb.sys, "argv", ["usb", "--poke", "/dev/disk4"])
     monkeypatch.setattr(
         cross_usb, "_load_device_manager_class", lambda: _SentinelManager

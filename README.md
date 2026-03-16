@@ -14,7 +14,7 @@ Prebuilt installers and single-file binaries are published on GitHub Releases; P
    - **Linux**: `usb-tool-<version>-amd64.deb` installs to `/usr/local/lib/usb-tool` and symlinks `/usr/local/bin/usb` (sudo required).<br>
                 A portable `usb-linux.tar.gz` plus `installers/linux/install.sh` is available for non-Debian hosts.
    - **macOS**: `usb-tool-<version>-macos.pkg` installs to `/usr/local/lib/usb-tool` and exposes `/usr/local/bin/usb`; the payload is universal and the installer includes an opt-in choice for passwordless `sudo -n usb`. A raw `usb-macos.tar.gz` binary plus `installers/macos/install.sh` is also available for portable/manual use.
-2. Run `usb` from a terminal with the commands below. Poke still requires Administrator on Windows and sudo/root on Linux.
+2. Run `usb` from a terminal with the commands below. Poke requires Administrator on Windows and sudo/root on Linux.
 3. To update standalone builds, rerun the latest installer or download the newest portable binary. Standalone binaries do not use `usb-update`.
 
 Detailed installer instructions (silent installs, manual uninstall, etc.) live in `INSTALLERS.md`.
@@ -65,7 +65,6 @@ usb
   sudo usb -p /dev/sdb
   sudo usb -p all
   ```
-
 Script-friendly JSON:
 ```bash
 usb --json

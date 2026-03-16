@@ -125,47 +125,23 @@ NAME
        usb - Cross-platform USB tool for Apricorn devices (macOS)
 
 SYNOPSIS
-       usb [-h] [-p TARGETS] [--json]
+       usb [-h] [--json]
 
 DESCRIPTION
        The usb-tool utility scans the system for connected Apricorn USB devices
-       using IOKit/system_profiler. It can also issue a safe diagnostic read
-       (poke) to specified devices.
-
-       On macOS, scanning is generally allowed as a standard user, but sending
-       the diagnostic poke requires root privileges to access the raw disk
-       device.
+       using IOKit/system_profiler.
 
 OPTIONS
        -h, --help
               Show this help message and exit.
 
-       -p TARGETS, --poke TARGETS
-              Send a safe diagnostic read to specified detected Apricorn
-              drives. TARGETS should be a comma-separated list of numbered
-              device entries (for example '1' or '1,3'), disk paths (for
-              example '/dev/disk2' or '/dev/disk2,/dev/disk3'), or the
-              keyword 'all'.
-
-              This operation requires root privileges.
-
        --json
               Emit JSON as {{"devices":[{{"<index>":{{...}}}}]}} for automation.
-              Each object key matches the numbered list output. Mutually
-              exclusive with --poke.
+              Each object key matches the numbered list output.
 
 EXAMPLES
        usb
               List all detected Apricorn devices.
-
-       sudo usb -p 1
-              Poke the device shown as Apricorn Device #1.
-
-       sudo usb -p /dev/disk2
-              Poke the Apricorn device identified as /dev/disk2.
-
-       sudo usb -p all
-              Poke all valid Apricorn devices.
 """
 
 

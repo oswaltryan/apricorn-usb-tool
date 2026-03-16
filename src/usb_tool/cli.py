@@ -438,10 +438,10 @@ def _parse_poke_targets(
 
 
 def _validate_poke_permissions(parser: argparse.ArgumentParser) -> None:
+    if _SYSTEM.startswith("darwin"):
+        parser.error("--poke is not currently supported on macOS.")
     if _SYSTEM.startswith("win") and not is_admin_windows():
         parser.error("--poke requires Administrator privileges on Windows.")
-    if _SYSTEM.startswith("darwin") and not is_root_posix():
-        parser.error("--poke requires root privileges on macOS.")
 
 
 def main() -> None:
@@ -467,7 +467,6 @@ def main() -> None:
 
     DeviceManager = _load_device_manager_class()
     manager = DeviceManager()
-
     scan_message = "Scanning for Apricorn devices..."
     if args.json:
         print(scan_message, file=sys.stderr)
@@ -488,6 +487,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.poke:
+        had_poke_failure = False
         try:
             targets, skipped = _parse_poke_targets(args.poke, devices)
         except ValueError as e:
@@ -509,12 +509,16 @@ def main() -> None:
                     print(f"  Device {label}: SUCCESS")
                 else:
                     print(f"  Device {label}: FAILED")
+                    had_poke_failure = True
             except Exception as e:
                 print(f"  Device {label}: ERROR ({e})")
+                had_poke_failure = True
 
         for label in skipped:
             print(f"  Device {label}: SKIPPED")
         print()
+        if had_poke_failure:
+            sys.exit(1)
     else:
         _handle_list_action(devices, json_mode=args.json)
 

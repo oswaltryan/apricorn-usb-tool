@@ -29,3 +29,15 @@ def test_windows_and_linux_help_share_json_and_synopsis_format(capfd, monkeypatc
         assert "usb [-h] [-p TARGETS] [--json]" in output
         assert "--json" in output
         assert 'Emit JSON as {"devices":[{"<index>":{...}}]}' in output
+
+
+def test_macos_help_hides_unsupported_poke_option(capfd, monkeypatch):
+    monkeypatch.setattr(help_text, "_SYSTEM", "darwin")
+    monkeypatch.setattr(help_text, "get_local_version", lambda: "1.2.3")
+
+    help_text.print_help()
+
+    captured = capfd.readouterr()
+    assert "usb [-h] [--json]" in captured.out
+    assert "-p TARGETS, --poke TARGETS" not in captured.out
+    assert "Mutually\n              exclusive with --poke." not in captured.out
