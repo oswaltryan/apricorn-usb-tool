@@ -346,8 +346,8 @@ def _parse_payload_best_effort(data: bytes) -> DeviceVersionInfo:
             body_str = match.group(2).decode("ascii")
             scb_part = f"{prefix_str}-{body_str[:4]}"
             if len(body_str) >= 11:
-                model_id = f"{body_str[4]}{body_str[5]}"
-                hw_ver = f"{body_str[6]}{body_str[7]}"
+                model_id = f"{body_str[5]}{body_str[4]}"
+                hw_ver = f"{body_str[7]}{body_str[6]}"
                 mj = int(body_str[10])
                 mn = int(body_str[9])
                 sb = int(body_str[8])

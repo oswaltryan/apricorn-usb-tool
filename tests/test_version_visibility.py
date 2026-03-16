@@ -205,6 +205,18 @@ def test_query_device_version_uses_linux_sg_io(monkeypatch):
     assert info.bridge_fw == "0463"
 
 
+def test_parse_payload_flips_model_and_hardware_digit_order():
+    info = device_version._parse_payload_best_effort(
+        b"\x00\x00\x04\x63Apricorn21-00101234567"
+    )
+
+    assert info.scb_part_number == "21-0010"
+    assert info.model_id == "21"
+    assert info.hardware_version == "43"
+    assert info.mcu_fw == (7, 6, 5)
+    assert info.bridge_fw == "0463"
+
+
 def test_linux_scan_hides_version_fields_when_bridge_mismatches_bcd():
     backend = LinuxBackend()
     lsblk_rows = [
