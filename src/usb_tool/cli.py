@@ -437,6 +437,13 @@ def _parse_poke_targets(
     return targets, skipped
 
 
+def _validate_poke_permissions(parser: argparse.ArgumentParser) -> None:
+    if _SYSTEM.startswith("win") and not is_admin_windows():
+        parser.error("--poke requires Administrator privileges on Windows.")
+    if _SYSTEM.startswith("darwin") and not is_root_posix():
+        parser.error("--poke requires root privileges on macOS.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="USB tool for Apricorn devices.", add_help=False
@@ -454,6 +461,9 @@ def main() -> None:
 
     if args.json and args.poke:
         parser.error("--json cannot be used together with --poke.")
+
+    if args.poke:
+        _validate_poke_permissions(parser)
 
     DeviceManager = _load_device_manager_class()
     manager = DeviceManager()
@@ -478,11 +488,6 @@ def main() -> None:
         sys.exit(1)
 
     if args.poke:
-        if _SYSTEM.startswith("win") and not is_admin_windows():
-            parser.error("--poke requires Administrator privileges on Windows.")
-        if _SYSTEM.startswith("darwin") and not is_root_posix():
-            parser.error("--poke requires root privileges on macOS.")
-
         try:
             targets, skipped = _parse_poke_targets(args.poke, devices)
         except ValueError as e:

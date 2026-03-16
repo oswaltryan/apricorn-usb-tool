@@ -207,3 +207,45 @@ def test_handle_list_action_linux_hides_windows_only_fields(capfd, monkeypatch):
     assert "physicalDriveNum" not in captured.out
     assert "driveLetter" not in captured.out
     assert "readOnly" in captured.out
+
+
+def test_main_rejects_macos_poke_before_scan_when_not_root(monkeypatch):
+    calls = {"device_manager": 0}
+
+    class _SentinelManager:
+        def __init__(self):
+            calls["device_manager"] += 1
+
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "darwin")
+    monkeypatch.setattr(cross_usb, "is_root_posix", lambda: False)
+    monkeypatch.setattr(cross_usb.sys, "argv", ["usb", "--poke", "/dev/disk4"])
+    monkeypatch.setattr(
+        cross_usb, "_load_device_manager_class", lambda: _SentinelManager
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cross_usb.main()
+
+    assert exc_info.value.code == 2
+    assert calls["device_manager"] == 0
+
+
+def test_main_rejects_windows_poke_before_scan_when_not_admin(monkeypatch):
+    calls = {"device_manager": 0}
+
+    class _SentinelManager:
+        def __init__(self):
+            calls["device_manager"] += 1
+
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+    monkeypatch.setattr(cross_usb, "is_admin_windows", lambda: False)
+    monkeypatch.setattr(cross_usb.sys, "argv", ["usb", "--poke", "1"])
+    monkeypatch.setattr(
+        cross_usb, "_load_device_manager_class", lambda: _SentinelManager
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cross_usb.main()
+
+    assert exc_info.value.code == 2
+    assert calls["device_manager"] == 0
