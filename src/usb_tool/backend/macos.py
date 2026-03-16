@@ -1,9 +1,12 @@
 # src/usb_tool/backend/macos.py
 
 import json
+import os
 import plistlib
 import re
 import subprocess
+import sys
+import time
 from typing import List, Any
 
 from .base import AbstractBackend
@@ -110,16 +113,51 @@ def _parse_ioreg_bool(value: Any) -> bool | None:
     return None
 
 
+def _emit_profile_event(enabled: bool, prefix: str, **fields: Any) -> None:
+    if not enabled:
+        return
+
+    parts = [f"{key}={value}" for key, value in fields.items()]
+    suffix = f" {' '.join(parts)}" if parts else ""
+    print(f"{prefix}:{suffix}", file=sys.stderr)
+
+
+def _emit_profile_summary(
+    enabled: bool,
+    prefix: str,
+    metrics: list[tuple[str, float]],
+    **fields: Any,
+) -> None:
+    if not enabled:
+        return
+
+    context = " ".join(f"{key}={value}" for key, value in fields.items())
+    metric_text = ", ".join(
+        f"{label}={duration_ms:.2f}ms" for label, duration_ms in metrics
+    )
+    line = prefix if not context else f"{prefix} {context}"
+    print(f"{line}: {metric_text}", file=sys.stderr)
+
+
 class MacOSBackend(AbstractBackend):
     def scan_devices(
         self,
         expanded: bool = False,
         profile_scan: bool = False,
     ) -> List[UsbDeviceInfo]:
+        scan_start = time.perf_counter()
         all_drives = self._list_usb_drives()
+        system_profiler_ms = (time.perf_counter() - scan_start) * 1000.0
+
+        ioreg_start = time.perf_counter()
         storage_info_map = self._get_mass_storage_info_map()
+        ioreg_mass_storage_ms = (time.perf_counter() - ioreg_start) * 1000.0
 
         devices = []
+        version_query_ms = 0.0
+        diskutil_fallback_ms = 0.0
+        diskutil_fallback_count = 0
+        device_build_start = time.perf_counter()
         for drive in all_drives:
             name = drive.get("_name")
             if not name:
@@ -133,9 +171,9 @@ class MacOSBackend(AbstractBackend):
 
             serial = drive.get("serial_num", "")
             bcd_dev = drive.get("bcd_device", "").replace(".", "")
-            storage_info = (
-                storage_info_map.get(serial) or storage_info_map.get(name) or {}
-            )
+            storage_info = storage_info_map.get(serial) or {}
+            if not storage_info and not serial:
+                storage_info = storage_info_map.get(name) or {}
 
             size_gb = "0"
             media_type = "Unknown"
@@ -154,14 +192,48 @@ class MacOSBackend(AbstractBackend):
                 size_gb = "N/A (OOB Mode)"
 
             if media_type == "Unknown" and block_device:
+                diskutil_fallback_count += 1
+                _emit_profile_event(
+                    profile_scan,
+                    "macos-media-type-profile",
+                    stage="diskutil_fallback_triggered",
+                    block_device=block_device,
+                    serial=serial or "unknown",
+                )
+                media_type_start = time.perf_counter()
                 media_type = self._get_media_type_from_diskutil(block_device)
+                diskutil_fallback_ms += (
+                    time.perf_counter() - media_type_start
+                ) * 1000.0
+                _emit_profile_event(
+                    profile_scan,
+                    "macos-media-type-profile",
+                    stage="diskutil_fallback_result",
+                    block_device=block_device,
+                    media_type=media_type,
+                )
 
             if media_type == "Unknown":
                 media_type = _fallback_media_type(pid, name)
 
-            version_info = populate_device_version(
-                int(vid, 16), int(pid, 16), serial, bsd_name=block_device or bsd_name
-            )
+            version_info = {}
+            if self._should_probe_version_info(size_gb, block_device):
+                version_info = self._timed_populate_device_version(
+                    vid,
+                    pid,
+                    serial,
+                    block_device or bsd_name,
+                )
+                version_query_ms += version_info.pop("_profile_ms", 0.0)
+            else:
+                _emit_profile_event(
+                    profile_scan,
+                    "macos-version-profile",
+                    stage="skipped",
+                    reason="mounted_media",
+                    block_device=block_device,
+                    serial=serial or "unknown",
+                )
 
             dev_info = UsbDeviceInfo(
                 bcdUSB=(3.0 if int(drive.get("bus_power", "0")) > 500 else 2.0),
@@ -184,6 +256,30 @@ class MacOSBackend(AbstractBackend):
             prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
 
+        device_build_ms = (time.perf_counter() - device_build_start) * 1000.0
+        _emit_profile_event(
+            profile_scan,
+            "macos-scan-profile details",
+            populate_device_version_total=f"{version_query_ms:.2f}ms",
+            diskutil_fallback_total=f"{diskutil_fallback_ms:.2f}ms",
+            diskutil_fallback_count=diskutil_fallback_count,
+            device_count=len(devices),
+        )
+        total_ms = (time.perf_counter() - scan_start) * 1000.0
+        _emit_profile_summary(
+            profile_scan,
+            "macos-scan-profile",
+            [
+                ("system_profiler", system_profiler_ms),
+                ("ioreg_mass_storage", ioreg_mass_storage_ms),
+                ("device_build", device_build_ms),
+                ("total", total_ms),
+            ],
+            expanded=str(expanded).lower(),
+            profiler_matches=len(all_drives),
+            storage_nodes=len(storage_info_map),
+            devices=len(devices),
+        )
         return devices
 
     def poke_device(self, device_identifier: Any) -> bool:
@@ -197,6 +293,30 @@ class MacOSBackend(AbstractBackend):
             return getattr(device, "iSerial", "") or "~~~~~"
 
         return sorted(devices, key=_key)
+
+    def _timed_populate_device_version(
+        self,
+        vid: str,
+        pid: str,
+        serial: str,
+        device_path: str,
+    ) -> dict[str, Any]:
+        start = time.perf_counter()
+        version_info = populate_device_version(
+            int(vid, 16),
+            int(pid, 16),
+            serial,
+            bsd_name=device_path,
+        )
+        version_info["_profile_ms"] = (time.perf_counter() - start) * 1000.0
+        return version_info
+
+    def _should_probe_version_info(self, size_gb: str, block_device: str) -> bool:
+        if os.getenv("USB_TOOL_FORCE_MACOS_VERSION_PROBE") == "1":
+            return True
+        if size_gb == "N/A (OOB Mode)":
+            return True
+        return not bool(block_device)
 
     def list_usb_drives(self):
         return self._list_usb_drives()
