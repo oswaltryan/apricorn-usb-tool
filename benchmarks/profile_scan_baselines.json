@@ -4,14 +4,24 @@
       "description": "1 device on bus, OOB Mode",
       "threshold_multiplier": 1.15,
       "metrics": {
-        "total": 633.98
+        "system_profiler": 104.23,
+        "ioreg_mass_storage": 18.32,
+        "device_build": 419.84,
+        "populate_device_version_total": 419.78,
+        "diskutil_fallback_total": 0.0,
+        "total": 542.42
       }
     },
     "unlocked_single_device_default": {
       "description": "1 device on bus, unlocked",
       "threshold_multiplier": 1.15,
       "metrics": {
-        "total": 156.95
+        "system_profiler": 207.9,
+        "ioreg_mass_storage": 24.18,
+        "device_build": 0.1,
+        "populate_device_version_total": 0.0,
+        "diskutil_fallback_total": 0.0,
+        "total": 232.2
       }
     }
   },
