@@ -4,6 +4,8 @@ import subprocess
 import re
 import os
 import json
+import sys
+import time
 from typing import List, Any
 
 from .base import AbstractBackend
@@ -27,23 +29,74 @@ def _is_excluded_pid(pid: str) -> bool:
     return _normalize_pid(pid) in EXCLUDED_PIDS
 
 
+def _emit_profile_event(enabled: bool, prefix: str, **fields: Any) -> None:
+    if not enabled:
+        return
+
+    parts = [f"{key}={value}" for key, value in fields.items()]
+    suffix = f" {' '.join(parts)}" if parts else ""
+    print(f"{prefix}:{suffix}", file=sys.stderr)
+
+
+def _emit_profile_summary(
+    enabled: bool,
+    prefix: str,
+    metrics: list[tuple[str, float]],
+    **fields: Any,
+) -> None:
+    if not enabled:
+        return
+
+    context = " ".join(f"{key}={value}" for key, value in fields.items())
+    metric_text = ", ".join(
+        f"{label}={duration_ms:.2f}ms" for label, duration_ms in metrics
+    )
+    line = prefix if not context else f"{prefix} {context}"
+    print(f"{line}: {metric_text}", file=sys.stderr)
+
+
 class LinuxBackend(AbstractBackend):
     def scan_devices(
         self,
         expanded: bool = False,
         profile_scan: bool = False,
     ) -> List[UsbDeviceInfo]:
+        self._profile_scan_enabled = profile_scan
+        scan_start = time.perf_counter()
+        lshw_start = time.perf_counter()
         lshw_data = self._parse_uasp_info()
-        lsblk_drives = self._list_usb_drives()
-        lsblk_map = {info["name"]: info for info in lsblk_drives if info.get("name")}
-        udev_map = self._get_udev_info_map(lsblk_map.keys())
-        transport_by_serial = self._get_transport_map_by_serial()
-        transport_map = self._get_transport_map(udev_map)
-        controller_map = self._get_controller_map(udev_map)
+        lshw_ms = (time.perf_counter() - lshw_start) * 1000.0
 
+        lsblk_start = time.perf_counter()
+        lsblk_drives = self._list_usb_drives()
+        lsblk_ms = (time.perf_counter() - lsblk_start) * 1000.0
+        lsblk_map = {info["name"]: info for info in lsblk_drives if info.get("name")}
+
+        udev_start = time.perf_counter()
+        udev_map = self._get_udev_info_map(lsblk_map.keys())
+        udev_ms = (time.perf_counter() - udev_start) * 1000.0
+
+        transport_by_serial_start = time.perf_counter()
+        transport_by_serial = self._get_transport_map_by_serial()
+        transport_by_serial_ms = (
+            time.perf_counter() - transport_by_serial_start
+        ) * 1000.0
+
+        transport_map_start = time.perf_counter()
+        transport_map = self._get_transport_map(udev_map)
+        transport_map_ms = (time.perf_counter() - transport_map_start) * 1000.0
+
+        controller_map_start = time.perf_counter()
+        controller_map = self._get_controller_map(udev_map)
+        controller_map_ms = (time.perf_counter() - controller_map_start) * 1000.0
+
+        lsusb_start = time.perf_counter()
         lsusb_details = self._get_lsusb_details()
+        lsusb_ms = (time.perf_counter() - lsusb_start) * 1000.0
 
         devices = []
+        version_query_ms = 0.0
+        device_build_start = time.perf_counter()
         for block_path, lsblk_info in lsblk_map.items():
             serial = lsblk_info.get("serial")
             lshw_entry = lshw_data.get(block_path) or {}
@@ -89,12 +142,14 @@ class LinuxBackend(AbstractBackend):
                 else:
                     size_gb = str(round(size_raw))
 
-            version_info = populate_device_version(
-                int(vid, 16),
-                int(pid, 16),
+            version_info = self._timed_populate_device_version(
+                vid,
+                pid,
                 serial,
-                device_path=block_path,
+                block_path,
+                size_gb,
             )
+            version_query_ms += version_info.pop("_profile_ms", 0.0)
 
             dev_info = UsbDeviceInfo(
                 bcdUSB=bcd_usb,
@@ -118,6 +173,35 @@ class LinuxBackend(AbstractBackend):
             prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
 
+        device_build_ms = (time.perf_counter() - device_build_start) * 1000.0
+        _emit_profile_event(
+            profile_scan,
+            "linux-scan-profile details",
+            populate_device_version_total=f"{version_query_ms:.2f}ms",
+            device_count=len(devices),
+        )
+        total_ms = (time.perf_counter() - scan_start) * 1000.0
+        _emit_profile_summary(
+            profile_scan,
+            "linux-scan-profile",
+            [
+                ("lshw_uasp", lshw_ms),
+                ("lsblk", lsblk_ms),
+                ("udev", udev_ms),
+                ("transport_by_serial", transport_by_serial_ms),
+                ("transport_map", transport_map_ms),
+                ("controller_map", controller_map_ms),
+                ("lsusb", lsusb_ms),
+                ("device_build", device_build_ms),
+                ("total", total_ms),
+            ],
+            expanded=str(expanded).lower(),
+            lsblk_drives=len(lsblk_drives),
+            udev_nodes=len(udev_map),
+            transport_serials=len(transport_by_serial),
+            lsusb_devices=len(lsusb_details),
+            devices=len(devices),
+        )
         return devices
 
     def poke_device(self, device_identifier: Any) -> bool:
@@ -138,6 +222,35 @@ class LinuxBackend(AbstractBackend):
 
         return sorted(devices, key=_key)
 
+    def _timed_populate_device_version(
+        self,
+        vid: str,
+        pid: str,
+        serial: str,
+        block_path: str,
+        size_gb: str,
+    ) -> dict[str, Any]:
+        start = time.perf_counter()
+        version_info = populate_device_version(
+            int(vid, 16),
+            int(pid, 16),
+            serial,
+            device_path=block_path,
+        )
+        profile_ms = (time.perf_counter() - start) * 1000.0
+        version_info["_profile_ms"] = profile_ms
+        _emit_profile_event(
+            getattr(self, "_profile_scan_enabled", False),
+            "linux-version-profile",
+            block_device=block_path,
+            size_mode=(
+                "oob" if str(size_gb).strip() == "N/A (OOB Mode)" else "mounted_media"
+            ),
+            serial=serial or "unknown",
+            duration_ms=f"{profile_ms:.2f}",
+        )
+        return version_info
+
     # --- Internal Helpers ---
     def list_usb_drives(self):
         return self._list_usb_drives()
@@ -155,9 +268,20 @@ class LinuxBackend(AbstractBackend):
             "7",
         ]
         try:
+            exec_start = time.perf_counter()
             res = subprocess.run(cmd, capture_output=True, text=True)
+            exec_ms = (time.perf_counter() - exec_start) * 1000.0
             if res.returncode != 0:
+                _emit_profile_event(
+                    getattr(self, "_profile_scan_enabled", False),
+                    "linux-lsblk-profile",
+                    exec_ms=f"{exec_ms:.2f}",
+                    parse_ms="0.00",
+                    returncode=res.returncode,
+                    drives=0,
+                )
                 return []
+            parse_start = time.perf_counter()
             drives = []
             for line in res.stdout.splitlines():
                 parts = line.split(None, 4)
@@ -174,6 +298,15 @@ class LinuxBackend(AbstractBackend):
                         "readOnly": parts[4] == "1",
                     }
                 )
+            parse_ms = (time.perf_counter() - parse_start) * 1000.0
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-lsblk-profile",
+                exec_ms=f"{exec_ms:.2f}",
+                parse_ms=f"{parse_ms:.2f}",
+                returncode=res.returncode,
+                drives=len(drives),
+            )
             return drives
         except Exception:
             return []
@@ -200,25 +333,51 @@ class LinuxBackend(AbstractBackend):
 
     def _parse_uasp_info(self):
         try:
+            exec_start = time.perf_counter()
             res = subprocess.run(
                 ["lshw", "-class", "disk", "-class", "storage", "-json"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
+            exec_ms = (time.perf_counter() - exec_start) * 1000.0
         except Exception:
             return {}
 
         if res.returncode != 0 or not res.stdout.strip():
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-lshw-profile",
+                exec_ms=f"{exec_ms:.2f}",
+                json_loads_ms="0.00",
+                walk_ms="0.00",
+                returncode=res.returncode,
+                stdout_bytes=len(res.stdout or ""),
+                block_devices=0,
+            )
             return {}
 
         try:
+            json_start = time.perf_counter()
             raw_data = json.loads(res.stdout)
+            json_ms = (time.perf_counter() - json_start) * 1000.0
         except json.JSONDecodeError:
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-lshw-profile",
+                exec_ms=f"{exec_ms:.2f}",
+                json_loads_ms="0.00",
+                walk_ms="0.00",
+                returncode=res.returncode,
+                stdout_bytes=len(res.stdout),
+                block_devices=0,
+                json_error="decode_failed",
+            )
             return {}
 
         entries = raw_data if isinstance(raw_data, list) else [raw_data]
         by_block_device: dict[str, dict[str, str]] = {}
+        walk_start = time.perf_counter()
 
         def _walk(node: Any) -> None:
             if isinstance(node, list):
@@ -240,6 +399,17 @@ class LinuxBackend(AbstractBackend):
                 _walk(child)
 
         _walk(entries)
+        walk_ms = (time.perf_counter() - walk_start) * 1000.0
+        _emit_profile_event(
+            getattr(self, "_profile_scan_enabled", False),
+            "linux-lshw-profile",
+            exec_ms=f"{exec_ms:.2f}",
+            json_loads_ms=f"{json_ms:.2f}",
+            walk_ms=f"{walk_ms:.2f}",
+            returncode=res.returncode,
+            stdout_bytes=len(res.stdout),
+            block_devices=len(by_block_device),
+        )
         return by_block_device
 
     def _classify_driver_transport(self, lshw_entry: dict[str, Any] | None) -> str:
@@ -263,20 +433,33 @@ class LinuxBackend(AbstractBackend):
 
     def _get_transport_map_by_serial(self) -> dict[str, str]:
         try:
+            exec_start = time.perf_counter()
             res = subprocess.run(
                 ["usb-devices"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
+            exec_ms = (time.perf_counter() - exec_start) * 1000.0
         except Exception:
             return {}
 
         if res.returncode != 0 or not res.stdout.strip():
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-usb-devices-profile",
+                exec_ms=f"{exec_ms:.2f}",
+                parse_ms="0.00",
+                returncode=res.returncode,
+                blocks=0,
+                transport_serials=0,
+            )
             return {}
 
         transport_map: dict[str, str] = {}
-        for block in res.stdout.strip().split("\n\n"):
+        parse_start = time.perf_counter()
+        blocks = res.stdout.strip().split("\n\n")
+        for block in blocks:
             serial = ""
             driver_name = ""
             for line in block.splitlines():
@@ -291,6 +474,16 @@ class LinuxBackend(AbstractBackend):
                 transport_map[serial] = self._classify_driver_transport(
                     {"driver": driver_name}
                 )
+        parse_ms = (time.perf_counter() - parse_start) * 1000.0
+        _emit_profile_event(
+            getattr(self, "_profile_scan_enabled", False),
+            "linux-usb-devices-profile",
+            exec_ms=f"{exec_ms:.2f}",
+            parse_ms=f"{parse_ms:.2f}",
+            returncode=res.returncode,
+            blocks=len(blocks),
+            transport_serials=len(transport_map),
+        )
         return transport_map
 
     def _get_udev_info_map(self, block_devices) -> dict[str, dict[str, str]]:
@@ -301,25 +494,47 @@ class LinuxBackend(AbstractBackend):
 
     def _get_udev_info(self, block_device: str) -> dict[str, str]:
         try:
+            exec_start = time.perf_counter()
             res = subprocess.run(
                 ["udevadm", "info", "--query=all", f"--name={block_device}"],
                 capture_output=True,
                 text=True,
                 check=False,
             )
+            exec_ms = (time.perf_counter() - exec_start) * 1000.0
         except Exception:
             return {}
 
         if res.returncode != 0:
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-udev-profile",
+                block_device=block_device,
+                exec_ms=f"{exec_ms:.2f}",
+                parse_ms="0.00",
+                returncode=res.returncode,
+                keys=0,
+            )
             return {}
 
         info: dict[str, str] = {}
+        parse_start = time.perf_counter()
         for line in res.stdout.splitlines():
             if not line.startswith("E: "):
                 continue
             key, _, value = line[3:].partition("=")
             if key:
                 info[key.strip()] = value.strip()
+        parse_ms = (time.perf_counter() - parse_start) * 1000.0
+        _emit_profile_event(
+            getattr(self, "_profile_scan_enabled", False),
+            "linux-udev-profile",
+            block_device=block_device,
+            exec_ms=f"{exec_ms:.2f}",
+            parse_ms=f"{parse_ms:.2f}",
+            returncode=res.returncode,
+            keys=len(info),
+        )
         return info
 
     def _get_controller_map(
@@ -349,56 +564,120 @@ class LinuxBackend(AbstractBackend):
 
     def _get_pci_controller_name(self, pci_addr: str) -> str:
         try:
+            exec_start = time.perf_counter()
             res = subprocess.run(
                 ["lspci", "-s", pci_addr],
                 capture_output=True,
                 text=True,
                 check=False,
             )
+            exec_ms = (time.perf_counter() - exec_start) * 1000.0
         except Exception:
             return "N/A"
 
         if res.returncode != 0:
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-lspci-profile",
+                pci_addr=pci_addr,
+                exec_ms=f"{exec_ms:.2f}",
+                parse_ms="0.00",
+                returncode=res.returncode,
+                controller="N/A",
+            )
             return "N/A"
 
+        parse_start = time.perf_counter()
         line = res.stdout.strip().splitlines()
         if not line:
+            parse_ms = (time.perf_counter() - parse_start) * 1000.0
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-lspci-profile",
+                pci_addr=pci_addr,
+                exec_ms=f"{exec_ms:.2f}",
+                parse_ms=f"{parse_ms:.2f}",
+                returncode=res.returncode,
+                controller="N/A",
+            )
             return "N/A"
         parts = line[0].split(": ", 1)
         description = parts[1].strip() if len(parts) == 2 else line[0].strip()
         manufacturer = description.split(None, 1)[0].strip()
-        return manufacturer or "N/A"
+        parse_ms = (time.perf_counter() - parse_start) * 1000.0
+        controller = manufacturer or "N/A"
+        _emit_profile_event(
+            getattr(self, "_profile_scan_enabled", False),
+            "linux-lspci-profile",
+            pci_addr=pci_addr,
+            exec_ms=f"{exec_ms:.2f}",
+            parse_ms=f"{parse_ms:.2f}",
+            returncode=res.returncode,
+            controller=controller,
+        )
+        return controller
 
     def _get_lsusb_details(self):
         try:
+            list_exec_start = time.perf_counter()
             res = subprocess.run(["lsusb"], capture_output=True, text=True, check=False)
+            list_exec_ms = (time.perf_counter() - list_exec_start) * 1000.0
         except Exception:
             return {}
 
         if res.returncode != 0:
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-lsusb-profile",
+                list_exec_ms=f"{list_exec_ms:.2f}",
+                list_parse_ms="0.00",
+                verbose_exec_total_ms="0.00",
+                verbose_parse_total_ms="0.00",
+                verbose_calls=0,
+                apricorn_pids=0,
+                serials=0,
+            )
             return {}
 
+        list_parse_start = time.perf_counter()
         apricorn_pairs = {
             match.group(1).lower()
             for match in re.finditer(r"ID\s+0984:([0-9a-fA-F]{4})", res.stdout)
         }
+        list_parse_ms = (time.perf_counter() - list_parse_start) * 1000.0
         details: dict[str, dict[str, str]] = {}
+        verbose_exec_total_ms = 0.0
+        verbose_parse_total_ms = 0.0
 
         for pid in apricorn_pairs:
             try:
+                verbose_exec_start = time.perf_counter()
                 verbose = subprocess.run(
                     ["lsusb", "-v", "-d", f"0984:{pid}"],
                     capture_output=True,
                     text=True,
                     check=False,
                 )
+                verbose_exec_ms = (time.perf_counter() - verbose_exec_start) * 1000.0
+                verbose_exec_total_ms += verbose_exec_ms
             except Exception:
                 continue
 
             if verbose.returncode != 0:
+                _emit_profile_event(
+                    getattr(self, "_profile_scan_enabled", False),
+                    "linux-lsusb-verbose-profile",
+                    pid=pid,
+                    exec_ms=f"{verbose_exec_ms:.2f}",
+                    parse_ms="0.00",
+                    returncode=verbose.returncode,
+                    serials=0,
+                )
                 continue
 
             current: dict[str, str] = {}
+            serial_count_before = len(details)
+            verbose_parse_start = time.perf_counter()
             for line in verbose.stdout.splitlines():
                 stripped = line.strip()
                 if stripped.startswith("idVendor"):
@@ -425,5 +704,27 @@ class LinuxBackend(AbstractBackend):
                         current["iSerial"] = serial
                         details[serial] = current.copy()
                         current = {}
+            verbose_parse_ms = (time.perf_counter() - verbose_parse_start) * 1000.0
+            verbose_parse_total_ms += verbose_parse_ms
+            _emit_profile_event(
+                getattr(self, "_profile_scan_enabled", False),
+                "linux-lsusb-verbose-profile",
+                pid=pid,
+                exec_ms=f"{verbose_exec_ms:.2f}",
+                parse_ms=f"{verbose_parse_ms:.2f}",
+                returncode=verbose.returncode,
+                serials=len(details) - serial_count_before,
+            )
 
+        _emit_profile_event(
+            getattr(self, "_profile_scan_enabled", False),
+            "linux-lsusb-profile",
+            list_exec_ms=f"{list_exec_ms:.2f}",
+            list_parse_ms=f"{list_parse_ms:.2f}",
+            verbose_exec_total_ms=f"{verbose_exec_total_ms:.2f}",
+            verbose_parse_total_ms=f"{verbose_parse_total_ms:.2f}",
+            verbose_calls=len(apricorn_pairs),
+            apricorn_pids=len(apricorn_pairs),
+            serials=len(details),
+        )
         return details

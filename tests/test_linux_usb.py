@@ -105,6 +105,104 @@ def test_scan_devices_populates_driver_transport_from_usb_serial():
     assert serialized["readOnly"] is False
 
 
+def test_scan_devices_emits_profile_output_when_enabled(capsys):
+    with (
+        patch.object(LinuxBackend, "_parse_uasp_info", return_value={}),
+        patch.object(LinuxBackend, "_list_usb_drives", return_value=[]),
+        patch.object(LinuxBackend, "_get_udev_info_map", return_value={}),
+        patch.object(LinuxBackend, "_get_transport_map_by_serial", return_value={}),
+        patch.object(LinuxBackend, "_get_transport_map", return_value={}),
+        patch.object(LinuxBackend, "_get_controller_map", return_value={}),
+        patch.object(LinuxBackend, "_get_lsusb_details", return_value={}),
+    ):
+        backend = LinuxBackend()
+        devices = backend.scan_devices(profile_scan=True)
+
+    captured = capsys.readouterr()
+    assert devices == []
+    assert "linux-scan-profile details:" in captured.err
+    assert "populate_device_version_total=0.00ms" in captured.err
+    assert "device_count=0" in captured.err
+    assert "linux-scan-profile expanded=false" in captured.err
+    assert "lshw_uasp=" in captured.err
+    assert "device_build=" in captured.err
+    assert "total=" in captured.err
+
+
+def test_scan_devices_profile_details_precede_summary(capsys):
+    with (
+        patch.object(
+            LinuxBackend,
+            "_parse_uasp_info",
+            return_value={"/dev/sdb": {"serial": "SERIAL123"}},
+        ),
+        patch.object(
+            LinuxBackend,
+            "_list_usb_drives",
+            return_value=[
+                {
+                    "name": "/dev/sdb",
+                    "serial": "SERIAL123",
+                    "size_gb": 64.0,
+                    "mediaType": "Removable Media",
+                    "readOnly": False,
+                }
+            ],
+        ),
+        patch.object(
+            LinuxBackend,
+            "_get_lsusb_details",
+            return_value={
+                "SERIAL123": {
+                    "idVendor": "0984",
+                    "idProduct": "1407",
+                    "bcdUSB": "3.0",
+                    "bcdDevice": "0300",
+                    "iManufacturer": "Apricorn",
+                    "iProduct": "Secure Key 3.0",
+                }
+            },
+        ),
+        patch.object(LinuxBackend, "_get_udev_info_map", return_value={"/dev/sdb": {}}),
+        patch.object(
+            LinuxBackend,
+            "_get_transport_map_by_serial",
+            return_value={"SERIAL123": "UAS"},
+        ),
+        patch.object(
+            LinuxBackend, "_get_transport_map", return_value={"/dev/sdb": "UAS"}
+        ),
+        patch.object(
+            LinuxBackend,
+            "_get_controller_map",
+            return_value={"/dev/sdb": "Intel"},
+        ),
+        patch.object(
+            LinuxBackend,
+            "_timed_populate_device_version",
+            return_value={"_profile_ms": 12.34},
+        ),
+    ):
+        backend = LinuxBackend()
+        devices = backend.scan_devices(profile_scan=True)
+
+    captured = capsys.readouterr()
+    lines = [line for line in captured.err.splitlines() if line.strip()]
+    assert len(devices) == 1
+    assert lines[0].startswith("linux-scan-profile details:")
+    assert "populate_device_version_total=12.34ms" in lines[0]
+    assert "device_count=1" in lines[0]
+    assert lines[1].startswith("linux-scan-profile expanded=false")
+    assert "lsblk_drives=1" in lines[1]
+    assert "udev_nodes=1" in lines[1]
+    assert "transport_serials=1" in lines[1]
+    assert "lsusb_devices=1" in lines[1]
+    assert "devices=1" in lines[1]
+    assert "lshw_uasp=" in lines[1]
+    assert "transport_by_serial=" in lines[1]
+    assert "controller_map=" in lines[1]
+
+
 def test_get_udev_info_parses_usb_storage_driver():
     mock_result = SimpleNamespace(
         returncode=0,

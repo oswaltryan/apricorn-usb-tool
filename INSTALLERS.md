@@ -20,7 +20,7 @@
 - Uninstall manually: remove `/usr/local/lib/usb-tool` and `/usr/local/bin/usb` (if it points to that directory).
 
 ## Verification Checklist
-- After installing on any OS, open a **new** terminal to ensure PATH updates are applied and run `usb --version` followed by `usb --json` to confirm enumerations run without stack traces.
+- After installing on any OS, open a **new** terminal to ensure PATH updates are applied and run `usb -h`, then `usb --json`, to confirm the CLI is on `PATH` and enumeration runs without stack traces.
 - Run `usb -p` with a dry target where supported (Windows/Linux) to ensure permissions errors are readable when not elevated.
 - Uninstall and verify:
   - Windows: `%ProgramFiles%\Apricorn\usb-tool` folder removed and PATH no longer includes it.

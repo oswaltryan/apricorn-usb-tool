@@ -161,12 +161,9 @@ for dev in devices:
     print(dev.iProduct, dev.iSerial, dev.driveSizeGB)
 ```
 
-Returned objects are dataclasses:
-- Windows: `WinUsbDeviceInfo`
-- Linux: `LinuxUsbDeviceInfo`
-- macOS: `macOSUsbDeviceInfo`
+Returned objects are `UsbDeviceInfo` dataclass instances from `src/usb_tool/models.py`.
 
-Field sets are similar across OSes; some fields are platform-specific (e.g., `usbController` on Windows, `blockDevice` on Linux). Version-field visibility rules are applied during device shaping, so hidden version fields are omitted from both CLI output and returned objects.
+Field sets are mostly shared across OSes, with some platform-specific attributes attached during shaping (for example `physicalDriveNum` on Windows or `blockDevice` on Linux/macOS). Version-field visibility rules are applied during device shaping, so hidden version fields are omitted from both CLI output and returned objects.
 
 ## Contributing / Dev
 
