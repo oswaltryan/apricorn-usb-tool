@@ -46,6 +46,22 @@
       "description": "1 device on bus, OOB Mode",
       "threshold_multiplier": 1.15,
       "metrics": {
+        "wmi_usb_devices": 321.86,
+        "wmi_diskdrives": 7.11,
+        "wmi_usb_drives": 0.09,
+        "libusb_data": 30.03,
+        "physical_drive_map": 0.14,
+        "signed_driver_query": 0.00,
+        "apply_usb_driver_info": 0.00,
+        "apply_disk_driver_info": 0.00,
+        "sort_wmi_drives": 0.01,
+        "usb_controllers": 367.06,
+        "sort_libusb_data": 0.01,
+        "readonly_map": 19.13,
+        "drive_letters_map": 0.08,
+        "instantiate_devices": 2.82,
+        "populate_device_version_total": 2.71,
+        "drive_letter_fallback_total": 0.00,
         "total": 793.93
       }
     },
@@ -53,7 +69,23 @@
       "description": "1 device on bus, unlocked",
       "threshold_multiplier": 1.15,
       "metrics": {
-        "total": 766.24
+        "wmi_usb_devices": 337.47,
+        "wmi_diskdrives": 6.32,
+        "wmi_usb_drives": 0.09,
+        "libusb_data": 27.86,
+        "physical_drive_map": 0.10,
+        "signed_driver_query": 0.00,
+        "apply_usb_driver_info": 0.00,
+        "apply_disk_driver_info": 0.00,
+        "sort_wmi_drives": 0.00,
+        "usb_controllers": 361.01,
+        "sort_libusb_data": 0.01,
+        "readonly_map": 25.45,
+        "drive_letters_map": 26.21,
+        "instantiate_devices": 3.31,
+        "populate_device_version_total": 3.07,
+        "drive_letter_fallback_total": 0.00,
+        "total": 787.85
       }
     }
   }
