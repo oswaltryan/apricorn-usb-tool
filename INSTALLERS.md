@@ -7,6 +7,7 @@
 
 ## Linux (.deb + scripts)
 - Build with `./build/build_linux_installer.sh` (needs `dpkg-deb`). The script stages the payload, copies docs, applies `installers/linux/debian/DEBIAN/*`, and emits `dist/usb-tool-<version>-amd64.deb`.
+- Linux release artifacts target a `glibc` 2.31 floor. Build them on Ubuntu 20.04 or an equivalent baseline; newer build hosts can produce a PyInstaller payload that fails on older systems with `GLIBC_2.xx not found`.
 - Install via `sudo apt install ./dist/usb-tool-<version>-amd64.deb`. The package installs to `/usr/local/lib/usb-tool` and symlinks `/usr/local/bin/usb`.
 - During interactive Debian installs, the package can optionally create `/etc/sudoers.d/usb-tool-nopasswd` so `sudo usb` does not prompt for a password. The default is `No`; noninteractive installs also default to `No`.
 - Uninstall via `sudo apt remove usb-tool`.

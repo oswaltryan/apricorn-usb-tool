@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-20.04, macos-latest, windows-latest]
         python-version: ["3.10"]
 
     steps:
@@ -72,6 +72,8 @@ jobs:
 
       - name: Build (Linux)
         if: runner.os == 'Linux'
+        env:
+          USB_TOOL_MAX_GLIBC: "2.31"
         run: |
           chmod +x build/build_linux.sh build/build_linux_installer.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/debian/DEBIAN/config installers/linux/debian/DEBIAN/postinst installers/linux/debian/DEBIAN/postrm installers/linux/debian/DEBIAN/prerm
           ./build/build_linux.sh
