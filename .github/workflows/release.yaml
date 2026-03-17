@@ -50,7 +50,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, macos-latest, windows-latest]
+        os: [ubuntu-22.04, macos-latest, windows-latest]
         python-version: ["3.10"]
 
     steps:
@@ -64,24 +64,24 @@ jobs:
         if: runner.os == 'Windows'
         run: choco upgrade wixtoolset -y --no-progress
 
-      - name: Install Linux deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libusb-1.0-0 dpkg-dev
-
       - name: Build (Linux)
         if: runner.os == 'Linux'
         env:
           USB_TOOL_MAX_GLIBC: "2.31"
         run: |
-          chmod +x build/build_linux.sh build/build_linux_installer.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/debian/DEBIAN/config installers/linux/debian/DEBIAN/postinst installers/linux/debian/DEBIAN/postrm installers/linux/debian/DEBIAN/prerm
-          ./build/build_linux.sh
-
-      - name: Build Linux installer
-        if: runner.os == 'Linux'
-        run: |
-          SKIP_PYINSTALLER=1 ./build/build_linux_installer.sh
+          docker run --rm \
+            -e USB_TOOL_MAX_GLIBC \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -w /workspace \
+            python:3.10-bullseye \
+            bash -lc '
+              set -euo pipefail
+              apt-get update
+              apt-get install -y binutils dpkg-dev libusb-1.0-0
+              chmod +x build/build_linux.sh build/build_linux_installer.sh installers/linux/install.sh installers/linux/uninstall.sh installers/linux/debian/DEBIAN/config installers/linux/debian/DEBIAN/postinst installers/linux/debian/DEBIAN/postrm installers/linux/debian/DEBIAN/prerm
+              ./build/build_linux.sh
+              SKIP_PYINSTALLER=1 ./build/build_linux_installer.sh
+            '
 
       - name: Build (macOS)
         if: runner.os == 'macOS'
