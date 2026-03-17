@@ -141,7 +141,7 @@ Additional visibility rules:
 - Requires PowerShell in `PATH`. `libusb` and `pywin32` are pinned and installed via markers.
 
 **Linux**
-- Full detail may require root. Helpful tools: `lsusb`, `lshw`, `lsblk`.
+- Full detail may require root. Helpful tools: `lsusb`, `lsblk`, `udevadm`, and `lspci`.
 - Optional helper: run `./update_sudoersd.sh` to allow passwordless reads for `lshw`/`fdisk -l` (review before using).
 - Debian package installs can optionally add a passwordless `sudo usb` rule via `/etc/sudoers.d/usb-tool-nopasswd`; the interactive installer defaults to `No`.
 

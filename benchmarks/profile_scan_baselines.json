@@ -15,6 +15,32 @@
       }
     }
   },
+  "linux": {
+    "oob_single_device": {
+      "description": "1 device on bus, OOB Mode",
+      "threshold_multiplier": 1.15,
+      "metrics": {
+        "lsblk": 2.71,
+        "device_probe": 5.32,
+        "controller_lookup": 12.12,
+        "descriptor_lookup": 76.64,
+        "device_build": 2.30,
+        "total": 99.16
+      }
+    },
+    "unlocked_single_device": {
+      "description": "1 device on bus, unlocked",
+      "threshold_multiplier": 1.15,
+      "metrics": {
+        "lsblk": 2.84,
+        "device_probe": 5.59,
+        "controller_lookup": 12.87,
+        "descriptor_lookup": 106.86,
+        "device_build": 2.12,
+        "total": 130.32
+      }
+    }
+  },
   "windows": {
     "oob_single_device": {
       "description": "1 device on bus, OOB Mode",

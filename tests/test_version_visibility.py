@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from usb_tool import device_version
-from usb_tool.backend.linux import LinuxBackend
+from usb_tool.backend.linux import LinuxBackend, _LinuxBlockDeviceProbe
 from usb_tool.models import UsbDeviceInfo
 from usb_tool.services import (
     VERSION_FIELD_NAMES,
@@ -237,12 +237,27 @@ def test_linux_scan_hides_version_fields_when_bridge_mismatches_bcd():
             "iProduct": "Secure Key 3.0",
         }
     }
-    lshw_map = {"/dev/sda": {"serial": "SER123", "driver": "uas"}}
-
     with (
         patch.object(LinuxBackend, "_list_usb_drives", return_value=lsblk_rows),
+        patch.object(
+            LinuxBackend,
+            "_probe_block_devices",
+            return_value={
+                "/dev/sda": _LinuxBlockDeviceProbe(
+                    block_device="/dev/sda",
+                    serial="SER123",
+                    driver_name="uas",
+                    driver_transport="UAS",
+                    pci_addr="0000:00:14.0",
+                )
+            },
+        ),
+        patch.object(
+            LinuxBackend,
+            "_resolve_probe_controllers",
+            return_value={"/dev/sda": "Intel"},
+        ),
         patch.object(LinuxBackend, "_get_lsusb_details", return_value=lsusb_details),
-        patch.object(LinuxBackend, "_parse_uasp_info", return_value=lshw_map),
         patch(
             "usb_tool.backend.linux.populate_device_version",
             return_value={
@@ -282,12 +297,27 @@ def test_linux_scan_keeps_version_fields_when_bridge_matches_bcd():
             "iProduct": "Secure Key 3.0",
         }
     }
-    lshw_map = {"/dev/sda": {"serial": "SER123", "driver": "uas"}}
-
     with (
         patch.object(LinuxBackend, "_list_usb_drives", return_value=lsblk_rows),
+        patch.object(
+            LinuxBackend,
+            "_probe_block_devices",
+            return_value={
+                "/dev/sda": _LinuxBlockDeviceProbe(
+                    block_device="/dev/sda",
+                    serial="SER123",
+                    driver_name="uas",
+                    driver_transport="UAS",
+                    pci_addr="0000:00:14.0",
+                )
+            },
+        ),
+        patch.object(
+            LinuxBackend,
+            "_resolve_probe_controllers",
+            return_value={"/dev/sda": "Intel"},
+        ),
         patch.object(LinuxBackend, "_get_lsusb_details", return_value=lsusb_details),
-        patch.object(LinuxBackend, "_parse_uasp_info", return_value=lshw_map),
         patch(
             "usb_tool.backend.linux.populate_device_version",
             return_value={

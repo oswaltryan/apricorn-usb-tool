@@ -77,8 +77,9 @@ DESCRIPTION
        details.
 
        Linux enumeration can run as a standard user, but full detail often
-       depends on tools such as lsusb, lsblk, and lshw. The poke operation
-       requires root privileges because it opens the underlying block device.
+       depends on tools such as lsusb, lsblk, udevadm, and lspci. The poke
+       operation requires root privileges because it opens the underlying
+       block device.
 
 OPTIONS
        -h, --help
