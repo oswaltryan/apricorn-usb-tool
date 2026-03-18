@@ -74,6 +74,7 @@ def populate_device_version(
     bsd_name: Optional[str] = None,
     physical_drive_num: Optional[int] = None,
     device_path: Optional[str] = None,
+    profile: Optional[dict[str, Any]] = None,
 ) -> dict:
     """
     Queries the device version and returns a dictionary of formatted strings.
@@ -97,6 +98,7 @@ def populate_device_version(
             bsd_name=bsd_name,
             physical_drive_num=physical_drive_num,
             device_path=device_path,
+            profile=profile,
         )
 
         if getattr(_ver, "scb_part_number", "N/A") != "N/A":

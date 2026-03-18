@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 import os
 import re
 
@@ -53,10 +53,15 @@ if sys.platform == "win32":
             ("ucSenseBuf", ctypes.c_ubyte * 32),
         ]
 
-    def _windows_read_buffer(physical_drive_num: int, timeout_sec: int = 5) -> bytes:
+    def _windows_read_buffer(
+        physical_drive_num: int,
+        timeout_sec: int = 5,
+        profile: Optional[dict[str, Any]] = None,
+    ) -> bytes:
         drive_path = rf"\\.\PhysicalDrive{physical_drive_num}"
         h = INVALID_HANDLE_VALUE
         try:
+            open_start = time.perf_counter()
             h = ctypes.windll.kernel32.CreateFileW(
                 drive_path,
                 GENERIC_READ | GENERIC_WRITE,
@@ -66,8 +71,13 @@ if sys.platform == "win32":
                 0,
                 None,
             )
+            if profile is not None:
+                profile["drive_path"] = drive_path
+                profile["create_file_ms"] = (time.perf_counter() - open_start) * 1000.0
             if h == INVALID_HANDLE_VALUE:
                 win_error = ctypes.GetLastError()
+                if profile is not None:
+                    profile["open_error"] = win_error
                 if win_error == errno.EACCES:
                     raise PermissionError("Administrator privileges required")
                 raise ctypes.WinError(win_error)
@@ -92,6 +102,7 @@ if sys.platform == "win32":
             ctypes.memmove(sptd.Cdb, (ctypes.c_ubyte * len(cdb))(*cdb), len(cdb))
 
             returned_bytes = wintypes.DWORD(0)
+            ioctl_start = time.perf_counter()
             ok = ctypes.windll.kernel32.DeviceIoControl(
                 h,
                 IOCTL_SCSI_PASS_THROUGH_DIRECT,
@@ -102,7 +113,15 @@ if sys.platform == "win32":
                 ctypes.byref(returned_bytes),
                 None,
             )
+            if profile is not None:
+                profile["device_io_control_ms"] = (
+                    time.perf_counter() - ioctl_start
+                ) * 1000.0
+                profile["returned_bytes"] = int(returned_bytes.value)
+                profile["scsi_status"] = int(sptd.ScsiStatus)
             if ok == 0:
+                if profile is not None:
+                    profile["ioctl_error"] = ctypes.GetLastError()
                 raise ctypes.WinError(ctypes.GetLastError())
             # We return the data buffer regardless of ScsiStatus to support OOB mode
             return data_buf.raw
@@ -300,13 +319,16 @@ def query_device_version(
     bsd_name: Optional[str] = None,
     physical_drive_num: Optional[int] = None,
     device_path: Optional[str] = None,
+    profile: Optional[dict[str, Any]] = None,
 ) -> DeviceVersionInfo:
     data = b""
+    timings = profile if profile is not None else {}
 
     # Try Windows SPTI first if index is provided
     if sys.platform == "win32" and physical_drive_num is not None:
         try:
-            data = _windows_read_buffer(physical_drive_num)
+            timings["transport"] = "windows_spti"
+            data = _windows_read_buffer(physical_drive_num, profile=timings)
         except Exception:
             # Fallback or just empty
             data = b""
@@ -322,7 +344,12 @@ def query_device_version(
         except Exception:
             data = b""
 
+    parse_start = time.perf_counter()
     info = _parse_payload_best_effort(data)
+    timings["parse_payload_ms"] = (time.perf_counter() - parse_start) * 1000.0
+    timings["payload_len"] = len(data)
+    timings["parsed_scb_part_number"] = info.scb_part_number
+    timings["parsed_bridge_fw"] = info.bridge_fw or "N/A"
     info.raw_data = data
     return info
 

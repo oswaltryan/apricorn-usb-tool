@@ -1,6 +1,7 @@
 # src/usb_tool/backend/windows.py
 
 import ctypes as ct
+import ctypes.wintypes as wintypes
 import re
 import subprocess
 import sys
@@ -8,6 +9,15 @@ import time
 from collections import defaultdict
 from types import SimpleNamespace
 from typing import List, Any, Tuple
+
+from .base import AbstractBackend
+from ..models import UsbDeviceInfo
+from ..utils import bytes_to_gb, find_closest, parse_usb_version
+from ..constants import EXCLUDED_PIDS
+from ..device_config import closest_values
+from ..services import populate_device_version, prune_hidden_version_fields
+
+usb: Any | None
 
 try:
     import libusb as usb
@@ -25,18 +35,6 @@ except Exception:  # pragma: no cover - exercised on non-Windows CI
     win32com = SimpleNamespace(client=_MissingWin32ComClient())
 else:
     win32com = SimpleNamespace(client=_win32com_client)
-
-from .base import AbstractBackend
-from ..models import UsbDeviceInfo
-from ..utils import bytes_to_gb, find_closest, parse_usb_version
-from ..constants import EXCLUDED_PIDS
-from ..device_config import closest_values
-from ..services import (
-    populate_device_version,
-    prune_hidden_version_fields,
-)  # We'll need to move this later or import from legacy for now
-
-# For Phase 3, we still import from legacy for cross-module dependencies not yet moved
 
 
 def _extract_vid_pid(device_id: str) -> Tuple[str, str]:
@@ -76,6 +74,25 @@ def _normalize_logical_disk_identifier(value: Any) -> str:
     return text
 
 
+def _normalize_serial_candidates(serial: str) -> list[str]:
+    text = str(serial or "").strip()
+    if not text:
+        return []
+
+    candidates: list[str] = []
+    for candidate in (text, text.removeprefix("MSFT30"), text.split("&", 1)[0]):
+        normalized = candidate.strip()
+        if normalized and normalized not in candidates:
+            candidates.append(normalized)
+    return candidates
+
+
+def _get_attr(record: Any, name: str, default: Any = None) -> Any:
+    if isinstance(record, dict):
+        return record.get(name, default)
+    return getattr(record, name, default)
+
+
 class _StageTimer:
     def __init__(self, enabled: bool):
         self.enabled = enabled
@@ -104,12 +121,56 @@ class _StageTimer:
         print(f"{line}: {', '.join(parts)}", file=sys.stderr)
 
 
+class _GUID(ct.Structure):
+    _fields_ = [
+        ("Data1", ct.c_ulong),
+        ("Data2", ct.c_ushort),
+        ("Data3", ct.c_ushort),
+        ("Data4", ct.c_ubyte * 8),
+    ]
+
+
+class _SP_DEVICE_INTERFACE_DATA(ct.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("InterfaceClassGuid", _GUID),
+        ("Flags", wintypes.DWORD),
+        ("Reserved", ct.c_void_p),
+    ]
+
+
+class _STORAGE_DEVICE_NUMBER(ct.Structure):
+    _fields_ = [
+        ("DeviceType", wintypes.DWORD),
+        ("DeviceNumber", wintypes.DWORD),
+        ("PartitionNumber", wintypes.DWORD),
+    ]
+
+
+GUID_DEVINTERFACE_DISK = _GUID(
+    0x53F56307,
+    0xB6BF,
+    0x11D0,
+    (ct.c_ubyte * 8)(0x94, 0xF2, 0x00, 0xA0, 0xC9, 0x1E, 0xFB, 0x8B),
+)
+DIGCF_PRESENT = 0x2
+DIGCF_DEVICEINTERFACE = 0x10
+ERROR_INSUFFICIENT_BUFFER = 122
+ERROR_NO_MORE_ITEMS = 259
+IOCTL_STORAGE_GET_DEVICE_NUMBER = 0x2D1080
+FILE_SHARE_READ = 0x1
+FILE_SHARE_WRITE = 0x2
+OPEN_EXISTING = 0x3
+INVALID_HANDLE_VALUE = -1
+
+
 class WindowsBackend(AbstractBackend):
     def __init__(self):
         self.locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
         self.service = self.locator.ConnectServer(".", "root\\cimv2")
         self._profile_scan_enabled = False
         self._scan_pass_index = 1
+        self._storage_metrics_map_cache: dict[int, dict[str, Any]] | None = None
         if usb is not None:
             usb.config(LIBUSB=None)
 
@@ -140,12 +201,15 @@ class WindowsBackend(AbstractBackend):
         wmi_usb_devices = self._get_wmi_usb_devices()
         timer.mark("wmi_usb_devices")
         wmi_diskdrives = self._get_wmi_diskdrives()
-        timer.mark("wmi_diskdrives")
+        timer.mark("disk_interfaces")
+        storage_metrics_map = self._get_usb_storage_metrics_map_wmi()
+        self._storage_metrics_map_cache = storage_metrics_map
+        timer.mark("usb_storage_metrics")
         wmi_usb_drives = self._get_wmi_usb_drives(wmi_diskdrives)
-        timer.mark("wmi_usb_drives")
+        timer.mark("usb_drive_build")
         libusb_data = self._get_apricorn_libusb_data()
         timer.mark("libusb_data")
-        physical_drives = self._get_physical_drive_number(wmi_diskdrives)
+        physical_drives = self._get_physical_drive_number(wmi_usb_drives)
         timer.mark("physical_drive_map")
 
         device_ids = {
@@ -195,12 +259,15 @@ class WindowsBackend(AbstractBackend):
                     if idx >= 0:
                         drive_indices.add(idx)
 
-        readonly_map = self._get_usb_readonly_status_map_wmi()
+        readonly_map = {
+            drive_num: details.get("read_only", False)
+            for drive_num, details in storage_metrics_map.items()
+        }
         timer.mark("readonly_map")
         drive_letters_map = {}
         if not minimal:
             drive_letters_map = self._get_drive_letters_map_wmi(
-                wmi_diskdrives, drive_indices
+                wmi_usb_drives, drive_indices
             )
         timer.mark("drive_letters_map")
 
@@ -224,6 +291,8 @@ class WindowsBackend(AbstractBackend):
                 f"libusb={len(libusb_data)}"
             )
         )
+
+        self._storage_metrics_map_cache = None
 
         return devices, [len(wmi_usb_devices), len(wmi_usb_drives), len(libusb_data)]
 
@@ -447,6 +516,8 @@ class WindowsBackend(AbstractBackend):
             return "UAS"
         if pnp_id.startswith("USBSTOR\\"):
             return "BOT"
+        if pnp_id.startswith("\\\\?\\USBSTOR#"):
+            return "BOT"
 
         provider = str(usb_device.get("usbDriverProvider", "")).strip().lower()
         if provider.startswith("apricorn"):
@@ -455,70 +526,279 @@ class WindowsBackend(AbstractBackend):
             return "UAS"
         return "Unknown"
 
-    def _get_wmi_diskdrives(self):
+    def _get_setupapi(self):
+        setupapi = ct.WinDLL("setupapi", use_last_error=True)
+        setupapi.SetupDiGetClassDevsW.argtypes = [
+            ct.POINTER(_GUID),
+            ct.c_wchar_p,
+            wintypes.HWND,
+            wintypes.DWORD,
+        ]
+        setupapi.SetupDiGetClassDevsW.restype = ct.c_void_p
+        setupapi.SetupDiEnumDeviceInterfaces.argtypes = [
+            ct.c_void_p,
+            ct.c_void_p,
+            ct.POINTER(_GUID),
+            wintypes.DWORD,
+            ct.POINTER(_SP_DEVICE_INTERFACE_DATA),
+        ]
+        setupapi.SetupDiEnumDeviceInterfaces.restype = wintypes.BOOL
+        setupapi.SetupDiGetDeviceInterfaceDetailW.argtypes = [
+            ct.c_void_p,
+            ct.POINTER(_SP_DEVICE_INTERFACE_DATA),
+            ct.c_void_p,
+            wintypes.DWORD,
+            ct.POINTER(wintypes.DWORD),
+            ct.c_void_p,
+        ]
+        setupapi.SetupDiGetDeviceInterfaceDetailW.restype = wintypes.BOOL
+        setupapi.SetupDiDestroyDeviceInfoList.argtypes = [ct.c_void_p]
+        setupapi.SetupDiDestroyDeviceInfoList.restype = wintypes.BOOL
+        return setupapi
+
+    def _query_storage_device_number(self, path: str) -> int | None:
+        handle = ct.windll.kernel32.CreateFileW(
+            path,
+            0,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            0,
+            None,
+        )
+        if handle == INVALID_HANDLE_VALUE:
+            return None
         try:
-            return list(
-                self.service.ExecQuery(
-                    "SELECT DeviceID, PNPDeviceID, Caption, Size, MediaType, InterfaceType, Index FROM Win32_DiskDrive"
-                )
+            device_number = _STORAGE_DEVICE_NUMBER()
+            returned_bytes = wintypes.DWORD(0)
+            ok = ct.windll.kernel32.DeviceIoControl(
+                handle,
+                IOCTL_STORAGE_GET_DEVICE_NUMBER,
+                None,
+                0,
+                ct.byref(device_number),
+                ct.sizeof(device_number),
+                ct.byref(returned_bytes),
+                None,
             )
-        except Exception:
+            if ok == 0:
+                return None
+            return int(device_number.DeviceNumber)
+        finally:
+            ct.windll.kernel32.CloseHandle(handle)
+
+    def _normalize_interface_path(self, path: str) -> str:
+        return str(path or "").strip().lower()
+
+    def _extract_product_from_interface_path(self, path: str) -> str:
+        normalized = self._normalize_interface_path(path)
+        match = re.search(r"prod_([^#&]+)", normalized)
+        if not match:
+            return ""
+        return match.group(1).replace("_", " ").strip().title()
+
+    def _get_disk_interface_records(self) -> list[dict[str, Any]]:
+        start = time.perf_counter()
+        setupapi = self._get_setupapi()
+        device_info_set = setupapi.SetupDiGetClassDevsW(
+            ct.byref(GUID_DEVINTERFACE_DISK),
+            None,
+            None,
+            DIGCF_PRESENT | DIGCF_DEVICEINTERFACE,
+        )
+        if device_info_set in (None, 0, ct.c_void_p(-1).value):
             return []
 
-    def _get_wmi_usb_drives(self, wmi_diskdrives):
-        drives = [d for d in wmi_diskdrives if getattr(d, "InterfaceType", "") == "USB"]
-        info = []
-        for d in drives:
-            if (
-                "Apricorn" in getattr(d, "Caption", "")
-                and getattr(d, "Size", None) is not None
-            ):
-                pnp = d.PNPDeviceID
-                if not pnp:
+        records: list[dict[str, Any]] = []
+        try:
+            index = 0
+            while True:
+                interface_data = _SP_DEVICE_INTERFACE_DATA()
+                interface_data.cbSize = ct.sizeof(_SP_DEVICE_INTERFACE_DATA)
+                ok = setupapi.SetupDiEnumDeviceInterfaces(
+                    device_info_set,
+                    None,
+                    ct.byref(GUID_DEVINTERFACE_DISK),
+                    index,
+                    ct.byref(interface_data),
+                )
+                if ok == 0:
+                    last_error = ct.get_last_error()
+                    if last_error == ERROR_NO_MORE_ITEMS:
+                        break
+                    index += 1
                     continue
-                i_product = ""
-                try:
-                    if "USBSTOR" in pnp:
-                        i_product = (
-                            pnp[pnp.index("PROD_") + 5 : pnp.index("&REV")]
-                            .replace("_", " ")
-                            .title()
-                        )
-                    elif "SCSI" in pnp:
-                        i_product = (
-                            pnp.split("PROD_", 1)[1].split("\\", 1)[0].replace("_", " ")
-                        )
-                        if "NVX" in i_product:
-                            i_product = (
-                                "Padlock NVX" if i_product == "PADLOCK NVX" else ""
-                            )
-                        elif "PORTABLE" in i_product:
-                            i_product = (
-                                "Aegis Portable"
-                                if i_product == " AEGIS PORTABLE"
-                                else ""
-                            )
-                except Exception:
-                    pass
-                info.append(
+
+                required_size = wintypes.DWORD(0)
+                ct.set_last_error(0)
+                setupapi.SetupDiGetDeviceInterfaceDetailW(
+                    device_info_set,
+                    ct.byref(interface_data),
+                    None,
+                    0,
+                    ct.byref(required_size),
+                    None,
+                )
+                last_error = ct.get_last_error()
+                if required_size.value == 0 or last_error not in (
+                    0,
+                    ERROR_INSUFFICIENT_BUFFER,
+                ):
+                    index += 1
+                    continue
+
+                detail_buffer = ct.create_string_buffer(required_size.value)
+                ct.cast(detail_buffer, ct.POINTER(wintypes.DWORD)).contents.value = (
+                    8 if ct.sizeof(ct.c_void_p) == 8 else 6
+                )
+
+                ok = setupapi.SetupDiGetDeviceInterfaceDetailW(
+                    device_info_set,
+                    ct.byref(interface_data),
+                    detail_buffer,
+                    required_size.value,
+                    ct.byref(required_size),
+                    None,
+                )
+                if ok == 0:
+                    index += 1
+                    continue
+
+                device_path = ct.wstring_at(
+                    ct.addressof(detail_buffer) + ct.sizeof(wintypes.DWORD)
+                )
+                normalized_path = self._normalize_interface_path(device_path)
+                device_number = self._query_storage_device_number(device_path)
+                records.append(
                     {
-                        "caption": d.Caption,
-                        "size_gb": bytes_to_gb(int(d.Size)),
-                        "iProduct": i_product,
-                        "pnpdeviceid": pnp,
-                        "mediaType": (
-                            "Basic Disk"
-                            if "External hard disk" in d.MediaType
-                            else "Removable Media"
+                        "device_path": device_path,
+                        "normalized_path": normalized_path,
+                        "device_number": device_number,
+                        "product_hint": self._extract_product_from_interface_path(
+                            device_path
                         ),
-                        "diskDriverInfo": {
-                            "provider": "N/A",
-                            "version": "N/A",
-                            "inf": "N/A",
-                        },
                     }
                 )
-        return info
+                index += 1
+        finally:
+            setupapi.SetupDiDestroyDeviceInfoList(device_info_set)
+
+        if self._profile_scan_enabled:
+            print(
+                "windows-disk-interface-profile: "
+                f"pass={self._scan_pass_index} "
+                f"records={len(records)} "
+                f"duration_ms={(time.perf_counter() - start) * 1000.0:.2f}",
+                file=sys.stderr,
+            )
+        return records
+
+    def _get_usb_storage_metrics_map_wmi(self) -> dict[int, dict[str, Any]]:
+        try:
+            storage = self.locator.ConnectServer(
+                ".", "root\\Microsoft\\Windows\\Storage"
+            )
+            disks = storage.ExecQuery(
+                "SELECT Number, IsReadOnly, BusType, Size, FriendlyName, Model FROM MSFT_Disk"
+            )
+            return {
+                int(d.Number): {
+                    "read_only": bool(d.IsReadOnly),
+                    "size_gb": bytes_to_gb(int(getattr(d, "Size", 0) or 0)),
+                    "friendly_name": str(getattr(d, "FriendlyName", "") or ""),
+                    "model": str(getattr(d, "Model", "") or ""),
+                }
+                for d in disks
+                if int(d.BusType) == 7
+            }
+        except Exception:
+            return {}
+
+    def _match_disk_interface_record(
+        self,
+        usb_device: dict[str, Any],
+        disk_interfaces: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        candidates = _normalize_serial_candidates(usb_device.get("serial", ""))
+        for candidate in candidates:
+            token = f"#{candidate.lower()}&0#"
+            for record in disk_interfaces:
+                path = record.get("normalized_path", "")
+                if "ven_apricorn" not in path:
+                    continue
+                if token in path:
+                    return record
+        return None
+
+    def _build_usb_drives_from_interfaces(
+        self,
+        wmi_usb_devices: list[dict[str, Any]],
+        disk_interfaces: list[dict[str, Any]],
+        storage_metrics_map: dict[int, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        drives: list[dict[str, Any]] = []
+        for device in wmi_usb_devices:
+            matched = self._match_disk_interface_record(device, disk_interfaces)
+            if matched is None:
+                if self._profile_scan_enabled:
+                    print(
+                        "windows-disk-interface-match-profile: "
+                        f"pass={self._scan_pass_index} "
+                        f"serial={device.get('serial', '')} matched=false",
+                        file=sys.stderr,
+                    )
+                continue
+
+            drive_num = matched.get("device_number")
+            metrics = (
+                storage_metrics_map.get(drive_num, {})
+                if isinstance(drive_num, int)
+                else {}
+            )
+            product = matched.get("product_hint", "") or device.get("description", "")
+            drives.append(
+                {
+                    "caption": product or device.get("description", ""),
+                    "size_gb": float(metrics.get("size_gb", 0.0) or 0.0),
+                    "iProduct": product,
+                    "pnpdeviceid": matched.get("device_path", ""),
+                    "serial": device.get("serial", ""),
+                    "mediaType": "Basic Disk",
+                    "diskDriverInfo": {
+                        "provider": "N/A",
+                        "version": "N/A",
+                        "inf": "N/A",
+                    },
+                    "Index": drive_num if isinstance(drive_num, int) else -1,
+                    "DeviceID": (
+                        rf"\\.\PHYSICALDRIVE{drive_num}"
+                        if isinstance(drive_num, int) and drive_num >= 0
+                        else ""
+                    ),
+                }
+            )
+            if self._profile_scan_enabled:
+                print(
+                    "windows-disk-interface-match-profile: "
+                    f"pass={self._scan_pass_index} "
+                    f"serial={device.get('serial', '')} "
+                    f"matched=true drive_num={drive_num} "
+                    f"path={matched.get('device_path', '')}",
+                    file=sys.stderr,
+                )
+        return drives
+
+    def _get_wmi_diskdrives(self, query: str | None = None):
+        del query
+        return self._get_disk_interface_records()
+
+    def _get_wmi_usb_drives(self, wmi_diskdrives):
+        return self._build_usb_drives_from_interfaces(
+            self._get_wmi_usb_devices(),
+            list(wmi_diskdrives or []),
+            getattr(self, "_storage_metrics_map_cache", None)
+            or self._get_usb_storage_metrics_map_wmi(),
+        )
 
     def _get_apricorn_libusb_data(self):
         if usb is None:
@@ -554,15 +834,26 @@ class WindowsBackend(AbstractBackend):
     def _get_physical_drive_number(self, wmi_diskdrives):
         drives = {}
         for r in wmi_diskdrives or []:
-            if "SATAWIRE" in r.PNPDeviceID or "FLASH_DISK" in r.PNPDeviceID:
-                continue
-            if "APRI" in r.PNPDeviceID:
+            explicit_serial = str(_get_attr(r, "serial", "") or "").strip()
+            if explicit_serial:
                 try:
-                    # Index is the physical drive number (e.g., 0 for \\.\PhysicalDrive0)
-                    drive_num = int(r.Index)
-                    # Extract serial from PNPDeviceID (last part before suffix)
-                    # Example: USBSTOR\DISK&VEN_APRICORN&PROD_AEGIS_PADLOCK\0123456789ABCDEF&0
-                    serial_part = r.PNPDeviceID.rsplit("\\", 1)[1]
+                    drive_num = int(_get_attr(r, "Index", -1))
+                except (TypeError, ValueError):
+                    drive_num = -1
+                if drive_num >= 0:
+                    drives[explicit_serial] = drive_num
+                    continue
+
+            pnp_device_id = str(
+                _get_attr(r, "pnpdeviceid", _get_attr(r, "PNPDeviceID", "")) or ""
+            )
+            if "SATAWIRE" in pnp_device_id or "FLASH_DISK" in pnp_device_id:
+                continue
+            if "APRI" in pnp_device_id.upper():
+                try:
+                    drive_num = int(_get_attr(r, "Index", -1))
+                    source = pnp_device_id.replace("#", "\\")
+                    serial_part = source.rsplit("\\", 1)[1]
                     serial = serial_part.split("&")[0]
                     drives[serial] = drive_num
                 except (ValueError, TypeError, IndexError):
@@ -652,7 +943,7 @@ class WindowsBackend(AbstractBackend):
 
         for d in wmi_diskdrives or []:
             try:
-                idx = int(d.Index)
+                idx = int(_get_attr(d, "Index", -1))
             except (TypeError, ValueError):
                 continue
 
@@ -660,7 +951,7 @@ class WindowsBackend(AbstractBackend):
                 continue
 
             escaped_device_id = _escape_wmi_string(
-                str(getattr(d, "DeviceID", "") or "")
+                str(_get_attr(d, "DeviceID", "") or "")
             )
             disk_token = f'DeviceID="{escaped_device_id}"'
             index_token = f"Index={idx}"
@@ -676,7 +967,7 @@ class WindowsBackend(AbstractBackend):
                     "windows-drive-letter-profile: "
                     f"pass={self._scan_pass_index} disk_index={idx} "
                     f"stage=bulk_partitions count={len(matching_partitions)} "
-                    f"device_id={getattr(d, 'DeviceID', '')}",
+                    f"device_id={_get_attr(d, 'DeviceID', '')}",
                     file=sys.stderr,
                 )
 
@@ -792,6 +1083,7 @@ class WindowsBackend(AbstractBackend):
             len(libusb_data),
         )
         for i in range(count):
+            device_start = time.perf_counter()
             pid = wmi_usb_devices[i]["pid"]
             vid = wmi_usb_devices[i]["vid"]
             serial = wmi_usb_devices[i]["serial"]
@@ -903,6 +1195,17 @@ class WindowsBackend(AbstractBackend):
 
             prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
+            if self._profile_scan_enabled:
+                print(
+                    "windows-instantiate-device-profile: "
+                    f"pass={self._scan_pass_index} "
+                    f"index={i + 1} "
+                    f"serial={serial} "
+                    f"drive_num={drive_num} "
+                    f"size_mode={'oob' if size_raw == 0.0 else 'mounted_media'} "
+                    f"total_ms={(time.perf_counter() - device_start) * 1000.0:.2f}",
+                    file=sys.stderr,
+                )
         if self._profile_scan_enabled:
             print(
                 "windows-scan-profile details: "
@@ -918,11 +1221,37 @@ class WindowsBackend(AbstractBackend):
         self, vid: str, pid: str, serial: str, drive_num: int
     ) -> dict[str, Any]:
         start = time.perf_counter()
+        profile: dict[str, Any] = {
+            "serial": serial,
+            "drive_num": drive_num,
+        }
         version_info = populate_device_version(
             int(vid, 16),
             int(pid, 16),
             serial,
             physical_drive_num=drive_num if drive_num != -1 else None,
+            profile=profile,
         )
-        version_info["_profile_ms"] = (time.perf_counter() - start) * 1000.0
+        total_ms = (time.perf_counter() - start) * 1000.0
+        version_info["_profile_ms"] = total_ms
+        if self._profile_scan_enabled:
+            print(
+                "windows-version-profile: "
+                f"pass={self._scan_pass_index} "
+                f"serial={serial} "
+                f"drive_num={drive_num} "
+                f"transport={profile.get('transport', 'unknown')} "
+                f"create_file_ms={profile.get('create_file_ms', 0.0):.2f}ms "
+                f"device_io_control_ms={profile.get('device_io_control_ms', 0.0):.2f}ms "
+                f"parse_payload_ms={profile.get('parse_payload_ms', 0.0):.2f}ms "
+                f"payload_len={profile.get('payload_len', 0)} "
+                f"returned_bytes={profile.get('returned_bytes', 0)} "
+                f"scsi_status={profile.get('scsi_status', 'n/a')} "
+                f"open_error={profile.get('open_error', 'n/a')} "
+                f"ioctl_error={profile.get('ioctl_error', 'n/a')} "
+                f"parsed_scb_part_number={profile.get('parsed_scb_part_number', 'N/A')} "
+                f"parsed_bridge_fw={profile.get('parsed_bridge_fw', 'N/A')} "
+                f"total_ms={total_ms:.2f}ms",
+                file=sys.stderr,
+            )
         return version_info

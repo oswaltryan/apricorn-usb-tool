@@ -55,7 +55,7 @@ def test_parse_poke_targets_rejects_invalid_values():
 
 def test_is_root_posix_uses_geteuid_on_supported_platforms(monkeypatch):
     monkeypatch.setattr(cross_usb, "_SYSTEM", "darwin")
-    monkeypatch.setattr(cross_usb.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(cross_usb.os, "geteuid", lambda: 0, raising=False)
 
     assert cross_usb.is_root_posix() is True
 
