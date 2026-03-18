@@ -1,5 +1,12 @@
 """Unit tests for linux_usb module."""
 
+import sys
+import pytest
+
+# Skip this entire module if not on Linux
+if sys.platform != "linux":
+    pytest.skip("Linux only tests", allow_module_level=True)
+
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from usb_tool.backend.linux import LinuxBackend, _LinuxBlockDeviceProbe

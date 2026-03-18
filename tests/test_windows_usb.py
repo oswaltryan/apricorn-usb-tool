@@ -1,12 +1,14 @@
 """Unit tests for windows_usb module."""
 
+import sys
+import pytest
+
+# Skip this entire module if not on Windows
+if sys.platform != "win32":
+    pytest.skip("Windows only tests", allow_module_level=True)
+
 from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
-
-# We need to ensure we can import WindowsBackend even on non-Windows
-# But since we are on Windows (based on user context), win32com exists.
-# The error "cannot import name 'util'" suggests a broken win32com installation or conflict.
-# Assuming we want to run this test safely:
 
 from usb_tool.backend.windows import (
     WindowsBackend,

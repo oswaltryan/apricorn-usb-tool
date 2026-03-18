@@ -345,12 +345,8 @@ def test_windows_read_buffer_uses_device_namespace_path(monkeypatch):
         captured["path"] = path
         return device_version.INVALID_HANDLE_VALUE
 
-    monkeypatch.setattr(
-        device_version.ctypes.windll.kernel32, "CreateFileW", _fake_create_file
-    )
-    monkeypatch.setattr(
-        device_version.ctypes, "GetLastError", lambda: device_version.errno.EACCES
-    )
+    monkeypatch.setattr("ctypes.windll.kernel32.CreateFileW", _fake_create_file)
+    monkeypatch.setattr("ctypes.GetLastError", lambda: device_version.errno.EACCES)
 
     with pytest.raises(PermissionError):
         device_version._windows_read_buffer(4)

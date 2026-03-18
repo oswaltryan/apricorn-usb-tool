@@ -1,9 +1,15 @@
 # tests/test_mac_usb.py
 
+import sys
+import pytest
+
+# Skip this entire module if not on macOS
+if sys.platform != "darwin":
+    pytest.skip("macOS only tests", allow_module_level=True)
+
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
-import pytest
 from usb_tool.backend.macos import MacOSBackend
 
 
