@@ -36,7 +36,8 @@ else:
     win32com = SimpleNamespace(client=_win32com_client)
 
 
-kernel32 = cast(Any, getattr(ct, "windll")).kernel32
+_windll = getattr(ct, "windll", None)
+kernel32 = getattr(_windll, "kernel32", None) if _windll is not None else None
 
 
 def _get_last_error() -> int:
@@ -570,6 +571,8 @@ class WindowsBackend(AbstractBackend):
         return setupapi
 
     def _query_storage_device_number(self, path: str) -> int | None:
+        if kernel32 is None:
+            return None
         handle = kernel32.CreateFileW(
             path,
             0,
