@@ -7,8 +7,9 @@ import subprocess
 import sys
 import time
 from collections import defaultdict
+from importlib import import_module
 from types import SimpleNamespace
-from typing import List, Any, Tuple
+from typing import List, Any, Tuple, cast
 
 from .base import AbstractBackend
 from ..models import UsbDeviceInfo
@@ -17,10 +18,8 @@ from ..constants import EXCLUDED_PIDS
 from ..device_config import closest_values
 from ..services import populate_device_version, prune_hidden_version_fields
 
-usb: Any | None
-
 try:
-    import libusb as usb
+    usb = cast(Any | None, import_module("libusb"))
 except Exception:  # pragma: no cover - exercised on non-Windows CI
     usb = None
 
@@ -35,6 +34,20 @@ except Exception:  # pragma: no cover - exercised on non-Windows CI
     win32com = SimpleNamespace(client=_MissingWin32ComClient())
 else:
     win32com = SimpleNamespace(client=_win32com_client)
+
+
+kernel32 = cast(Any, getattr(ct, "windll")).kernel32
+
+
+def _get_last_error() -> int:
+    getter = cast(Any, getattr(ct, "get_last_error", None))
+    return int(getter()) if getter is not None else 0
+
+
+def _set_last_error(value: int) -> None:
+    setter = cast(Any, getattr(ct, "set_last_error", None))
+    if setter is not None:
+        setter(value)
 
 
 def _extract_vid_pid(device_id: str) -> Tuple[str, str]:
@@ -557,7 +570,7 @@ class WindowsBackend(AbstractBackend):
         return setupapi
 
     def _query_storage_device_number(self, path: str) -> int | None:
-        handle = ct.windll.kernel32.CreateFileW(
+        handle = kernel32.CreateFileW(
             path,
             0,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -571,7 +584,7 @@ class WindowsBackend(AbstractBackend):
         try:
             device_number = _STORAGE_DEVICE_NUMBER()
             returned_bytes = wintypes.DWORD(0)
-            ok = ct.windll.kernel32.DeviceIoControl(
+            ok = kernel32.DeviceIoControl(
                 handle,
                 IOCTL_STORAGE_GET_DEVICE_NUMBER,
                 None,
@@ -585,7 +598,7 @@ class WindowsBackend(AbstractBackend):
                 return None
             return int(device_number.DeviceNumber)
         finally:
-            ct.windll.kernel32.CloseHandle(handle)
+            kernel32.CloseHandle(handle)
 
     def _normalize_interface_path(self, path: str) -> str:
         return str(path or "").strip().lower()
@@ -623,14 +636,14 @@ class WindowsBackend(AbstractBackend):
                     ct.byref(interface_data),
                 )
                 if ok == 0:
-                    last_error = ct.get_last_error()
+                    last_error = _get_last_error()
                     if last_error == ERROR_NO_MORE_ITEMS:
                         break
                     index += 1
                     continue
 
                 required_size = wintypes.DWORD(0)
-                ct.set_last_error(0)
+                _set_last_error(0)
                 setupapi.SetupDiGetDeviceInterfaceDetailW(
                     device_info_set,
                     ct.byref(interface_data),
@@ -639,7 +652,7 @@ class WindowsBackend(AbstractBackend):
                     ct.byref(required_size),
                     None,
                 )
-                last_error = ct.get_last_error()
+                last_error = _get_last_error()
                 if required_size.value == 0 or last_error not in (
                     0,
                     ERROR_INSUFFICIENT_BUFFER,
