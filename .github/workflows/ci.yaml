@@ -29,4 +29,6 @@ jobs:
         run: uv sync --extra dev
 
       - name: Pre-commit
+        env:
+          SKIP: bump-project-version
         run: uv run --extra dev pre-commit run --all-files

@@ -151,6 +151,14 @@ def bump_if_needed() -> int:
         return 0
     write_version(target_version)
     print(f"Updated pyproject.toml version to {target_version}")
+
+    # Synchronize uv.lock
+    try:
+        subprocess.run(["uv", "lock"], check=True, capture_output=True)
+        print("Updated uv.lock")
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"Warning: Failed to update uv.lock: {e}", file=sys.stderr)
+
     return 0
 
 
