@@ -796,10 +796,11 @@ static bool derive_bus_number_from_location_paths(DEVINST devinst, int* bus_numb
     BYTE* buffer = NULL;
     ULONG size = 0;
     ULONG reg_type = 0;
-    bool ok = false;
     const wchar_t* path = NULL;
     const wchar_t* p = NULL;
+    int usb_hop_count = 0;
     int root_index = 0;
+    bool saw_root_digit = false;
 
     if (!get_devnode_reg_property(
             devinst, CM_DRP_LOCATION_PATHS, &reg_type, &buffer, &size)) {
@@ -812,24 +813,44 @@ static bool derive_bus_number_from_location_paths(DEVINST devinst, int* bus_numb
     }
 
     path = (const wchar_t*)buffer;
-    if (path == NULL || path[0] == L'\0') {
-        free(buffer);
-        return false;
-    }
+    while (path != NULL && path[0] != L'\0') {
+        p = wcsstr(path, L"USBROOT(");
+        if (p != NULL) {
+            const wchar_t* root_digits = p + 8;
+            root_index = 0;
+            saw_root_digit = false;
+            while (*root_digits >= L'0' && *root_digits <= L'9') {
+                root_index = (root_index * 10) + (int)(*root_digits - L'0');
+                saw_root_digit = true;
+                ++root_digits;
+            }
 
-    p = wcsstr(path, L"USBROOT(");
-    if (p != NULL) {
-        p += 8;
-        while (*p >= L'0' && *p <= L'9') {
-            root_index = (root_index * 10) + (int)(*p - L'0');
-            ++p;
+            usb_hop_count = 0;
+            p += 8;
+            while ((p = wcsstr(p, L"USB(")) != NULL) {
+                ++usb_hop_count;
+                p += 4;
+            }
+
+            if (usb_hop_count > 0) {
+                *bus_number_out = usb_hop_count + 1;
+                free(buffer);
+                return true;
+            }
+            if (saw_root_digit) {
+                *bus_number_out = root_index + 1;
+                free(buffer);
+                return true;
+            }
         }
-        *bus_number_out = root_index + 1;
-        ok = true;
+        if (reg_type == REG_SZ) {
+            break;
+        }
+        path += wcslen(path) + 1;
     }
 
     free(buffer);
-    return ok;
+    return false;
 }
 
 static bool get_hub_interface_path_for_devinst(
