@@ -2,12 +2,14 @@
 
 import ctypes as ct
 import ctypes.wintypes as wintypes
+import json
 import re
 import subprocess
 import sys
 import time
 from collections import defaultdict
 from importlib import import_module
+from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Any, Tuple, cast
 
@@ -180,11 +182,22 @@ INVALID_HANDLE_VALUE = -1
 
 class WindowsBackend(AbstractBackend):
     def __init__(self):
-        self.locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
-        self.service = self.locator.ConnectServer(".", "root\\cimv2")
         self._profile_scan_enabled = False
         self._scan_pass_index = 1
         self._storage_metrics_map_cache: dict[int, dict[str, Any]] | None = None
+        self._native_scan_binary = self._resolve_native_scan_binary()
+        self._native_scan_enabled = self._native_scan_binary is not None
+        self._native_scan_path_for_run: Path | None = None
+
+        self.locator: Any = None
+        self.service: Any = None
+        self._wmi_ready = False
+        try:
+            self._initialize_wmi()
+        except ImportError:
+            if not self._native_scan_enabled:
+                raise
+
         if usb is not None:
             usb.config(LIBUSB=None)
 
@@ -196,6 +209,37 @@ class WindowsBackend(AbstractBackend):
     def service(self, value):
         self._service = value
 
+    def _initialize_wmi(self) -> None:
+        self.locator = win32com.client.Dispatch("WbemScripting.SWbemLocator")
+        self.service = self.locator.ConnectServer(".", "root\\cimv2")
+        self._wmi_ready = True
+
+    def _ensure_wmi_ready(self) -> None:
+        if self._wmi_ready:
+            return
+        self._initialize_wmi()
+
+    def _resolve_native_scan_binary(self) -> Path | None:
+        candidates: list[Path] = []
+        repo_root = Path(__file__).resolve().parents[3]
+        candidates.extend(
+            [
+                repo_root / "windows_native_scan.exe",
+                Path.cwd() / "windows_native_scan.exe",
+                Path(sys.executable).resolve().parent / "windows_native_scan.exe",
+            ]
+        )
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            if candidate.is_file():
+                return candidate
+        return None
+
     def scan_devices(
         self,
         expanded: bool = False,
@@ -203,12 +247,204 @@ class WindowsBackend(AbstractBackend):
     ) -> List[UsbDeviceInfo]:
         self._profile_scan_enabled = profile_scan
         self._scan_pass_index = 1
+
+        if self._native_scan_enabled:
+            native_devices = self._scan_devices_native(profile_scan=profile_scan)
+            if native_devices is not None:
+                return self.sort_devices(native_devices)
+
+        self._ensure_wmi_ready()
         devices, lengths = self._perform_scan_pass(minimal=False, expanded=expanded)
         if not devices and len(set(lengths)) != 1 and any(lengths):
             time.sleep(1.0)
             self._scan_pass_index = 2
             devices, _ = self._perform_scan_pass(minimal=False, expanded=expanded)
         return devices or []
+
+    def _scan_devices_native(
+        self,
+        profile_scan: bool = False,
+    ) -> list[UsbDeviceInfo] | None:
+        native_path = self._native_scan_binary
+        if native_path is None:
+            return None
+
+        cmd = [str(native_path)]
+        if profile_scan:
+            cmd.append("--profile")
+
+        run_start = time.perf_counter()
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=30,
+            )
+        except Exception as exc:
+            if profile_scan:
+                print(
+                    "windows-native-scan-profile: "
+                    f"exec_failed=true error={exc}",
+                    file=sys.stderr,
+                )
+            return None
+
+        elapsed_ms = (time.perf_counter() - run_start) * 1000.0
+        if result.returncode != 0:
+            if profile_scan:
+                stderr_text = (result.stderr or "").strip().replace("\n", " | ")
+                print(
+                    "windows-native-scan-profile: "
+                    f"exec_failed=true returncode={result.returncode} elapsed_ms={elapsed_ms:.2f} "
+                    f"stderr={stderr_text or 'n/a'}",
+                    file=sys.stderr,
+                )
+            return None
+
+        parse_start = time.perf_counter()
+        try:
+            payload = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError as exc:
+            if profile_scan:
+                print(
+                    "windows-native-scan-profile: "
+                    f"parse_failed=true elapsed_ms={elapsed_ms:.2f} error={exc}",
+                    file=sys.stderr,
+                )
+            return None
+
+        devices = self._native_payload_to_devices(payload)
+        parse_ms = (time.perf_counter() - parse_start) * 1000.0
+        self._native_scan_path_for_run = native_path
+
+        if profile_scan:
+            native_profile = payload.get("profile", {})
+            profile_bits = (
+                f"helper={native_path} "
+                f"exec_ms={elapsed_ms:.2f} "
+                f"parse_ms={parse_ms:.2f} "
+                f"device_count={len(devices)}"
+            )
+            if isinstance(native_profile, dict):
+                profile_bits = (
+                    f"{profile_bits} "
+                    f"native_total_ms={native_profile.get('totalMs', 'n/a')} "
+                    f"native_enumeration_ms={native_profile.get('enumerationMs', 'n/a')} "
+                    f"native_drive_letters_ms={native_profile.get('driveLettersMs', 'n/a')}"
+                )
+            print(f"windows-native-scan-profile: {profile_bits}", file=sys.stderr)
+
+        return devices
+
+    def _native_payload_to_devices(self, payload: dict[str, Any]) -> list[UsbDeviceInfo]:
+        devices: list[UsbDeviceInfo] = []
+        raw_devices = payload.get("devices", [])
+        if not isinstance(raw_devices, list) or not raw_devices:
+            return devices
+
+        first = raw_devices[0]
+        if not isinstance(first, dict):
+            return devices
+
+        def _key_fn(k: str) -> tuple[int, str]:
+            try:
+                return (int(k), "")
+            except (TypeError, ValueError):
+                return (10**9, str(k))
+
+        for key in sorted(first.keys(), key=_key_fn):
+            entry = first.get(key, {})
+            if not isinstance(entry, dict):
+                continue
+            try:
+                dev_info = UsbDeviceInfo(
+                    bcdUSB=self._as_float(entry.get("bcdUSB"), 0.0),
+                    idVendor=self._as_text(entry.get("idVendor"), ""),
+                    idProduct=self._as_text(entry.get("idProduct"), ""),
+                    bcdDevice=self._as_text(entry.get("bcdDevice"), "0000"),
+                    iManufacturer=self._as_text(entry.get("iManufacturer"), "Apricorn"),
+                    iProduct=self._as_text(entry.get("iProduct"), "Apricorn USB Device"),
+                    iSerial=self._as_text(entry.get("iSerial"), ""),
+                    driveSizeGB=self._coerce_drive_size(entry.get("driveSizeGB")),
+                    mediaType=self._as_text(entry.get("mediaType"), "Unknown"),
+                    driverTransport=self._as_text(entry.get("driverTransport"), "Unknown"),
+                    usbController=self._as_text(entry.get("usbController"), "N/A"),
+                    usbDriverProvider=self._as_text(
+                        entry.get("usbDriverProvider"), "N/A"
+                    ),
+                    usbDriverVersion=self._as_text(entry.get("usbDriverVersion"), "N/A"),
+                    usbDriverInf=self._as_text(entry.get("usbDriverInf"), "N/A"),
+                    diskDriverProvider=self._as_text(
+                        entry.get("diskDriverProvider"), "N/A"
+                    ),
+                    diskDriverVersion=self._as_text(
+                        entry.get("diskDriverVersion"), "N/A"
+                    ),
+                    diskDriverInf=self._as_text(entry.get("diskDriverInf"), "N/A"),
+                    busNumber=self._as_int(entry.get("busNumber"), -1),
+                    deviceAddress=self._as_int(entry.get("deviceAddress"), -1),
+                    physicalDriveNum=self._as_int(entry.get("physicalDriveNum"), -1),
+                    driveLetter=self._as_text(entry.get("driveLetter"), "Not Formatted"),
+                    readOnly=self._as_bool(entry.get("readOnly"), False),
+                )
+            except Exception:
+                continue
+
+            if "scbPartNumber" in entry:
+                setattr(dev_info, "scbPartNumber", self._as_text(entry.get("scbPartNumber"), "N/A"))
+            if "hardwareVersion" in entry:
+                setattr(dev_info, "hardwareVersion", self._as_text(entry.get("hardwareVersion"), "N/A"))
+            if "modelID" in entry:
+                setattr(dev_info, "modelID", self._as_text(entry.get("modelID"), "N/A"))
+            if "mcuFW" in entry:
+                setattr(dev_info, "mcuFW", self._as_text(entry.get("mcuFW"), "N/A"))
+
+            prune_hidden_version_fields(dev_info)
+            devices.append(dev_info)
+
+        return devices
+
+    def _as_text(self, value: Any, default: str) -> str:
+        if value is None:
+            return default
+        text = str(value).strip()
+        return text if text else default
+
+    def _as_int(self, value: Any, default: int) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _as_float(self, value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _as_bool(self, value: Any, default: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered in _TRUTHY_VALUES:
+                return True
+            if lowered in _FALSY_VALUES:
+                return False
+        return default
+
+    def _coerce_drive_size(self, value: Any) -> Any:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return int(value)
+        text = self._as_text(value, "N/A")
+        try:
+            return int(text)
+        except ValueError:
+            return text
 
     def _perform_scan_pass(self, minimal: bool = False, expanded: bool = False):
         timer = _StageTimer(self._profile_scan_enabled)

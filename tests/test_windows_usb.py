@@ -84,6 +84,7 @@ def test_find_apricorn_device_retries_once_on_partial_scan():
         patch("time.sleep"),
     ):
         backend = WindowsBackend()
+        backend._native_scan_enabled = False
         devices = backend.scan_devices()
 
     assert devices == [fake_device]
@@ -635,3 +636,79 @@ def test_get_drive_letters_map_wmi_skips_logging_when_no_candidate_indices(capsy
         "windows-drive-letter-profile: pass=2 skipped=no_candidate_drive_indices"
         in captured.err
     )
+
+
+def test_native_payload_to_devices_parses_contract_shape():
+    backend = object.__new__(WindowsBackend)
+    payload = {
+        "devices": [
+            {
+                "1": {
+                    "bcdUSB": 3.2,
+                    "idVendor": "0984",
+                    "idProduct": "1407",
+                    "bcdDevice": "0502",
+                    "iManufacturer": "Apricorn",
+                    "iProduct": "Secure Key 3.0",
+                    "iSerial": "SER123",
+                    "driverTransport": "BOT",
+                    "driveSizeGB": 16,
+                    "mediaType": "Basic Disk",
+                    "usbDriverProvider": "N/A",
+                    "usbDriverVersion": "N/A",
+                    "usbDriverInf": "N/A",
+                    "diskDriverProvider": "N/A",
+                    "diskDriverVersion": "N/A",
+                    "diskDriverInf": "N/A",
+                    "usbController": "N/A",
+                    "busNumber": 1,
+                    "deviceAddress": 4,
+                    "physicalDriveNum": 3,
+                    "driveLetter": "F:",
+                    "readOnly": False,
+                }
+            }
+        ]
+    }
+
+    devices = backend._native_payload_to_devices(payload)
+
+    assert len(devices) == 1
+    serialized = devices[0].to_dict()
+    assert serialized["idVendor"] == "0984"
+    assert serialized["idProduct"] == "1407"
+    assert serialized["driveSizeGB"] == 16
+    assert serialized["physicalDriveNum"] == 3
+    assert serialized["driveLetter"] == "F:"
+
+
+def test_scan_devices_prefers_native_when_enabled():
+    fake_native_device = SimpleNamespace(physicalDriveNum=1)
+    with patch("usb_tool.backend.windows.win32com.client.Dispatch"):
+        backend = WindowsBackend()
+
+    backend._native_scan_enabled = True
+    backend._scan_devices_native = MagicMock(return_value=[fake_native_device])
+    backend._perform_scan_pass = MagicMock(return_value=([], [0, 0, 0]))
+
+    devices = backend.scan_devices()
+
+    assert devices == [fake_native_device]
+    backend._scan_devices_native.assert_called_once()
+    backend._perform_scan_pass.assert_not_called()
+
+
+def test_scan_devices_falls_back_to_wmi_when_native_returns_none():
+    fake_wmi_device = SimpleNamespace(physicalDriveNum=1)
+    with patch("usb_tool.backend.windows.win32com.client.Dispatch"):
+        backend = WindowsBackend()
+
+    backend._native_scan_enabled = True
+    backend._scan_devices_native = MagicMock(return_value=None)
+    backend._perform_scan_pass = MagicMock(return_value=([fake_wmi_device], [1, 1, 1]))
+
+    devices = backend.scan_devices()
+
+    assert devices == [fake_wmi_device]
+    backend._scan_devices_native.assert_called_once()
+    backend._perform_scan_pass.assert_called_once()
