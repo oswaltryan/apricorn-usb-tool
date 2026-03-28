@@ -33,7 +33,7 @@ def _resample_filter() -> int:
     resampling_cls = getattr(Image, "Resampling", None)
     if resampling_cls is not None:
         return int(resampling_cls.LANCZOS)
-    return int(getattr(Image, "LANCZOS"))
+    return int(Image.LANCZOS)
 
 
 def _target_filename(base: int, scale: int) -> str:
@@ -69,9 +69,7 @@ def maybe_run_iconutil(iconset_dir: Path, icns_path: Path, skip: bool) -> None:
     iconutil = shutil.which("iconutil")
     if iconutil is None:
         print("[WARN] iconutil not found on PATH; skipping .icns packaging.")
-        print(
-            f"       Run on macOS with: iconutil -c icns {iconset_dir} -o {icns_path}"
-        )
+        print(f"       Run on macOS with: iconutil -c icns {iconset_dir} -o {icns_path}")
         return
 
     cmd = [iconutil, "-c", "icns", str(iconset_dir), "-o", str(icns_path)]
@@ -81,9 +79,7 @@ def maybe_run_iconutil(iconset_dir: Path, icns_path: Path, skip: bool) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Create a macOS .icns file from a source PNG."
-    )
+    parser = argparse.ArgumentParser(description="Create a macOS .icns file from a source PNG.")
     parser.add_argument("png", type=Path, help="High-resolution source PNG")
     parser.add_argument(
         "--iconset-dir",
@@ -114,9 +110,7 @@ def main() -> None:
         else BUILD_DIR / f"{png_path.stem}.iconset"
     )
     icns_path = (
-        args.icns.resolve()
-        if args.icns is not None
-        else BUILD_DIR / f"{png_path.stem}.icns"
+        args.icns.resolve() if args.icns is not None else BUILD_DIR / f"{png_path.stem}.icns"
     )
 
     build_iconset(png_path, iconset_dir)

@@ -7,9 +7,10 @@ import os
 import platform
 import sys
 import traceback
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, cast
+from typing import Any, cast
 
 _SYSTEM = platform.system().lower()
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
@@ -67,7 +68,7 @@ def _get_parent_process_chain_windows() -> list[str]:
         return []
 
     try:
-        import ctypes.wintypes as wintypes
+        from ctypes import wintypes
 
         TH32CS_SNAPPROCESS = 0x00000002
         INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
@@ -445,9 +446,7 @@ def _validate_poke_permissions(parser: argparse.ArgumentParser) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="USB tool for Apricorn devices.", add_help=False
-    )
+    parser = argparse.ArgumentParser(description="USB tool for Apricorn devices.", add_help=False)
     parser.add_argument("-h", "--help", action="store_true")
     parser.add_argument("-p", "--poke", type=str, metavar="TARGETS")
     parser.add_argument("--json", action="store_true")

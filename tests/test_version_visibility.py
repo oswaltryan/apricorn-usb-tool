@@ -206,9 +206,7 @@ def test_query_device_version_uses_linux_sg_io(monkeypatch):
 
 
 def test_parse_payload_flips_model_and_hardware_digit_order():
-    info = device_version._parse_payload_best_effort(
-        b"\x00\x00\x04\x63Apricorn21-00101234567"
-    )
+    info = device_version._parse_payload_best_effort(b"\x00\x00\x04\x63Apricorn21-00101234567")
 
     assert info.scb_part_number == "21-0010"
     assert info.model_id == "21"

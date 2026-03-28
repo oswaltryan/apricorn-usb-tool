@@ -1,7 +1,6 @@
 import importlib.util
 from pathlib import Path
 
-
 MODULE_PATH = Path(__file__).resolve().parents[1] / "build" / "check_glibc_floor.py"
 SPEC = importlib.util.spec_from_file_location("check_glibc_floor", MODULE_PATH)
 assert SPEC is not None

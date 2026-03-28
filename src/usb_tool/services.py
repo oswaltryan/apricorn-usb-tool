@@ -2,10 +2,11 @@
 
 import platform
 import string
-from typing import List, Optional, Any
+from typing import Any
+
 from .backend.base import AbstractBackend
-from .models import UsbDeviceInfo
 from .device_version import query_device_version
+from .models import UsbDeviceInfo
 
 VERSION_FIELD_NAMES = (
     "scbPartNumber",
@@ -18,11 +19,7 @@ VERSION_FIELD_NAMES = (
 
 def _should_probe_device_version() -> bool:
     system = platform.system().lower()
-    return (
-        system.startswith("win")
-        or system.startswith("linux")
-        or system.startswith("darwin")
-    )
+    return system.startswith("win") or system.startswith("linux") or system.startswith("darwin")
 
 
 def _normalize_revision(value: Any) -> str:
@@ -31,9 +28,7 @@ def _normalize_revision(value: Any) -> str:
     text = str(value).strip()
     if not text or text.upper() == "N/A":
         return ""
-    cleaned = "".join(
-        ch for ch in text.lower().removeprefix("0x") if ch in string.hexdigits
-    )
+    cleaned = "".join(ch for ch in text.lower().removeprefix("0x") if ch in string.hexdigits)
     if not cleaned:
         return ""
     return cleaned.lower().zfill(4)
@@ -71,10 +66,10 @@ def populate_device_version(
     vendor_id: int,
     product_id: int,
     serial_number: str,
-    bsd_name: Optional[str] = None,
-    physical_drive_num: Optional[int] = None,
-    device_path: Optional[str] = None,
-    profile: Optional[dict[str, Any]] = None,
+    bsd_name: str | None = None,
+    physical_drive_num: int | None = None,
+    device_path: str | None = None,
+    profile: dict[str, Any] | None = None,
 ) -> dict:
     """
     Queries the device version and returns a dictionary of formatted strings.
@@ -104,9 +99,7 @@ def populate_device_version(
         if getattr(_ver, "scb_part_number", "N/A") != "N/A":
             version_info["scbPartNumber"] = _ver.scb_part_number
 
-        version_info["hardwareVersion"] = (
-            getattr(_ver, "hardware_version", "N/A") or "N/A"
-        )
+        version_info["hardwareVersion"] = getattr(_ver, "hardware_version", "N/A") or "N/A"
 
         version_info["modelID"] = getattr(_ver, "model_id", "N/A") or "N/A"
 
@@ -123,7 +116,7 @@ def populate_device_version(
 
 
 class DeviceManager:
-    def __init__(self, backend: Optional[AbstractBackend] = None):
+    def __init__(self, backend: AbstractBackend | None = None):
         if backend is None:
             self.backend = self._get_default_backend()
         else:
@@ -150,10 +143,8 @@ class DeviceManager:
         self,
         expanded: bool = False,
         profile_scan: bool = False,
-    ) -> List[UsbDeviceInfo]:
-        devices = self.backend.scan_devices(
-            expanded=expanded, profile_scan=profile_scan
-        )
+    ) -> list[UsbDeviceInfo]:
+        devices = self.backend.scan_devices(expanded=expanded, profile_scan=profile_scan)
         return self.backend.sort_devices(devices)
 
     def poke(self, device_identifier: Any) -> bool:

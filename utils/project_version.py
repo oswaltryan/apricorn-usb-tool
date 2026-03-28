@@ -10,12 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT = ROOT / "pyproject.toml"
 PROJECT_NAME = "apricorn-usb-tool"
 PROJECT_SECTION_RE = re.compile(r"(?ms)^\[project\]\s*$\n(?P<body>.*?)(?=^\[|\Z)")
-PROJECT_NAME_RE = re.compile(
-    r'^\s*name\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE
-)
-PROJECT_VERSION_RE = re.compile(
-    r'^\s*version\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE
-)
+PROJECT_NAME_RE = re.compile(r'^\s*name\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE)
+PROJECT_VERSION_RE = re.compile(r'^\s*version\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE)
 VERSION_LINE_RE = re.compile(
     r'^(?P<prefix>\s*version\s*=\s*["\'])(?P<value>[^"\']+)(?P<suffix>["\']\s*(?:#.*)?)$',
     re.MULTILINE,
@@ -87,9 +83,7 @@ def _read_version_from_text(text: str) -> str:
 def _parse_version(version: str) -> tuple[int, int, int]:
     parts = version.strip().split(".")
     if len(parts) != 3 or not all(part.isdigit() for part in parts):
-        raise RuntimeError(
-            "Version auto-bump requires dotted numeric versions like '1.4.0'"
-        )
+        raise RuntimeError("Version auto-bump requires dotted numeric versions like '1.4.0'")
     major = int(parts[0])
     minor = int(parts[1])
     patch = int(parts[2])
@@ -116,11 +110,7 @@ def _replace_version_in_text(text: str, version: str) -> str:
         + f"{version_match.group('prefix')}{version}{version_match.group('suffix')}"
         + body[version_match.end() :]
     )
-    return (
-        text[: project_match.start("body")]
-        + updated_body
-        + text[project_match.end("body") :]
-    )
+    return text[: project_match.start("body")] + updated_body + text[project_match.end("body") :]
 
 
 def write_version(version: str, path: Path | None = None) -> None:

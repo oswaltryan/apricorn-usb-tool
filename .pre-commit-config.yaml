@@ -10,21 +10,18 @@ repos:
 
 -   repo: local
     hooks:
-    -   id: black
-        name: black
-        entry: uv run --extra dev black
-        language: system
-        types: [python]
     -   id: ruff
         name: ruff
         entry: uv run --extra dev ruff check --fix --exit-non-zero-on-fix
         language: system
         types_or: [python, pyi]
+        exclude: ^(utils/windows_native_scan\.c|utils/windows_native_scan/)
     -   id: ruff-format
         name: ruff-format
         entry: uv run --extra dev ruff format
         language: system
         types_or: [python, pyi]
+        exclude: ^(utils/windows_native_scan\.c|utils/windows_native_scan/)
     -   id: mypy
         name: mypy
         entry: uv run --extra dev mypy --config-file=pyproject.toml src tests
@@ -32,7 +29,7 @@ repos:
         pass_filenames: false
     -   id: bump-project-version
         name: versioning
-        entry: uv run python scripts/project_version.py bump-if-needed
+        entry: uv run python utils/project_version.py bump-if-needed
         language: system
         pass_filenames: false
         always_run: true

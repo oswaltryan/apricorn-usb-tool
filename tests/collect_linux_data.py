@@ -11,8 +11,8 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 
 def _geteuid() -> int:
@@ -120,9 +120,7 @@ def capture_data(scenario_name: str):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Capture mock data for linux_usb.py tests."
-    )
+    parser = argparse.ArgumentParser(description="Capture mock data for linux_usb.py tests.")
     parser.add_argument(
         "scenario", help="The name for the test scenario (e.g., 'single_device_uas')."
     )

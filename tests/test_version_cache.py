@@ -8,7 +8,7 @@ PROJECT_NAME = "apricorn-usb-tool"
 
 
 def _load_project_version_module():
-    script_path = Path.cwd() / "scripts" / "project_version.py"
+    script_path = Path.cwd() / "utils" / "project_version.py"
     spec = importlib.util.spec_from_file_location("project_version", script_path)
     assert spec is not None
     assert spec.loader is not None
@@ -25,36 +25,24 @@ def _write_pyproject(path: Path, version: str, name: str = PROJECT_NAME) -> None
     )
 
 
-def test_get_version_prefers_repo_pyproject_over_installed_metadata(
-    monkeypatch, tmp_path
-):
+def test_get_version_prefers_repo_pyproject_over_installed_metadata(monkeypatch, tmp_path):
     pyproject = tmp_path / "pyproject.toml"
     _write_pyproject(pyproject, "1.4.7")
     monkeypatch.delenv("USB_TOOL_VERSION", raising=False)
-    monkeypatch.setattr(
-        version_mod, "_module_root_candidates", lambda: iter([tmp_path])
-    )
-    monkeypatch.setattr(
-        version_mod.importlib.metadata, "version", lambda _name: "9.8.7"
-    )
+    monkeypatch.setattr(version_mod, "_module_root_candidates", lambda: iter([tmp_path]))
+    monkeypatch.setattr(version_mod.importlib.metadata, "version", lambda _name: "9.8.7")
 
     resolved = version_mod.get_version()
 
     assert resolved == "1.4.7"
 
 
-def test_get_version_falls_back_to_metadata_when_repo_name_mismatches(
-    monkeypatch, tmp_path
-):
+def test_get_version_falls_back_to_metadata_when_repo_name_mismatches(monkeypatch, tmp_path):
     pyproject = tmp_path / "pyproject.toml"
     _write_pyproject(pyproject, "1.4.7", name="not-apricorn-usb-tool")
     monkeypatch.delenv("USB_TOOL_VERSION", raising=False)
-    monkeypatch.setattr(
-        version_mod, "_module_root_candidates", lambda: iter([tmp_path])
-    )
-    monkeypatch.setattr(
-        version_mod.importlib.metadata, "version", lambda _name: "9.8.7"
-    )
+    monkeypatch.setattr(version_mod, "_module_root_candidates", lambda: iter([tmp_path]))
+    monkeypatch.setattr(version_mod.importlib.metadata, "version", lambda _name: "9.8.7")
 
     resolved = version_mod.get_version()
 

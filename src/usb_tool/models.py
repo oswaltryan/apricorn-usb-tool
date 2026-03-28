@@ -1,7 +1,7 @@
 # src/usb_tool/models.py
 
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
+from typing import Any
 
 
 @dataclass
@@ -16,6 +16,7 @@ class UsbDeviceInfo:
     driveSizeGB: str
     mediaType: str
     driverTransport: str = "Unknown"
+    blockDevice: str | None = None
     # These might be added dynamically or during instantiation
     usbController: str = "N/A"
     usbDriverProvider: str = "N/A"
@@ -30,13 +31,13 @@ class UsbDeviceInfo:
     driveLetter: str = "Not Formatted"
     readOnly: bool = False
     # Version info fields (optional)
-    scbPartNumber: Optional[str] = None
-    hardwareVersion: Optional[str] = None
-    modelID: Optional[str] = None
-    mcuFW: Optional[str] = None
-    bridgeFW: Optional[str] = None
+    scbPartNumber: str | None = None
+    hardwareVersion: str | None = None
+    modelID: str | None = None
+    mcuFW: str | None = None
+    bridgeFW: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = vars(self).copy()
         # We might want to remove None values or specifically bridgeFW here
         return {k: v for k, v in d.items() if v is not None}

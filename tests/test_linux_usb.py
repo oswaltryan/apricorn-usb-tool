@@ -1,6 +1,7 @@
 """Unit tests for linux_usb module."""
 
 import sys
+
 import pytest
 
 # Skip this entire module if not on Linux
@@ -9,6 +10,7 @@ if sys.platform != "linux":
 
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+
 from usb_tool.backend.linux import LinuxBackend, _LinuxBlockDeviceProbe
 
 
@@ -52,12 +54,8 @@ def test_probe_block_device_context_prefers_sysfs_when_available():
             "_get_block_device_sysfs_path",
             return_value="/sys/devices/pci0000:00/0000:00:14.0/usb1/1-1/1-1:1.0/host0/target0:0:0/0:0:0:0/block/sdb",
         ),
-        patch.object(
-            LinuxBackend, "_find_usb_driver_name_in_sysfs", return_value="uas"
-        ),
-        patch.object(
-            LinuxBackend, "_find_usb_serial_in_sysfs", return_value="SERIAL123"
-        ),
+        patch.object(LinuxBackend, "_find_usb_driver_name_in_sysfs", return_value="uas"),
+        patch.object(LinuxBackend, "_find_usb_serial_in_sysfs", return_value="SERIAL123"),
         patch.object(LinuxBackend, "_get_udev_info", udev_mock),
     ):
         probe = backend._probe_block_device_context("/dev/sdb", {"serial": ""})
@@ -397,8 +395,7 @@ def test_get_udev_info_parses_usb_storage_driver():
     mock_result = SimpleNamespace(
         returncode=0,
         stdout=(
-            "E: ID_USB_DRIVER=usb-storage\n"
-            "E: ID_PATH=pci-0000:00:14.0-usb-0:1:1.0-scsi-0:0:0:0\n"
+            "E: ID_USB_DRIVER=usb-storage\nE: ID_PATH=pci-0000:00:14.0-usb-0:1:1.0-scsi-0:0:0:0\n"
         ),
         stderr="",
     )
@@ -470,15 +467,9 @@ def test_get_controller_map_resolves_controller_name_from_pci_address():
 def test_resolve_probe_controllers_deduplicates_pci_lookups():
     backend = LinuxBackend()
     probe_map = {
-        "/dev/sda": _LinuxBlockDeviceProbe(
-            block_device="/dev/sda", pci_addr="0000:00:14.0"
-        ),
-        "/dev/sdb": _LinuxBlockDeviceProbe(
-            block_device="/dev/sdb", pci_addr="0000:00:14.0"
-        ),
-        "/dev/sdc": _LinuxBlockDeviceProbe(
-            block_device="/dev/sdc", pci_addr="0000:00:1d.0"
-        ),
+        "/dev/sda": _LinuxBlockDeviceProbe(block_device="/dev/sda", pci_addr="0000:00:14.0"),
+        "/dev/sdb": _LinuxBlockDeviceProbe(block_device="/dev/sdb", pci_addr="0000:00:14.0"),
+        "/dev/sdc": _LinuxBlockDeviceProbe(block_device="/dev/sdc", pci_addr="0000:00:1d.0"),
     }
 
     with patch.object(
@@ -517,9 +508,7 @@ def test_extract_pci_controller_address_accepts_sysfs_or_udev_style_paths():
     backend = LinuxBackend()
 
     assert (
-        backend._extract_pci_address_from_text(
-            "/sys/devices/pci0000:00/0000:00:14.0/usb1/1-1"
-        )
+        backend._extract_pci_address_from_text("/sys/devices/pci0000:00/0000:00:14.0/usb1/1-1")
         == "0000:00:14.0"
     )
     assert (

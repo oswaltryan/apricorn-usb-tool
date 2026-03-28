@@ -1,23 +1,23 @@
 # src/usb_tool/backend/linux.py
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
-import subprocess
-import re
-import os
 import json
+import os
+import re
+import subprocess
 import sys
 import time
-from typing import List, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from typing import Any
 
-from .base import AbstractBackend
-from ..models import UsbDeviceInfo
-from ..utils import bytes_to_gb, find_closest
 from ..constants import EXCLUDED_PIDS
 from ..device_config import closest_values
+from ..models import UsbDeviceInfo
 
 # For Phase 3/4, still import from legacy if not moved
 from ..services import populate_device_version, prune_hidden_version_fields
+from ..utils import bytes_to_gb, find_closest
+from .base import AbstractBackend
 
 
 def _normalize_pid(pid: str) -> str:
@@ -57,9 +57,7 @@ def _emit_profile_summary(
         return
 
     context = " ".join(f"{key}={value}" for key, value in fields.items())
-    metric_text = ", ".join(
-        f"{label}={duration_ms:.2f}ms" for label, duration_ms in metrics
-    )
+    metric_text = ", ".join(f"{label}={duration_ms:.2f}ms" for label, duration_ms in metrics)
     line = prefix if not context else f"{prefix} {context}"
     print(f"{line}: {metric_text}", file=sys.stderr)
 
@@ -84,7 +82,7 @@ class LinuxBackend(AbstractBackend):
         self,
         expanded: bool = False,
         profile_scan: bool = False,
-    ) -> List[UsbDeviceInfo]:
+    ) -> list[UsbDeviceInfo]:
         self._profile_scan_enabled = profile_scan
         self._profile_helper_events_enabled = False
         scan_start = time.perf_counter()
@@ -115,9 +113,7 @@ class LinuxBackend(AbstractBackend):
             if not block_path:
                 continue
 
-            probe = probe_map.get(block_path) or _LinuxBlockDeviceProbe(
-                block_device=block_path
-            )
+            probe = probe_map.get(block_path) or _LinuxBlockDeviceProbe(block_device=block_path)
             serial = probe.serial or _normalize_linux_serial(lsblk_info.get("serial"))
 
             if not serial:
@@ -181,9 +177,9 @@ class LinuxBackend(AbstractBackend):
                 mediaType=lsblk_info.get("mediaType", "Unknown"),
                 **version_info,
             )
-            setattr(dev_info, "blockDevice", block_path)
-            setattr(dev_info, "usbController", probe.controller_name or "N/A")
-            setattr(dev_info, "readOnly", bool(lsblk_info.get("readOnly", False)))
+            dev_info.blockDevice = block_path
+            dev_info.usbController = probe.controller_name or "N/A"
+            dev_info.readOnly = bool(lsblk_info.get("readOnly", False))
 
             prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
@@ -229,7 +225,7 @@ class LinuxBackend(AbstractBackend):
         except OSError:
             return False
 
-    def sort_devices(self, devices: List[UsbDeviceInfo]) -> List[UsbDeviceInfo]:
+    def sort_devices(self, devices: list[UsbDeviceInfo]) -> list[UsbDeviceInfo]:
         def _key(dev):
             path = getattr(dev, "blockDevice", "")
             return path if path.startswith("/dev/") else "~~~~~"
@@ -257,9 +253,7 @@ class LinuxBackend(AbstractBackend):
             getattr(self, "_profile_helper_events_enabled", False),
             "linux-version-profile",
             block_device=block_path,
-            size_mode=(
-                "oob" if str(size_gb).strip() == "N/A (OOB Mode)" else "mounted_media"
-            ),
+            size_mode=("oob" if str(size_gb).strip() == "N/A (OOB Mode)" else "mounted_media"),
             serial=serial or "unknown",
             duration_ms=f"{profile_ms:.2f}",
         )
@@ -286,9 +280,7 @@ class LinuxBackend(AbstractBackend):
         results: dict[str, _LinuxBlockDeviceProbe] = {}
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
-                executor.submit(
-                    self._probe_block_device_context, drive["name"], drive
-                ): drive
+                executor.submit(self._probe_block_device_context, drive["name"], drive): drive
                 for drive in candidates
             }
             for future in as_completed(futures):
@@ -336,9 +328,7 @@ class LinuxBackend(AbstractBackend):
     def _resolve_probe_controllers(
         self, probe_map: dict[str, _LinuxBlockDeviceProbe]
     ) -> dict[str, str]:
-        pci_addresses = sorted(
-            {probe.pci_addr for probe in probe_map.values() if probe.pci_addr}
-        )
+        pci_addresses = sorted({probe.pci_addr for probe in probe_map.values() if probe.pci_addr})
         if not pci_addresses:
             return {block_device: "N/A" for block_device in probe_map}
 
@@ -396,10 +386,7 @@ class LinuxBackend(AbstractBackend):
 
     def _find_usb_driver_name_in_sysfs(self, sysfs_path: str) -> str:
         for candidate in self._iter_sysfs_ancestors(sysfs_path):
-            if (
-                self._read_sysfs_link_name(os.path.join(candidate, "subsystem"))
-                != "usb"
-            ):
+            if self._read_sysfs_link_name(os.path.join(candidate, "subsystem")) != "usb":
                 continue
             driver_name = self._read_sysfs_link_name(os.path.join(candidate, "driver"))
             if driver_name and driver_name != "usb":
@@ -408,10 +395,7 @@ class LinuxBackend(AbstractBackend):
 
     def _find_usb_serial_in_sysfs(self, sysfs_path: str) -> str:
         for candidate in self._iter_sysfs_ancestors(sysfs_path):
-            if (
-                self._read_sysfs_link_name(os.path.join(candidate, "subsystem"))
-                != "usb"
-            ):
+            if self._read_sysfs_link_name(os.path.join(candidate, "subsystem")) != "usb":
                 continue
             serial = _normalize_linux_serial(
                 self._read_sysfs_text(os.path.join(candidate, "serial"))
@@ -457,9 +441,7 @@ class LinuxBackend(AbstractBackend):
                         "name": parts[0],
                         "serial": _normalize_linux_serial(parts[1]),
                         "size_gb": self.parse_lsblk_size(parts[2]),
-                        "mediaType": (
-                            "Removable Media" if parts[3] == "1" else "Basic Disk"
-                        ),
+                        "mediaType": ("Removable Media" if parts[3] == "1" else "Basic Disk"),
                         "readOnly": parts[4] == "1",
                     }
                 )
@@ -588,17 +570,13 @@ class LinuxBackend(AbstractBackend):
         return "Unknown"
 
     def _classify_driver_transport(self, lshw_entry: dict[str, Any] | None) -> str:
-        return self._classify_driver_transport_name(
-            (lshw_entry or {}).get("driver", "")
-        )
+        return self._classify_driver_transport_name((lshw_entry or {}).get("driver", ""))
 
     def _get_transport_map(self, udev_map: dict[str, dict[str, str]]) -> dict[str, str]:
         transport_map: dict[str, str] = {}
         for block_device, udev_info in udev_map.items():
             driver_name = udev_info.get("ID_USB_DRIVER", "").strip().lower()
-            transport_map[block_device] = self._classify_driver_transport(
-                {"driver": driver_name}
-            )
+            transport_map[block_device] = self._classify_driver_transport({"driver": driver_name})
         return transport_map
 
     def _get_transport_map_by_serial(self) -> dict[str, str]:
@@ -641,9 +619,7 @@ class LinuxBackend(AbstractBackend):
                     if match:
                         driver_name = match.group(1).strip().lower()
             if serial and driver_name:
-                transport_map[serial] = self._classify_driver_transport(
-                    {"driver": driver_name}
-                )
+                transport_map[serial] = self._classify_driver_transport({"driver": driver_name})
         parse_ms = (time.perf_counter() - parse_start) * 1000.0
         _emit_profile_event(
             getattr(self, "_profile_helper_events_enabled", False),
@@ -657,10 +633,7 @@ class LinuxBackend(AbstractBackend):
         return transport_map
 
     def _get_udev_info_map(self, block_devices) -> dict[str, dict[str, str]]:
-        return {
-            block_device: self._get_udev_info(block_device)
-            for block_device in block_devices
-        }
+        return {block_device: self._get_udev_info(block_device) for block_device in block_devices}
 
     def _parse_udev_properties(self, output: str) -> dict[str, str]:
         info: dict[str, str] = {}
@@ -723,9 +696,7 @@ class LinuxBackend(AbstractBackend):
         )
         return info
 
-    def _get_controller_map(
-        self, udev_map: dict[str, dict[str, str]]
-    ) -> dict[str, str]:
+    def _get_controller_map(self, udev_map: dict[str, dict[str, str]]) -> dict[str, str]:
         cache: dict[str, str] = {}
         controller_map: dict[str, str] = {}
         for block_device, udev_info in udev_map.items():

@@ -15,9 +15,8 @@ import logging
 import signal
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Tuple
 
 try:
     from usb_tool import find_apricorn_device  # provided library
@@ -26,7 +25,7 @@ except ImportError as exc:
     sys.exit(1)
 
 USB2_THRESHOLD = 3.0  # < 3.0 → USB2
-DevKey = Tuple[str, int, int]  # (serial, bus, address)
+DevKey = tuple[str, int, int]  # (serial, bus, address)
 
 
 # ────────────────────────────────── CLI / LOG ──────────────────────────────────
@@ -39,9 +38,7 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="seconds between scans (0 = wait for <Enter>)",
     )
-    p.add_argument(
-        "-o", "--out", type=Path, default=Path("counts.json"), help="JSON stats path"
-    )
+    p.add_argument("-o", "--out", type=Path, default=Path("counts.json"), help="JSON stats path")
     p.add_argument(
         "-l",
         "--log",
@@ -72,7 +69,7 @@ def safe_scan() -> list:
         return []  # silence – no log clutter
 
 
-def atomic_write(path: Path, data: Dict) -> None:
+def atomic_write(path: Path, data: dict) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     tmp.replace(path)
@@ -81,11 +78,11 @@ def atomic_write(path: Path, data: Dict) -> None:
 # ───────────────────────────── enumeration state ───────────────────────────────
 class EnumStats:
     def __init__(self) -> None:
-        self.prev: Dict[DevKey, str] = {}
+        self.prev: dict[DevKey, str] = {}
         self.totals = {"usb2": 0, "usb3": 0, "total": 0}
 
     def scan(self) -> None:
-        now: Dict[DevKey, str] = {}
+        now: dict[DevKey, str] = {}
 
         for dev in safe_scan():
             key = (dev.iSerial, dev.busNumber, dev.deviceAddress)
@@ -108,8 +105,8 @@ class EnumStats:
 
         self.prev = now
 
-    def to_json(self) -> Dict:
-        return {"ts": datetime.now(timezone.utc).isoformat(), **self.totals}
+    def to_json(self) -> dict:
+        return {"ts": datetime.now(UTC).isoformat(), **self.totals}
 
 
 # ─────────────────────────────────── main ──────────────────────────────────────

@@ -1,6 +1,7 @@
 # tests/test_mac_usb.py
 
 import sys
+
 import pytest
 
 # Skip this entire module if not on macOS
@@ -10,6 +11,7 @@ if sys.platform != "darwin":
 import json
 from types import SimpleNamespace
 from unittest.mock import patch
+
 from usb_tool.backend.macos import MacOSBackend
 
 
@@ -56,16 +58,18 @@ def test_list_usb_drives_filters_apricorn_devices():
 
 
 def test_parse_uasp_info_builds_boolean_map():
-    ioreg_out = """
-+-o IOUSBMassStorageDriverNub  <class IOUSBMassStorageDriverNub>
-  | {
-  |   "IOClass" = "IOUSBMassStorageDriverNub"
-  |   "bInterfaceClass" = 8
-  |   "bInterfaceSubClass" = 6
-  |   "bInterfaceProtocol" = 98
-  |   "USB Device Info" = {"kUSBSerialNumberString"="SER123","USB Product Name"="Drive One","bInterfaceProtocol"=98,"bInterfaceSubClass"=6,"bInterfaceClass"=8}
-  | }
-"""
+    ioreg_out = (
+        "+-o IOUSBMassStorageDriverNub  <class IOUSBMassStorageDriverNub>\n"
+        "  | {\n"
+        '  |   "IOClass" = "IOUSBMassStorageDriverNub"\n'
+        '  |   "bInterfaceClass" = 8\n'
+        '  |   "bInterfaceSubClass" = 6\n'
+        '  |   "bInterfaceProtocol" = 98\n'
+        '  |   "USB Device Info" = {"kUSBSerialNumberString"="SER123",'
+        '"USB Product Name"="Drive One","bInterfaceProtocol"=98,'
+        '"bInterfaceSubClass"=6,"bInterfaceClass"=8}\n'
+        "  | }\n"
+    )
 
     def mock_subprocess_run(cmd, **kwargs):
         if cmd[:3] == ["ioreg", "-r", "-c"]:
@@ -206,22 +210,24 @@ def test_scan_devices_populates_read_only_from_mass_storage_info():
 
 
 def test_get_mass_storage_info_map_parses_transport_and_read_only():
-    ioreg_out = """
-+-o IOUSBMassStorageDriverNub  <class IOUSBMassStorageDriverNub>
-  | {
-  |   "IOClass" = "IOUSBMassStorageDriverNub"
-  |   "bInterfaceClass" = 8
-  |   "bInterfaceSubClass" = 6
-  |   "bInterfaceProtocol" = 98
-  |   "USB Device Info" = {"kUSBSerialNumberString"="147250002822","USB Product Name"="Secure Key 3.0","bInterfaceProtocol"=98,"bInterfaceSubClass"=6,"bInterfaceClass"=8}
-  | }
-  |
-  +-o Apricorn Secure Key 3.0 Media  <class IOMedia>
-    | {
-    |   "BSD Name" = "disk4"
-    |   "Writable" = No
-    | }
-"""
+    ioreg_out = (
+        "+-o IOUSBMassStorageDriverNub  <class IOUSBMassStorageDriverNub>\n"
+        "  | {\n"
+        '  |   "IOClass" = "IOUSBMassStorageDriverNub"\n'
+        '  |   "bInterfaceClass" = 8\n'
+        '  |   "bInterfaceSubClass" = 6\n'
+        '  |   "bInterfaceProtocol" = 98\n'
+        '  |   "USB Device Info" = {"kUSBSerialNumberString"="147250002822",'
+        '"USB Product Name"="Secure Key 3.0","bInterfaceProtocol"=98,'
+        '"bInterfaceSubClass"=6,"bInterfaceClass"=8}\n'
+        "  | }\n"
+        "  |\n"
+        "  +-o Apricorn Secure Key 3.0 Media  <class IOMedia>\n"
+        "    | {\n"
+        '    |   "BSD Name" = "disk4"\n'
+        '    |   "Writable" = No\n'
+        "    | }\n"
+    )
 
     with patch(
         "usb_tool.backend.macos.subprocess.run",
@@ -277,9 +283,7 @@ def test_scan_devices_uses_diskutil_media_type_when_profiler_omits_it():
     with (
         patch.object(MacOSBackend, "_list_usb_drives", return_value=drives),
         patch.object(MacOSBackend, "_parse_uasp_info", return_value={}),
-        patch.object(
-            MacOSBackend, "_get_media_type_from_diskutil", return_value="Basic Disk"
-        ),
+        patch.object(MacOSBackend, "_get_media_type_from_diskutil", return_value="Basic Disk"),
         patch("usb_tool.backend.macos.populate_device_version", return_value={}),
     ):
         backend = MacOSBackend()

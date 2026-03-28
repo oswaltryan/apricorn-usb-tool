@@ -7,11 +7,9 @@ a PID or bcdDevice value. The value is a list containing the product name hint
 and a list of supported capacities.
 """
 
-from typing import Dict, List, Tuple
-
 # PID or bcdDevice: [Product Name Hint, [Sizes in GB]]
 # Ensure identifiers are lowercase hex strings without the 0x prefix
-closest_values: Dict[str, Tuple[str, List[int]]] = {
+closest_values: dict[str, tuple[str, list[int]]] = {
     "0310": ("Padlock 3.0", [256, 500, 1000, 2000, 4000, 8000, 16000]),
     "0315": (
         "Padlock DT",

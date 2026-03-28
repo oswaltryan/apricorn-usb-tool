@@ -13,9 +13,8 @@ import logging
 import signal
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Tuple
 
 try:
     from usb_tool import find_apricorn_device  # provided library
@@ -26,7 +25,7 @@ except ImportError as exc:
 USB2_THRESHOLD = 3.0
 DEVICE_TIMEOUT = 2.5  # seconds after disappearance to reset
 
-DeviceKey = Tuple[str, str]  # (serial_num, location_id)
+DeviceKey = tuple[str, str]  # (serial_num, location_id)
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,9 +37,7 @@ def parse_args() -> argparse.Namespace:
         default=1.0,
         help="seconds between scans (0 = wait for <Enter>)",
     )
-    p.add_argument(
-        "-o", "--out", type=Path, default=Path("counts.json"), help="JSON stats path"
-    )
+    p.add_argument("-o", "--out", type=Path, default=Path("counts.json"), help="JSON stats path")
     p.add_argument(
         "-l",
         "--log",
@@ -70,7 +67,7 @@ def safe_scan() -> list:
         return []
 
 
-def atomic_write(path: Path, data: Dict) -> None:
+def atomic_write(path: Path, data: dict) -> None:
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, indent=2))
     tmp.replace(path)
@@ -79,11 +76,11 @@ def atomic_write(path: Path, data: Dict) -> None:
 class EnumStats:
     def __init__(self) -> None:
         self.totals = {"usb2": 0, "usb3": 0, "total": 0}
-        self.last_seen: Dict[DeviceKey, float] = {}
+        self.last_seen: dict[DeviceKey, float] = {}
 
     def scan(self) -> None:
         current_time = time.time()
-        active_devices: Dict[DeviceKey, float] = {}
+        active_devices: dict[DeviceKey, float] = {}
 
         for dev in safe_scan():
             serial: str = str(
@@ -95,8 +92,7 @@ class EnumStats:
             speed = "usb3" if bcdUSB >= USB2_THRESHOLD else "usb2"
 
             was_recent = (
-                key in self.last_seen
-                and (current_time - self.last_seen[key]) < DEVICE_TIMEOUT
+                key in self.last_seen and (current_time - self.last_seen[key]) < DEVICE_TIMEOUT
             )
 
             # If not seen recently, count as new enumeration
@@ -116,9 +112,9 @@ class EnumStats:
         # Update last seen only for active devices
         self.last_seen.update(active_devices)
 
-    def to_json(self) -> Dict:
+    def to_json(self) -> dict:
         return {
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "totals": self.totals,
         }
 

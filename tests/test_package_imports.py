@@ -9,9 +9,7 @@ def test_usb_tool_import_does_not_eager_import_windows_backend() -> None:
     env = dict(os.environ)
     existing_pythonpath = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = (
-        f"{repo_src}{os.pathsep}{existing_pythonpath}"
-        if existing_pythonpath
-        else str(repo_src)
+        f"{repo_src}{os.pathsep}{existing_pythonpath}" if existing_pythonpath else str(repo_src)
     )
 
     result = subprocess.run(

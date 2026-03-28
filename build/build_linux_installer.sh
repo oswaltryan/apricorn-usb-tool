@@ -28,7 +28,7 @@ find_binary() {
     exit 1
 }
 
-version=$(python3 "$REPO_ROOT/scripts/project_version.py" read)
+version=$(python3 "$REPO_ROOT/utils/project_version.py" read)
 deb_version=${version//+/-}
 binary_path=$(find_binary)
 

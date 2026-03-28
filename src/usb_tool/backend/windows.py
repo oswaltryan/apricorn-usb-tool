@@ -1,27 +1,29 @@
 # src/usb_tool/backend/windows.py
 
 import ctypes as ct
-import ctypes.wintypes as wintypes
 import json
 import re
 import subprocess
 import sys
 import time
 from collections import defaultdict
+from ctypes import wintypes
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
-from typing import List, Any, Tuple, cast
+from typing import Any, cast
 
-from .base import AbstractBackend
-from ..models import UsbDeviceInfo
-from ..utils import bytes_to_gb, find_closest, parse_usb_version
 from ..constants import EXCLUDED_PIDS
 from ..device_config import closest_values
+from ..models import UsbDeviceInfo
 from ..services import populate_device_version, prune_hidden_version_fields
+from ..utils import bytes_to_gb, find_closest, parse_usb_version
+from .base import AbstractBackend
 
 _usb_module: Any | None = None
 _usb_import_attempted = False
+_TRUTHY_VALUES = {"1", "true", "yes", "on"}
+_FALSY_VALUES = {"0", "false", "no", "off"}
 
 
 def _get_usb_module() -> Any | None:
@@ -40,6 +42,7 @@ def _get_usb_module() -> Any | None:
     except Exception:  # pragma: no cover - exercised on non-Windows CI
         _usb_module = None
     return _usb_module
+
 
 class _LazyWin32ComClient:
     def __init__(self) -> None:
@@ -80,7 +83,7 @@ def _set_last_error(value: int) -> None:
         setter(value)
 
 
-def _extract_vid_pid(device_id: str) -> Tuple[str, str]:
+def _extract_vid_pid(device_id: str) -> tuple[str, str]:
     if not isinstance(device_id, str):
         return "", ""
     vid_match = re.search(r"VID_([0-9A-Fa-f]{4})", device_id)
@@ -154,9 +157,7 @@ class _StageTimer:
         if not self.enabled:
             return
         total_ms = (time.perf_counter() - self.start) * 1000.0
-        parts = [
-            f"{label}={duration_ms:.2f}ms" for label, duration_ms in self.measurements
-        ]
+        parts = [f"{label}={duration_ms:.2f}ms" for label, duration_ms in self.measurements]
         parts.append(f"total={total_ms:.2f}ms")
         line = "windows-scan-profile"
         if suffix:
@@ -252,7 +253,9 @@ class WindowsBackend(AbstractBackend):
         repo_root = Path(__file__).resolve().parents[3]
         candidates.extend(
             [
+                repo_root / "utils" / "windows_native_scan.exe",
                 repo_root / "windows_native_scan.exe",
+                Path.cwd() / "utils" / "windows_native_scan.exe",
                 Path.cwd() / "windows_native_scan.exe",
                 Path(sys.executable).resolve().parent / "windows_native_scan.exe",
             ]
@@ -272,7 +275,7 @@ class WindowsBackend(AbstractBackend):
         self,
         expanded: bool = False,
         profile_scan: bool = False,
-    ) -> List[UsbDeviceInfo]:
+    ) -> list[UsbDeviceInfo]:
         self._profile_scan_enabled = profile_scan
         self._scan_pass_index = 1
 
@@ -373,12 +376,8 @@ class WindowsBackend(AbstractBackend):
             )
             version_query_ms += version_info.pop("_profile_ms", 0.0)
             version_create_file_ms += version_info.pop("_profile_create_file_ms", 0.0)
-            version_device_io_control_ms += version_info.pop(
-                "_profile_device_io_control_ms", 0.0
-            )
-            version_parse_payload_ms += version_info.pop(
-                "_profile_parse_payload_ms", 0.0
-            )
+            version_device_io_control_ms += version_info.pop("_profile_device_io_control_ms", 0.0)
+            version_parse_payload_ms += version_info.pop("_profile_parse_payload_ms", 0.0)
             version_info.pop("_profile_open_error", None)
             version_info.pop("_profile_payload_len", None)
 
@@ -406,9 +405,7 @@ class WindowsBackend(AbstractBackend):
                 "native_drive_letters_ms": "n/a",
             }
             if isinstance(native_profile, dict):
-                native_profile_json["native_total_ms"] = native_profile.get(
-                    "totalMs", "n/a"
-                )
+                native_profile_json["native_total_ms"] = native_profile.get("totalMs", "n/a")
                 native_profile_json["native_enumeration_ms"] = native_profile.get(
                     "enumerationMs", "n/a"
                 )
@@ -452,17 +449,11 @@ class WindowsBackend(AbstractBackend):
                     mediaType=self._as_text(entry.get("mediaType"), "Unknown"),
                     driverTransport=self._as_text(entry.get("driverTransport"), "Unknown"),
                     usbController=self._as_text(entry.get("usbController"), "N/A"),
-                    usbDriverProvider=self._as_text(
-                        entry.get("usbDriverProvider"), "N/A"
-                    ),
+                    usbDriverProvider=self._as_text(entry.get("usbDriverProvider"), "N/A"),
                     usbDriverVersion=self._as_text(entry.get("usbDriverVersion"), "N/A"),
                     usbDriverInf=self._as_text(entry.get("usbDriverInf"), "N/A"),
-                    diskDriverProvider=self._as_text(
-                        entry.get("diskDriverProvider"), "N/A"
-                    ),
-                    diskDriverVersion=self._as_text(
-                        entry.get("diskDriverVersion"), "N/A"
-                    ),
+                    diskDriverProvider=self._as_text(entry.get("diskDriverProvider"), "N/A"),
+                    diskDriverVersion=self._as_text(entry.get("diskDriverVersion"), "N/A"),
                     diskDriverInf=self._as_text(entry.get("diskDriverInf"), "N/A"),
                     busNumber=self._as_int(entry.get("busNumber"), -1),
                     deviceAddress=self._as_int(entry.get("deviceAddress"), -1),
@@ -474,13 +465,13 @@ class WindowsBackend(AbstractBackend):
                 continue
 
             if "scbPartNumber" in entry:
-                setattr(dev_info, "scbPartNumber", self._as_text(entry.get("scbPartNumber"), "N/A"))
+                dev_info.scbPartNumber = self._as_text(entry.get("scbPartNumber"), "N/A")
             if "hardwareVersion" in entry:
-                setattr(dev_info, "hardwareVersion", self._as_text(entry.get("hardwareVersion"), "N/A"))
+                dev_info.hardwareVersion = self._as_text(entry.get("hardwareVersion"), "N/A")
             if "modelID" in entry:
-                setattr(dev_info, "modelID", self._as_text(entry.get("modelID"), "N/A"))
+                dev_info.modelID = self._as_text(entry.get("modelID"), "N/A")
             if "mcuFW" in entry:
-                setattr(dev_info, "mcuFW", self._as_text(entry.get("mcuFW"), "N/A"))
+                dev_info.mcuFW = self._as_text(entry.get("mcuFW"), "N/A")
 
             prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
@@ -544,9 +535,7 @@ class WindowsBackend(AbstractBackend):
         timer.mark("physical_drive_map")
 
         device_ids = {
-            device.get("device_id", "")
-            for device in wmi_usb_devices
-            if device.get("device_id", "")
+            device.get("device_id", "") for device in wmi_usb_devices if device.get("device_id", "")
         }
         if expanded:
             device_ids.update(
@@ -571,9 +560,7 @@ class WindowsBackend(AbstractBackend):
         include_controller = not minimal
         if include_controller:
             usb_controllers = self._get_usb_controllers_wmi()
-            usb_controllers = self._sort_usb_controllers(
-                wmi_usb_devices, usb_controllers
-            )
+            usb_controllers = self._sort_usb_controllers(wmi_usb_devices, usb_controllers)
         else:
             usb_controllers = [{"ControllerName": "N/A"}] * len(wmi_usb_devices)
         timer.mark("usb_controllers")
@@ -583,7 +570,7 @@ class WindowsBackend(AbstractBackend):
 
         drive_indices = set()
         if not minimal and physical_drives:
-            for device, drive in zip(wmi_usb_devices, wmi_usb_drives):
+            for device, drive in zip(wmi_usb_devices, wmi_usb_drives, strict=False):
                 if drive.get("size_gb", 0.0) > 0:
                     serial = device.get("serial", "")
                     idx = physical_drives.get(serial, -1)
@@ -597,9 +584,7 @@ class WindowsBackend(AbstractBackend):
         timer.mark("readonly_map")
         drive_letters_map = {}
         if not minimal:
-            drive_letters_map = self._get_drive_letters_map_wmi(
-                wmi_usb_drives, drive_indices
-            )
+            drive_letters_map = self._get_drive_letters_map_wmi(wmi_usb_drives, drive_indices)
         timer.mark("drive_letters_map")
 
         devices = self._instantiate_devices(
@@ -629,7 +614,7 @@ class WindowsBackend(AbstractBackend):
 
     def poke_device(self, device_identifier: Any) -> bool:
         # Simplified version of _windows_read10 from poke_device.py
-        import ctypes.wintypes as wintypes
+        from ctypes import wintypes
 
         GENERIC_READ = 0x80000000
         GENERIC_WRITE = 0x40000000
@@ -719,7 +704,7 @@ class WindowsBackend(AbstractBackend):
         finally:
             kernel32.CloseHandle(h_drive)
 
-    def sort_devices(self, devices: List[UsbDeviceInfo]) -> List[UsbDeviceInfo]:
+    def sort_devices(self, devices: list[UsbDeviceInfo]) -> list[UsbDeviceInfo]:
         def _key(dev):
             p_num = getattr(dev, "physicalDriveNum", -1)
             return p_num if isinstance(p_num, int) and p_num >= 0 else float("inf")
@@ -768,9 +753,7 @@ class WindowsBackend(AbstractBackend):
                         "manufacturer": "Apricorn",
                         "description": d.Description or "",
                         "device_id": d.DeviceID,
-                        "serial": (
-                            d.DeviceID.split("\\")[-1] if "\\" in d.DeviceID else ""
-                        ),
+                        "serial": (d.DeviceID.split("\\")[-1] if "\\" in d.DeviceID else ""),
                         "usbDriverProvider": "N/A",
                         "usbDriverVersion": "N/A",
                         "usbDriverInf": "N/A",
@@ -778,9 +761,7 @@ class WindowsBackend(AbstractBackend):
                 )
         return info
 
-    def _get_signed_driver_info_map(
-        self, device_ids: set[str]
-    ) -> dict[str, dict[str, str]]:
+    def _get_signed_driver_info_map(self, device_ids: set[str]) -> dict[str, dict[str, str]]:
         cleaned_ids = sorted({device_id for device_id in device_ids if device_id})
         if not cleaned_ids:
             return {}
@@ -803,12 +784,8 @@ class WindowsBackend(AbstractBackend):
             if not device_id:
                 continue
             info_map[device_id] = {
-                "provider": _normalize_driver_value(
-                    getattr(record, "DriverProviderName", None)
-                ),
-                "version": _normalize_driver_value(
-                    getattr(record, "DriverVersion", None)
-                ),
+                "provider": _normalize_driver_value(getattr(record, "DriverProviderName", None)),
+                "version": _normalize_driver_value(getattr(record, "DriverVersion", None)),
                 "inf": _normalize_driver_value(getattr(record, "InfName", None)),
             }
         return info_map
@@ -998,9 +975,7 @@ class WindowsBackend(AbstractBackend):
                     index += 1
                     continue
 
-                device_path = ct.wstring_at(
-                    ct.addressof(detail_buffer) + ct.sizeof(wintypes.DWORD)
-                )
+                device_path = ct.wstring_at(ct.addressof(detail_buffer) + ct.sizeof(wintypes.DWORD))
                 normalized_path = self._normalize_interface_path(device_path)
                 device_number = self._query_storage_device_number(device_path)
                 records.append(
@@ -1008,9 +983,7 @@ class WindowsBackend(AbstractBackend):
                         "device_path": device_path,
                         "normalized_path": normalized_path,
                         "device_number": device_number,
-                        "product_hint": self._extract_product_from_interface_path(
-                            device_path
-                        ),
+                        "product_hint": self._extract_product_from_interface_path(device_path),
                     }
                 )
                 index += 1
@@ -1029,9 +1002,7 @@ class WindowsBackend(AbstractBackend):
 
     def _get_usb_storage_metrics_map_wmi(self) -> dict[int, dict[str, Any]]:
         try:
-            storage = self.locator.ConnectServer(
-                ".", "root\\Microsoft\\Windows\\Storage"
-            )
+            storage = self.locator.ConnectServer(".", "root\\Microsoft\\Windows\\Storage")
             disks = storage.ExecQuery(
                 "SELECT Number, IsReadOnly, BusType, Size, FriendlyName, Model FROM MSFT_Disk"
             )
@@ -1084,11 +1055,7 @@ class WindowsBackend(AbstractBackend):
                 continue
 
             drive_num = matched.get("device_number")
-            metrics = (
-                storage_metrics_map.get(drive_num, {})
-                if isinstance(drive_num, int)
-                else {}
-            )
+            metrics = storage_metrics_map.get(drive_num, {}) if isinstance(drive_num, int) else {}
             product = matched.get("product_hint", "") or device.get("description", "")
             drives.append(
                 {
@@ -1179,9 +1146,7 @@ class WindowsBackend(AbstractBackend):
                     drives[explicit_serial] = drive_num
                     continue
 
-            pnp_device_id = str(
-                _get_attr(r, "pnpdeviceid", _get_attr(r, "PNPDeviceID", "")) or ""
-            )
+            pnp_device_id = str(_get_attr(r, "pnpdeviceid", _get_attr(r, "PNPDeviceID", "")) or "")
             if "SATAWIRE" in pnp_device_id or "FLASH_DISK" in pnp_device_id:
                 continue
             if "APRI" in pnp_device_id.upper():
@@ -1209,9 +1174,7 @@ class WindowsBackend(AbstractBackend):
                             {
                                 "DeviceID": str(dev.DeviceID).upper(),
                                 "ControllerName": (
-                                    ctrl.Name[:5]
-                                    if ctrl.Name.startswith("Intel")
-                                    else "ASMedia"
+                                    ctrl.Name[:5] if ctrl.Name.startswith("Intel") else "ASMedia"
                                 ),
                             }
                         )
@@ -1223,15 +1186,9 @@ class WindowsBackend(AbstractBackend):
 
     def _get_usb_readonly_status_map_wmi(self):
         try:
-            storage = self.locator.ConnectServer(
-                ".", "root\\Microsoft\\Windows\\Storage"
-            )
-            disks = storage.ExecQuery(
-                "SELECT Number, IsReadOnly, BusType FROM MSFT_Disk"
-            )
-            return {
-                int(d.Number): bool(d.IsReadOnly) for d in disks if int(d.BusType) == 7
-            }
+            storage = self.locator.ConnectServer(".", "root\\Microsoft\\Windows\\Storage")
+            disks = storage.ExecQuery("SELECT Number, IsReadOnly, BusType FROM MSFT_Disk")
+            return {int(d.Number): bool(d.IsReadOnly) for d in disks if int(d.BusType) == 7}
         except Exception:
             return {}
 
@@ -1270,9 +1227,7 @@ class WindowsBackend(AbstractBackend):
         partition_to_letters: dict[str, list[str]] = {}
         for link in logical_links:
             antecedent = str(getattr(link, "Antecedent", "") or "")
-            dependent = _normalize_logical_disk_identifier(
-                getattr(link, "Dependent", "")
-            )
+            dependent = _normalize_logical_disk_identifier(getattr(link, "Dependent", ""))
             if dependent:
                 partition_to_letters.setdefault(antecedent, []).append(dependent)
 
@@ -1285,9 +1240,7 @@ class WindowsBackend(AbstractBackend):
             if drive_indices and idx not in drive_indices:
                 continue
 
-            escaped_device_id = _escape_wmi_string(
-                str(_get_attr(d, "DeviceID", "") or "")
-            )
+            escaped_device_id = _escape_wmi_string(str(_get_attr(d, "DeviceID", "") or ""))
             disk_token = f'DeviceID="{escaped_device_id}"'
             index_token = f"Index={idx}"
             matching_partitions: list[str] = []
@@ -1475,24 +1428,20 @@ class WindowsBackend(AbstractBackend):
                 diskDriverProvider=wmi_usb_drives[i]
                 .get("diskDriverInfo", {})
                 .get("provider", "N/A"),
-                diskDriverVersion=wmi_usb_drives[i]
-                .get("diskDriverInfo", {})
-                .get("version", "N/A"),
-                diskDriverInf=wmi_usb_drives[i]
-                .get("diskDriverInfo", {})
-                .get("inf", "N/A"),
+                diskDriverVersion=wmi_usb_drives[i].get("diskDriverInfo", {}).get("version", "N/A"),
+                diskDriverInf=wmi_usb_drives[i].get("diskDriverInfo", {}).get("inf", "N/A"),
                 **version_info,
             )
             if include_controller:
-                setattr(dev_info, "usbController", usb_controllers[i]["ControllerName"])
+                dev_info.usbController = usb_controllers[i]["ControllerName"]
             else:
                 try:
                     delattr(dev_info, "usbController")
                 except AttributeError:
                     pass
-            setattr(dev_info, "busNumber", libusb_data[i]["bus_number"])
-            setattr(dev_info, "deviceAddress", libusb_data[i]["dev_address"])
-            setattr(dev_info, "physicalDriveNum", drive_num)
+            dev_info.busNumber = libusb_data[i]["bus_number"]
+            dev_info.deviceAddress = libusb_data[i]["dev_address"]
+            dev_info.physicalDriveNum = drive_num
             if include_drive_letter:
                 drive_letter = drive_letters_map.get(drive_num, "Not Formatted")
                 if (
@@ -1511,9 +1460,7 @@ class WindowsBackend(AbstractBackend):
                         )
                     drive_letter_start = time.perf_counter()
                     drive_letter = self.get_drive_letter_via_ps(drive_num)
-                    drive_letter_fallback_ms += (
-                        time.perf_counter() - drive_letter_start
-                    ) * 1000.0
+                    drive_letter_fallback_ms += (time.perf_counter() - drive_letter_start) * 1000.0
                     if self._profile_scan_enabled:
                         print(
                             "windows-drive-letter-profile: "
@@ -1522,13 +1469,13 @@ class WindowsBackend(AbstractBackend):
                             f"letter={drive_letter or 'Not Formatted'}",
                             file=sys.stderr,
                         )
-                setattr(dev_info, "driveLetter", drive_letter or "Not Formatted")
+                dev_info.driveLetter = drive_letter or "Not Formatted"
             else:
                 try:
                     delattr(dev_info, "driveLetter")
                 except AttributeError:
                     pass
-            setattr(dev_info, "readOnly", readonly_map.get(drive_num, False))
+            dev_info.readOnly = readonly_map.get(drive_num, False)
 
             prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
@@ -1549,9 +1496,7 @@ class WindowsBackend(AbstractBackend):
                 {
                     "pass": self._scan_pass_index,
                     "populate_device_version_total_ms": round(version_query_ms, 2),
-                    "drive_letter_fallback_total_ms": round(
-                        drive_letter_fallback_ms, 2
-                    ),
+                    "drive_letter_fallback_total_ms": round(drive_letter_fallback_ms, 2),
                     "device_count": count,
                 },
             )

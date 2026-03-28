@@ -2,6 +2,7 @@
 
 import json
 import sys
+
 import pytest
 
 # Skip this entire module if not on Windows
@@ -9,7 +10,7 @@ if sys.platform != "win32":
     pytest.skip("Windows only tests", allow_module_level=True)
 
 from types import SimpleNamespace
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 from usb_tool.backend.windows import (
     WindowsBackend,
@@ -17,7 +18,7 @@ from usb_tool.backend.windows import (
 )
 
 
-def _extract_profile_json(stderr_text: str, prefix: str) -> dict:
+def _extract_profile_json(stderr_text: str, prefix: str) -> dict[str, object]:
     marker = f"{prefix}: "
     lines = stderr_text.splitlines()
     for idx, line in enumerate(lines):
@@ -30,7 +31,10 @@ def _extract_profile_json(stderr_text: str, prefix: str) -> dict:
                 json_lines.append(next_line)
                 brace_balance += next_line.count("{") - next_line.count("}")
                 cursor += 1
-            return json.loads("\n".join(json_lines))
+            payload = json.loads("\n".join(json_lines))
+            if isinstance(payload, dict):
+                return payload
+            raise AssertionError(f"profile payload is not a JSON object for {prefix}")
     raise AssertionError(f"missing profile json line for {prefix}")
 
 
@@ -96,9 +100,7 @@ def test_find_apricorn_device_retries_once_on_partial_scan():
 
     with (
         patch("usb_tool.backend.windows.win32com.client.Dispatch"),
-        patch.object(
-            WindowsBackend, "_perform_scan_pass", side_effect=scan_results
-        ) as scan_mock,
+        patch.object(WindowsBackend, "_perform_scan_pass", side_effect=scan_results) as scan_mock,
         patch("time.sleep"),
     ):
         backend = WindowsBackend()
@@ -138,9 +140,7 @@ def test_instantiate_devices_sets_drive_letter_from_map():
         }
     ]
     usb_controllers = [{"ControllerName": "Intel"}]
-    libusb_data = [
-        {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}
-    ]
+    libusb_data = [{"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}]
     physical_drives = {"SER123": 3}
     readonly_map = {3: False}
     drive_letters_map = {3: "F:"}
@@ -194,9 +194,7 @@ def test_instantiate_devices_falls_back_to_powershell_for_drive_letter():
         }
     ]
     usb_controllers = [{"ControllerName": "Intel"}]
-    libusb_data = [
-        {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}
-    ]
+    libusb_data = [{"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}]
     physical_drives = {"SER123": 3}
     readonly_map = {3: False}
     drive_letters_map = {}
@@ -249,9 +247,7 @@ def test_instantiate_devices_omits_drive_letter_in_minimal_mode():
         }
     ]
     usb_controllers = [{"ControllerName": "Intel"}]
-    libusb_data = [
-        {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}
-    ]
+    libusb_data = [{"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}]
     physical_drives = {"SER123": 3}
     readonly_map = {3: False}
     drive_letters_map = {3: "F:"}
@@ -373,9 +369,7 @@ def test_perform_scan_pass_batches_usb_driver_lookup_only_for_default_mode():
         ]
     )
     backend._get_apricorn_libusb_data = MagicMock(
-        return_value=[
-            {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 2}
-        ]
+        return_value=[{"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 2}]
     )
     backend._get_physical_drive_number = MagicMock(return_value={})
     backend._sort_wmi_drives = MagicMock(side_effect=lambda devices, drives: drives)
@@ -429,9 +423,7 @@ def test_perform_scan_pass_includes_disk_driver_lookup_for_json_mode():
         ]
     )
     backend._get_apricorn_libusb_data = MagicMock(
-        return_value=[
-            {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 2}
-        ]
+        return_value=[{"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 2}]
     )
     backend._get_physical_drive_number = MagicMock(return_value={})
     backend._sort_wmi_drives = MagicMock(side_effect=lambda devices, drives: drives)
@@ -468,9 +460,7 @@ def test_perform_scan_pass_emits_profile_output_when_enabled(monkeypatch, capsys
     backend._apply_disk_driver_info = MagicMock()
     backend._sort_wmi_drives = MagicMock(side_effect=lambda devices, drives: drives)
     backend._get_usb_controllers_wmi = MagicMock(return_value=[])
-    backend._sort_usb_controllers = MagicMock(
-        side_effect=lambda devices, controllers: controllers
-    )
+    backend._sort_usb_controllers = MagicMock(side_effect=lambda devices, controllers: controllers)
     backend._sort_libusb_data = MagicMock(side_effect=lambda devices, data: data)
     backend._get_usb_readonly_status_map_wmi = MagicMock(return_value={})
     backend._get_drive_letters_map_wmi = MagicMock(return_value={})
@@ -518,8 +508,9 @@ def test_get_drive_letters_map_wmi_emits_partition_diagnostics(capsys):
         in captured.err
     )
     assert (
-        "windows-drive-letter-profile: pass=1 disk_index=3 stage=bulk_partition_result partition=Disk #3, Partition #0 letters=D:"
-        in captured.err
+        "windows-drive-letter-profile: pass=1 disk_index=3 "
+        "stage=bulk_partition_result partition=Disk #3, Partition #0 "
+        "letters=D:" in captured.err
     )
 
 
@@ -552,9 +543,7 @@ def test_instantiate_devices_emits_fallback_diagnostics(capsys):
         }
     ]
     usb_controllers = [{"ControllerName": "Intel"}]
-    libusb_data = [
-        {"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}
-    ]
+    libusb_data = [{"bcdUSB": 3.2, "bcdDevice": "0502", "bus_number": 1, "dev_address": 16}]
     with (
         patch("usb_tool.backend.windows.populate_device_version", return_value={}),
         patch.object(WindowsBackend, "get_drive_letter_via_ps", return_value="D:"),
@@ -574,8 +563,8 @@ def test_instantiate_devices_emits_fallback_diagnostics(capsys):
     captured = capsys.readouterr()
     assert devices[0].driveLetter == "D:"
     assert (
-        "windows-drive-letter-profile: pass=1 disk_index=3 stage=fallback_triggered serial=SER123 size_raw=15.8"
-        in captured.err
+        "windows-drive-letter-profile: pass=1 disk_index=3 "
+        "stage=fallback_triggered serial=SER123 size_raw=15.8" in captured.err
     )
     assert (
         "windows-drive-letter-profile: pass=1 disk_index=3 stage=fallback_result letter=D:"
@@ -606,12 +595,14 @@ def test_get_drive_letters_map_wmi_uses_bulk_associations_for_drive_letter(capsy
         [
             DummyAssoc(
                 'Win32_DiskDrive.DeviceID="\\\\\\\\.\\\\PHYSICALDRIVE1"',
-                '\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_DiskPartition.DeviceID="Disk #1, Partition #0"',
+                '\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_DiskPartition.DeviceID="Disk #1, '
+                'Partition #0"',
             )
         ],
         [
             DummyAssoc(
-                '\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_DiskPartition.DeviceID="Disk #1, Partition #0"',
+                '\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_DiskPartition.DeviceID="Disk #1, '
+                'Partition #0"',
                 '\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_LogicalDisk.DeviceID="D:"',
             )
         ],
@@ -626,7 +617,8 @@ def test_get_drive_letters_map_wmi_uses_bulk_associations_for_drive_letter(capsy
     )
     assert (
         "windows-drive-letter-profile: pass=1 disk_index=1 stage=bulk_partition_result "
-        'partition=\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_DiskPartition.DeviceID="Disk #1, Partition #0" '
+        'partition=\\\\DESKTOP-NF3343M\\root\\cimv2:Win32_DiskPartition.DeviceID="Disk #1, '
+        'Partition #0" '
         "letters=D:" in captured.err
     )
 
@@ -654,10 +646,7 @@ def test_get_drive_letters_map_wmi_skips_logging_when_no_candidate_indices(capsy
 
     captured = capsys.readouterr()
     assert result == {}
-    assert (
-        "windows-drive-letter-profile: pass=2 skipped=no_candidate_drive_indices"
-        in captured.err
-    )
+    assert "windows-drive-letter-profile: pass=2 skipped=no_candidate_drive_indices" in captured.err
 
 
 def test_native_payload_to_devices_parses_contract_shape():
@@ -708,7 +697,7 @@ def test_scan_devices_native_invokes_python_version_probe_only_for_na_drive_size
     backend = object.__new__(WindowsBackend)
     backend._native_scan_binary = "windows_native_scan.exe"
     backend._native_scan_path_for_run = None
-    backend._timed_populate_device_version = MagicMock(  # type: ignore[method-assign]
+    backend._timed_populate_device_version = MagicMock(
         return_value={
             "scbPartNumber": "SCB-1",
             "hardwareVersion": "HW-1",
@@ -759,7 +748,7 @@ def test_scan_devices_native_attaches_version_fields_from_python_probe():
     backend = object.__new__(WindowsBackend)
     backend._native_scan_binary = "windows_native_scan.exe"
     backend._native_scan_path_for_run = None
-    backend._timed_populate_device_version = MagicMock(  # type: ignore[method-assign]
+    backend._timed_populate_device_version = MagicMock(
         return_value={
             "scbPartNumber": "SCB-123",
             "hardwareVersion": "HW-2",
@@ -806,7 +795,7 @@ def test_scan_devices_native_profile_logs_populate_device_version_total(capsys):
     backend = object.__new__(WindowsBackend)
     backend._native_scan_binary = "windows_native_scan.exe"
     backend._native_scan_path_for_run = None
-    backend._timed_populate_device_version = MagicMock(  # type: ignore[method-assign]
+    backend._timed_populate_device_version = MagicMock(
         return_value={
             "scbPartNumber": "SCB-777",
             "bridgeFW": "0502",
@@ -853,7 +842,9 @@ def test_scan_devices_native_profile_logs_populate_device_version_total(capsys):
     assert "helper" not in profile_json
 
 
-def test_timed_populate_device_version_tracks_profile_metrics_without_emitting_log(capsys):
+def test_timed_populate_device_version_tracks_profile_metrics_without_emitting_log(
+    capsys,
+):
     backend = object.__new__(WindowsBackend)
     backend._profile_scan_enabled = True
     backend._scan_pass_index = 1

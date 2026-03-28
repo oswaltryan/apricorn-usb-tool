@@ -45,18 +45,14 @@ def test_force_pause_env_overrides_conditions(monkeypatch):
 
 def test_standalone_console_detection_accepts_explorer_parent(monkeypatch):
     monkeypatch.setattr(cli, "_SYSTEM", "windows")
-    monkeypatch.setattr(
-        cli, "_get_parent_process_chain_windows", lambda: ["explorer.exe"]
-    )
+    monkeypatch.setattr(cli, "_get_parent_process_chain_windows", lambda: ["explorer.exe"])
 
     assert cli._is_standalone_windows_console_launch() is True
 
 
 def test_standalone_console_detection_rejects_terminal_parent(monkeypatch):
     monkeypatch.setattr(cli, "_SYSTEM", "windows")
-    monkeypatch.setattr(
-        cli, "_get_parent_process_chain_windows", lambda: ["powershell.exe"]
-    )
+    monkeypatch.setattr(cli, "_get_parent_process_chain_windows", lambda: ["powershell.exe"])
 
     assert cli._is_standalone_windows_console_launch() is False
 

@@ -1,7 +1,6 @@
 # src/usb_tool/utils.py
 
 from __future__ import annotations
-from typing import List, Optional
 
 
 def bytes_to_gb(bytes_value: float) -> float:
@@ -10,7 +9,7 @@ def bytes_to_gb(bytes_value: float) -> float:
     return bytes_value / (1024**3)
 
 
-def find_closest(target: float, options: List[int]) -> Optional[int]:
+def find_closest(target: float, options: list[int]) -> int | None:
     if not isinstance(target, (int, float)) or target <= 0 or not options:
         return None
     try:

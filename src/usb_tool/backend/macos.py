@@ -7,16 +7,14 @@ import re
 import subprocess
 import sys
 import time
-from typing import List, Any
-
-from .base import AbstractBackend
-from ..models import UsbDeviceInfo
-from ..utils import bytes_to_gb, find_closest
-from ..device_config import closest_values
-
-from ..services import populate_device_version, prune_hidden_version_fields
+from typing import Any
 
 from ..constants import EXCLUDED_PIDS
+from ..device_config import closest_values
+from ..models import UsbDeviceInfo
+from ..services import populate_device_version, prune_hidden_version_fields
+from ..utils import bytes_to_gb, find_closest
+from .base import AbstractBackend
 
 
 def _normalize_pid(pid: str) -> str:
@@ -72,9 +70,7 @@ def _classify_media_type(removable_value: Any) -> str:
 def _fallback_media_type(pid: str, product_name: str) -> str:
     product_hint = closest_values.get(pid, ("", []))[0]
     normalized = " ".join(part for part in (product_name, product_hint) if part).lower()
-    if any(
-        token in normalized for token in ("secure key", "fortress", "padlock", "aegis")
-    ):
+    if any(token in normalized for token in ("secure key", "fortress", "padlock", "aegis")):
         return "Basic Disk"
     return "Unknown"
 
@@ -132,9 +128,7 @@ def _emit_profile_summary(
         return
 
     context = " ".join(f"{key}={value}" for key, value in fields.items())
-    metric_text = ", ".join(
-        f"{label}={duration_ms:.2f}ms" for label, duration_ms in metrics
-    )
+    metric_text = ", ".join(f"{label}={duration_ms:.2f}ms" for label, duration_ms in metrics)
     line = prefix if not context else f"{prefix} {context}"
     print(f"{line}: {metric_text}", file=sys.stderr)
 
@@ -144,7 +138,7 @@ class MacOSBackend(AbstractBackend):
         self,
         expanded: bool = False,
         profile_scan: bool = False,
-    ) -> List[UsbDeviceInfo]:
+    ) -> list[UsbDeviceInfo]:
         scan_start = time.perf_counter()
         all_drives = self._list_usb_drives()
         system_profiler_ms = (time.perf_counter() - scan_start) * 1000.0
@@ -202,9 +196,7 @@ class MacOSBackend(AbstractBackend):
                 )
                 media_type_start = time.perf_counter()
                 media_type = self._get_media_type_from_diskutil(block_device)
-                diskutil_fallback_ms += (
-                    time.perf_counter() - media_type_start
-                ) * 1000.0
+                diskutil_fallback_ms += (time.perf_counter() - media_type_start) * 1000.0
                 _emit_profile_event(
                     profile_scan,
                     "macos-media-type-profile",
@@ -251,7 +243,7 @@ class MacOSBackend(AbstractBackend):
                 **version_info,
             )
             if block_device:
-                setattr(dev_info, "blockDevice", block_device)
+                dev_info.blockDevice = block_device
 
             prune_hidden_version_fields(dev_info)
             devices.append(dev_info)
@@ -285,7 +277,7 @@ class MacOSBackend(AbstractBackend):
     def poke_device(self, device_identifier: Any) -> bool:
         raise RuntimeError("macOS poke is not currently supported.")
 
-    def sort_devices(self, devices: List[UsbDeviceInfo]) -> List[UsbDeviceInfo]:
+    def sort_devices(self, devices: list[UsbDeviceInfo]) -> list[UsbDeviceInfo]:
         def _key(device: UsbDeviceInfo) -> str:
             block_device = getattr(device, "blockDevice", "")
             if isinstance(block_device, str) and block_device.startswith("/dev/disk"):
@@ -342,9 +334,7 @@ class MacOSBackend(AbstractBackend):
 
             def recurse(obj, host_controller: str = ""):
                 if isinstance(obj, dict):
-                    current_host_controller = (
-                        obj.get("host_controller", "") or host_controller
-                    )
+                    current_host_controller = obj.get("host_controller", "") or host_controller
                     if "0984" in obj.get("vendor_id", "") or "Apricorn" in obj.get(
                         "manufacturer", ""
                     ):
@@ -420,9 +410,9 @@ class MacOSBackend(AbstractBackend):
             interface_class = _extract_ioreg_dict_value(block, "bInterfaceClass") or (
                 _extract_ioreg_dict_value(device_info, "bInterfaceClass")
             )
-            interface_subclass = _extract_ioreg_dict_value(
-                block, "bInterfaceSubClass"
-            ) or (_extract_ioreg_dict_value(device_info, "bInterfaceSubClass"))
+            interface_subclass = _extract_ioreg_dict_value(block, "bInterfaceSubClass") or (
+                _extract_ioreg_dict_value(device_info, "bInterfaceSubClass")
+            )
             if interface_class != "8" or interface_subclass != "6":
                 return
 

@@ -49,9 +49,7 @@ def capture_data(scenario_name: str):
     profiler_cmd = ["system_profiler", "SPUSBDataType", "-json"]
     profiler_out = run_command(profiler_cmd)
     if profiler_out is not None:
-        (output_dir / "system_profiler_usb.json").write_text(
-            profiler_out, encoding="utf-8"
-        )
+        (output_dir / "system_profiler_usb.json").write_text(profiler_out, encoding="utf-8")
 
     # --- 2. Capture ioreg UAS info ---
     print("Capturing ioreg UAS data...")
@@ -89,9 +87,7 @@ ioreg -p IOUSB -w0 -l | awk '
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Capture mock data for mac_usb.py tests."
-    )
+    parser = argparse.ArgumentParser(description="Capture mock data for mac_usb.py tests.")
     parser.add_argument(
         "scenario", help="The name for the test scenario (e.g., 'single_device_m1')."
     )

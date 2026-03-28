@@ -52,7 +52,8 @@ def capture_data(scenario_name: str):
 
     # --- 1. Capture PowerShell JSON Outputs ---
     print("Capturing controller data...")
-    # get_all_usb_controller_names was legacy. New is _get_usb_controllers_wmi but that uses WMI now, not PS?
+    # get_all_usb_controller_names was legacy.
+    # New is _get_usb_controllers_wmi, and it uses WMI now, not PowerShell.
     # Wait, in legacy windows_usb.py, get_all_usb_controller_names used PowerShell.
     # In new WindowsBackend, _get_usb_controllers_wmi uses WMI via win32com.
     # So there is no PS script to extract anymore for controllers!

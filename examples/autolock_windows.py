@@ -1,7 +1,8 @@
-import sys
 import asyncio
-import time
 import logging
+import sys
+import time
+
 from usb_tool import find_apricorn_device
 
 
@@ -60,9 +61,7 @@ class UsbAutoLockTest:
         while time.time() < end:
             if not self.check_device_presence():
                 elapsed = int(time.time() - start)
-                logging.error(
-                    f"Device removed too early at {elapsed}s; expected ~{minutes}m."
-                )
+                logging.error(f"Device removed too early at {elapsed}s; expected ~{minutes}m.")
                 return False
             elapsed = int(time.time() - start)
             logging.info(f"Time Elapsed: {elapsed}s | Device is present.")

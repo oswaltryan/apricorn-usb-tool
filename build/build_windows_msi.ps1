@@ -28,7 +28,7 @@ function Get-MsiVersion([string]$version) {
 }
 
 function Get-UsbVersion {
-    $version = & python (Join-Path $repoRoot 'scripts/project_version.py') read
+    $version = & python (Join-Path $repoRoot 'utils/project_version.py') read
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to determine usb-tool version from pyproject.toml'
     }

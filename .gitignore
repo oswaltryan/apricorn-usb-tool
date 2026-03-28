@@ -176,10 +176,14 @@ cython_debug/
 installers/windows/build/
 installers/linux/build/
 build/usb_linux/
+build/usb_windows/
 build/build/
 build/usb_mac/
 build/USBTool.icns
 ioreg_output.txt
+.venv_build/
+build/.venv_build/
+*.obj
 
 # Local macOS / workstation clutter
 .DS_Store

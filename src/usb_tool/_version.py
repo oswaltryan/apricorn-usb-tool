@@ -6,8 +6,8 @@ import importlib.metadata
 import os
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Optional
 
 __all__ = ["get_version"]
 
@@ -15,12 +15,8 @@ PACKAGE_NAME = "apricorn-usb-tool"
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_FILE_NAME = "pyproject.toml"
 PROJECT_SECTION_RE = re.compile(r"(?ms)^\[project\]\s*$\n(?P<body>.*?)(?=^\[|\Z)")
-PROJECT_NAME_RE = re.compile(
-    r'^\s*name\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE
-)
-PROJECT_VERSION_RE = re.compile(
-    r'^\s*version\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE
-)
+PROJECT_NAME_RE = re.compile(r'^\s*name\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE)
+PROJECT_VERSION_RE = re.compile(r'^\s*version\s*=\s*["\']([^"\']+)["\']\s*(?:#.*)?$', re.MULTILINE)
 
 
 def _module_root_candidates() -> Iterable[Path]:
@@ -51,7 +47,7 @@ def _module_root_candidates() -> Iterable[Path]:
     yield frozen_root
 
 
-def _parse_pyproject_version(path: Path) -> Optional[str]:
+def _parse_pyproject_version(path: Path) -> str | None:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -75,7 +71,7 @@ def _parse_pyproject_version(path: Path) -> Optional[str]:
     return normalized
 
 
-def _read_repo_pyproject_version() -> Optional[str]:
+def _read_repo_pyproject_version() -> str | None:
     for root in _module_root_candidates():
         version = _parse_pyproject_version(root / PROJECT_FILE_NAME)
         if version:

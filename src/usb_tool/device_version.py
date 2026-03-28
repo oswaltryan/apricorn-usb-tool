@@ -1,15 +1,14 @@
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import Any, Optional, Tuple
-import os
-import re
 
-
-import sys
-import subprocess
-import time
 import ctypes
 import errno
+import os
+import re
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from typing import Any
 
 
 def _build_read_buffer_cdb() -> bytes:
@@ -19,7 +18,7 @@ def _build_read_buffer_cdb() -> bytes:
 
 # --- Windows Logic ---
 if sys.platform == "win32":
-    import ctypes.wintypes as wintypes
+    from ctypes import wintypes
 
     GENERIC_READ = 0x80000000
     GENERIC_WRITE = 0x40000000
@@ -56,7 +55,7 @@ if sys.platform == "win32":
     def _windows_read_buffer(
         physical_drive_num: int,
         timeout_sec: int = 5,
-        profile: Optional[dict[str, Any]] = None,
+        profile: dict[str, Any] | None = None,
     ) -> bytes:
         drive_path = rf"\\.\PhysicalDrive{physical_drive_num}"
         h = INVALID_HANDLE_VALUE
@@ -114,9 +113,7 @@ if sys.platform == "win32":
                 None,
             )
             if profile is not None:
-                profile["device_io_control_ms"] = (
-                    time.perf_counter() - ioctl_start
-                ) * 1000.0
+                profile["device_io_control_ms"] = (time.perf_counter() - ioctl_start) * 1000.0
                 profile["returned_bytes"] = int(returned_bytes.value)
                 profile["scsi_status"] = int(sptd.ScsiStatus)
             if ok == 0:
@@ -196,15 +193,15 @@ if sys.platform.startswith("linux"):
 @dataclass
 class DeviceVersionInfo:
     scb_part_number: str
-    mcu_fw: Tuple[Optional[int], Optional[int], Optional[int]]
-    hardware_version: Optional[str] = None
-    model_id: Optional[str] = None
-    bridge_fw: Optional[str] = None
+    mcu_fw: tuple[int | None, int | None, int | None]
+    hardware_version: str | None = None
+    model_id: str | None = None
+    bridge_fw: str | None = None
     raw_data: bytes = b""
 
 
 def _query_usb_core(
-    vendor_id: int, product_id: int, serial_number: str, bsd_name: Optional[str] = None
+    vendor_id: int, product_id: int, serial_number: str, bsd_name: str | None = None
 ) -> bytes:
     # Ensure usb modules are available
     try:
@@ -219,17 +216,13 @@ def _query_usb_core(
         # On macOS, we must unmount the disk to detach the kernel driver safely
         # and allow pyusb to claim the interface.
         try:
-            subprocess.run(
-                ["diskutil", "unmountDisk", bsd_name], capture_output=True, check=False
-            )
+            subprocess.run(["diskutil", "unmountDisk", bsd_name], capture_output=True, check=False)
             # Give the OS a moment to release the device
             time.sleep(1)
         except Exception:
             pass
 
-    dev = usb.core.find(
-        idVendor=vendor_id, idProduct=product_id, serial_number=serial_number
-    )
+    dev = usb.core.find(idVendor=vendor_id, idProduct=product_id, serial_number=serial_number)
     if dev is None:
         dev = usb.core.find(idVendor=vendor_id, idProduct=product_id)
 
@@ -303,9 +296,7 @@ def _query_usb_core(
     # Remount on macOS if we unmounted it
     if sys.platform == "darwin" and bsd_name:
         try:
-            subprocess.run(
-                ["diskutil", "mountDisk", bsd_name], capture_output=True, check=False
-            )
+            subprocess.run(["diskutil", "mountDisk", bsd_name], capture_output=True, check=False)
         except Exception:
             pass
 
@@ -316,10 +307,10 @@ def query_device_version(
     vendor_id: int,
     product_id: int,
     serial_number: str,
-    bsd_name: Optional[str] = None,
-    physical_drive_num: Optional[int] = None,
-    device_path: Optional[str] = None,
-    profile: Optional[dict[str, Any]] = None,
+    bsd_name: str | None = None,
+    physical_drive_num: int | None = None,
+    device_path: str | None = None,
+    profile: dict[str, Any] | None = None,
 ) -> DeviceVersionInfo:
     data = b""
     timings = profile if profile is not None else {}
@@ -356,11 +347,11 @@ def query_device_version(
 
 def _parse_payload_best_effort(data: bytes) -> DeviceVersionInfo:
     """Parse the payload to match expected fields for Apricorn devices."""
-    bridge_fw: Optional[str] = None
+    bridge_fw: str | None = None
     scb_part: str = ""
-    mcu_fw: Tuple[Optional[int], Optional[int], Optional[int]] = (None, None, None)
-    hw_ver: Optional[str] = None
-    model_id: Optional[str] = None
+    mcu_fw: tuple[int | None, int | None, int | None] = (None, None, None)
+    hw_ver: str | None = None
+    model_id: str | None = None
 
     if data and len(data) >= 4:
         bridge_fw = f"{data[2]:02X}{data[3]:02X}"

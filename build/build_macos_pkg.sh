@@ -97,7 +97,7 @@ else
     echo "Using default PyInstaller binary at $selected_binary"
 fi
 
-version=$(python3 "$REPO_ROOT/scripts/project_version.py" read)
+version=$(python3 "$REPO_ROOT/utils/project_version.py" read)
 numeric=${version%%[^0-9.]*}
 IFS='.' read -r major minor patch <<<"$numeric"
 major=${major:-0}

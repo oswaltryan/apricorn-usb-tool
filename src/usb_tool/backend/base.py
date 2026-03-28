@@ -1,7 +1,7 @@
 # src/usb_tool/backend/base.py
 
 from abc import ABC, abstractmethod
-from typing import List, Any
+from typing import Any
 
 
 class AbstractBackend(ABC):
@@ -10,7 +10,7 @@ class AbstractBackend(ABC):
         self,
         expanded: bool = False,
         profile_scan: bool = False,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Scan for Apricorn devices on the current platform."""
         pass
 
@@ -20,6 +20,6 @@ class AbstractBackend(ABC):
         pass
 
     @abstractmethod
-    def sort_devices(self, devices: List[Any]) -> List[Any]:
+    def sort_devices(self, devices: list[Any]) -> list[Any]:
         """Sort devices in a platform-appropriate order."""
         pass
