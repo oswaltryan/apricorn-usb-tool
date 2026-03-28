@@ -12,6 +12,10 @@ bool get_physical_drive_metrics(int disk_number,
                                 bool* oob_mode_out,
                                 int* read_only_out,
                                 double* bcd_usb_out);
+bool get_device_path_metrics(const wchar_t* device_path,
+                             double* size_gb_raw_out,
+                             bool* oob_mode_out,
+                             int* read_only_out);
 bool get_size_from_drive_letters(const char* letters_csv, double* size_gib_out);
 
 #endif

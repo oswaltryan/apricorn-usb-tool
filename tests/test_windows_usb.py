@@ -704,7 +704,7 @@ def test_native_payload_to_devices_parses_contract_shape():
     assert serialized["driveLetter"] == "F:"
 
 
-def test_scan_devices_native_invokes_python_version_probe_for_serial_devices():
+def test_scan_devices_native_invokes_python_version_probe_only_for_na_drive_size():
     backend = object.__new__(WindowsBackend)
     backend._native_scan_binary = "windows_native_scan.exe"
     backend._native_scan_path_for_run = None
@@ -726,13 +726,15 @@ def test_scan_devices_native_invokes_python_version_probe_for_serial_devices():
                     "idProduct": "1407",
                     "bcdDevice": "0502",
                     "iSerial": "SER123",
+                    "driveSizeGB": "N/A",
                     "physicalDriveNum": 7,
                 },
                 "2": {
                     "idVendor": "0984",
                     "idProduct": "1407",
                     "bcdDevice": "0502",
-                    "iSerial": "",
+                    "iSerial": "SER456",
+                    "driveSizeGB": 16,
                     "physicalDriveNum": 8,
                 },
             }
@@ -777,6 +779,7 @@ def test_scan_devices_native_attaches_version_fields_from_python_probe():
                     "idProduct": "1407",
                     "bcdDevice": "0502",
                     "iSerial": "SER999",
+                    "driveSizeGB": "N/A",
                     "physicalDriveNum": 3,
                 }
             }
@@ -821,6 +824,7 @@ def test_scan_devices_native_profile_logs_populate_device_version_total(capsys):
                     "idProduct": "1407",
                     "bcdDevice": "0502",
                     "iSerial": "SER777",
+                    "driveSizeGB": "N/A",
                     "physicalDriveNum": 2,
                 }
             }

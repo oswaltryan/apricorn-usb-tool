@@ -137,6 +137,19 @@ bool enumerate_apricorn_devices(DeviceVec* devices, ProfileStats* stats) {
                 }
             }
         }
+        if (!out.has_drive_size_gb && !out.oob_mode) {
+            double raw_size_gb = 0.0;
+            bool oob_mode = false;
+            int read_only = out.read_only;
+            if (get_device_path_metrics(detail->DevicePath, &raw_size_gb, &oob_mode, &read_only)) {
+                out.read_only = read_only;
+                out.oob_mode = oob_mode;
+                if (!oob_mode && raw_size_gb > 0.0) {
+                    out.drive_size_gb = normalize_size_gb(out.id_product, raw_size_gb);
+                    out.has_drive_size_gb = out.drive_size_gb > 0;
+                }
+            }
+        }
 
         letters_w = lookup_drive_letters(&drive_map, out.physical_drive_num);
         wide_to_utf8(letters_w, out.drive_letter, ARRAYSIZE(out.drive_letter));

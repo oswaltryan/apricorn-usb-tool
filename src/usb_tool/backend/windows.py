@@ -20,22 +20,49 @@ from ..constants import EXCLUDED_PIDS
 from ..device_config import closest_values
 from ..services import populate_device_version, prune_hidden_version_fields
 
-try:
-    usb = cast(Any | None, import_module("libusb"))
-except Exception:  # pragma: no cover - exercised on non-Windows CI
-    usb = None
+_usb_module: Any | None = None
+_usb_import_attempted = False
 
-try:
-    import win32com.client as _win32com_client
-except Exception:  # pragma: no cover - exercised on non-Windows CI
 
-    class _MissingWin32ComClient:
-        def Dispatch(self, *_args: Any, **_kwargs: Any) -> Any:  # noqa: N802
-            raise ImportError("pywin32 is required for Windows backend")
+def _get_usb_module() -> Any | None:
+    global _usb_module, _usb_import_attempted
 
-    win32com = SimpleNamespace(client=_MissingWin32ComClient())
-else:
-    win32com = SimpleNamespace(client=_win32com_client)
+    if _usb_import_attempted:
+        return _usb_module
+    _usb_import_attempted = True
+    try:
+        _usb_module = cast(Any | None, import_module("libusb"))
+        if _usb_module is not None:
+            try:
+                _usb_module.config(LIBUSB=None)
+            except Exception:
+                pass
+    except Exception:  # pragma: no cover - exercised on non-Windows CI
+        _usb_module = None
+    return _usb_module
+
+class _LazyWin32ComClient:
+    def __init__(self) -> None:
+        self._module: Any | None = None
+        self._error: Exception | None = None
+
+    def _load(self) -> Any:
+        if self._module is not None:
+            return self._module
+        if self._error is not None:
+            raise ImportError("pywin32 is required for Windows backend") from self._error
+        try:
+            self._module = import_module("win32com.client")
+        except Exception as exc:  # pragma: no cover - exercised on non-Windows CI
+            self._error = exc
+            raise ImportError("pywin32 is required for Windows backend") from exc
+        return self._module
+
+    def Dispatch(self, *args: Any, **kwargs: Any) -> Any:  # noqa: N802
+        return self._load().Dispatch(*args, **kwargs)
+
+
+win32com = SimpleNamespace(client=_LazyWin32ComClient())
 
 
 _windll = getattr(ct, "windll", None)
@@ -199,14 +226,8 @@ class WindowsBackend(AbstractBackend):
         self.locator: Any = None
         self.service: Any = None
         self._wmi_ready = False
-        try:
+        if not self._native_scan_enabled:
             self._initialize_wmi()
-        except ImportError:
-            if not self._native_scan_enabled:
-                raise
-
-        if usb is not None:
-            usb.config(LIBUSB=None)
 
     @property
     def service(self):
@@ -339,6 +360,9 @@ class WindowsBackend(AbstractBackend):
         for dev_info in devices:
             serial = str(getattr(dev_info, "iSerial", "") or "").strip()
             if not serial:
+                continue
+            drive_size = str(getattr(dev_info, "driveSizeGB", "") or "").strip()
+            if drive_size != "N/A":
                 continue
 
             version_info = self._timed_populate_device_version(
@@ -730,6 +754,7 @@ class WindowsBackend(AbstractBackend):
         return len(set(lengths)) != 1
 
     def _get_wmi_usb_devices(self):
+        self._ensure_wmi_ready()
         query = "SELECT * FROM Win32_PnPEntity WHERE DeviceID LIKE 'USB%'"
         devices = self.service.ExecQuery(query)
         info = []
@@ -1110,6 +1135,7 @@ class WindowsBackend(AbstractBackend):
         )
 
     def _get_apricorn_libusb_data(self):
+        usb = _get_usb_module()
         if usb is None:
             return []
         devices = []
