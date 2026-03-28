@@ -137,6 +137,13 @@ class _StageTimer:
         print(f"{line}: {', '.join(parts)}", file=sys.stderr)
 
 
+def _emit_profile_json(line: str, payload: dict[str, Any]) -> None:
+    print(
+        f"{line}: {json.dumps(payload, sort_keys=True, indent=2)}",
+        file=sys.stderr,
+    )
+
+
 class _GUID(ct.Structure):
     _fields_ = [
         ("Data1", ct.c_ulong),
@@ -284,10 +291,12 @@ class WindowsBackend(AbstractBackend):
             )
         except Exception as exc:
             if profile_scan:
-                print(
-                    "windows-native-scan-profile: "
-                    f"exec_failed=true error={exc}",
-                    file=sys.stderr,
+                _emit_profile_json(
+                    "windows-native-scan-profile",
+                    {
+                        "exec_failed": True,
+                        "error": str(exc),
+                    },
                 )
             return None
 
@@ -295,11 +304,14 @@ class WindowsBackend(AbstractBackend):
         if result.returncode != 0:
             if profile_scan:
                 stderr_text = (result.stderr or "").strip().replace("\n", " | ")
-                print(
-                    "windows-native-scan-profile: "
-                    f"exec_failed=true returncode={result.returncode} elapsed_ms={elapsed_ms:.2f} "
-                    f"stderr={stderr_text or 'n/a'}",
-                    file=sys.stderr,
+                _emit_profile_json(
+                    "windows-native-scan-profile",
+                    {
+                        "exec_failed": True,
+                        "returncode": result.returncode,
+                        "elapsed_ms": round(elapsed_ms, 2),
+                        "stderr": stderr_text or "n/a",
+                    },
                 )
             return None
 
@@ -308,33 +320,78 @@ class WindowsBackend(AbstractBackend):
             payload = json.loads(result.stdout or "{}")
         except json.JSONDecodeError as exc:
             if profile_scan:
-                print(
-                    "windows-native-scan-profile: "
-                    f"parse_failed=true elapsed_ms={elapsed_ms:.2f} error={exc}",
-                    file=sys.stderr,
+                _emit_profile_json(
+                    "windows-native-scan-profile",
+                    {
+                        "parse_failed": True,
+                        "elapsed_ms": round(elapsed_ms, 2),
+                        "error": str(exc),
+                    },
                 )
             return None
 
         devices = self._native_payload_to_devices(payload)
         parse_ms = (time.perf_counter() - parse_start) * 1000.0
+        version_query_ms = 0.0
+        version_create_file_ms = 0.0
+        version_device_io_control_ms = 0.0
+        version_parse_payload_ms = 0.0
+        for dev_info in devices:
+            serial = str(getattr(dev_info, "iSerial", "") or "").strip()
+            if not serial:
+                continue
+
+            version_info = self._timed_populate_device_version(
+                getattr(dev_info, "idVendor", ""),
+                getattr(dev_info, "idProduct", ""),
+                serial,
+                getattr(dev_info, "physicalDriveNum", -1),
+            )
+            version_query_ms += version_info.pop("_profile_ms", 0.0)
+            version_create_file_ms += version_info.pop("_profile_create_file_ms", 0.0)
+            version_device_io_control_ms += version_info.pop(
+                "_profile_device_io_control_ms", 0.0
+            )
+            version_parse_payload_ms += version_info.pop(
+                "_profile_parse_payload_ms", 0.0
+            )
+            version_info.pop("_profile_open_error", None)
+            version_info.pop("_profile_payload_len", None)
+
+            for key, value in version_info.items():
+                setattr(dev_info, key, value)
+
+            prune_hidden_version_fields(dev_info)
         self._native_scan_path_for_run = native_path
 
         if profile_scan:
             native_profile = payload.get("profile", {})
-            profile_bits = (
-                f"helper={native_path} "
-                f"exec_ms={elapsed_ms:.2f} "
-                f"parse_ms={parse_ms:.2f} "
-                f"device_count={len(devices)}"
-            )
+            native_profile_json: dict[str, Any] = {
+                "exec_ms": round(elapsed_ms, 2),
+                "parse_ms": round(parse_ms, 2),
+                "populate_device_version_total": {
+                    "total_ms": round(version_query_ms, 2),
+                    "created_file_ms": round(version_create_file_ms, 2),
+                    "device_io_control_ms": round(version_device_io_control_ms, 2),
+                    "parse_payload_ms": round(version_parse_payload_ms, 2),
+                },
+                "total_ms": round(elapsed_ms + parse_ms + version_query_ms, 2),
+                "device_count": len(devices),
+                "native_total_ms": "n/a",
+                "native_enumeration_ms": "n/a",
+                "native_drive_letters_ms": "n/a",
+            }
             if isinstance(native_profile, dict):
-                profile_bits = (
-                    f"{profile_bits} "
-                    f"native_total_ms={native_profile.get('totalMs', 'n/a')} "
-                    f"native_enumeration_ms={native_profile.get('enumerationMs', 'n/a')} "
-                    f"native_drive_letters_ms={native_profile.get('driveLettersMs', 'n/a')}"
+                native_profile_json["native_total_ms"] = native_profile.get(
+                    "totalMs", "n/a"
                 )
-            print(f"windows-native-scan-profile: {profile_bits}", file=sys.stderr)
+                native_profile_json["native_enumeration_ms"] = native_profile.get(
+                    "enumerationMs", "n/a"
+                )
+                native_profile_json["native_drive_letters_ms"] = native_profile.get(
+                    "driveLettersMs", "n/a"
+                )
+            _emit_profile_json("windows-native-scan-profile", native_profile_json)
 
         return devices
 
@@ -1372,6 +1429,8 @@ class WindowsBackend(AbstractBackend):
                 )
             )
             version_query_ms += version_info.pop("_profile_ms", 0.0)
+            for profile_key in [k for k in list(version_info.keys()) if k.startswith("_profile_")]:
+                version_info.pop(profile_key, None)
 
             dev_info = UsbDeviceInfo(
                 bcdUSB=libusb_data[i]["bcdUSB"],
@@ -1459,13 +1518,16 @@ class WindowsBackend(AbstractBackend):
                     file=sys.stderr,
                 )
         if self._profile_scan_enabled:
-            print(
-                "windows-scan-profile details: "
-                f"pass={self._scan_pass_index} "
-                f"populate_device_version_total={version_query_ms:.2f}ms, "
-                f"drive_letter_fallback_total={drive_letter_fallback_ms:.2f}ms, "
-                f"device_count={count}",
-                file=sys.stderr,
+            _emit_profile_json(
+                "windows-scan-profile-details",
+                {
+                    "pass": self._scan_pass_index,
+                    "populate_device_version_total_ms": round(version_query_ms, 2),
+                    "drive_letter_fallback_total_ms": round(
+                        drive_letter_fallback_ms, 2
+                    ),
+                    "device_count": count,
+                },
             )
         return devices
 
@@ -1486,24 +1548,22 @@ class WindowsBackend(AbstractBackend):
         )
         total_ms = (time.perf_counter() - start) * 1000.0
         version_info["_profile_ms"] = total_ms
-        if self._profile_scan_enabled:
-            print(
-                "windows-version-profile: "
-                f"pass={self._scan_pass_index} "
-                f"serial={serial} "
-                f"drive_num={drive_num} "
-                f"transport={profile.get('transport', 'unknown')} "
-                f"create_file_ms={profile.get('create_file_ms', 0.0):.2f}ms "
-                f"device_io_control_ms={profile.get('device_io_control_ms', 0.0):.2f}ms "
-                f"parse_payload_ms={profile.get('parse_payload_ms', 0.0):.2f}ms "
-                f"payload_len={profile.get('payload_len', 0)} "
-                f"returned_bytes={profile.get('returned_bytes', 0)} "
-                f"scsi_status={profile.get('scsi_status', 'n/a')} "
-                f"open_error={profile.get('open_error', 'n/a')} "
-                f"ioctl_error={profile.get('ioctl_error', 'n/a')} "
-                f"parsed_scb_part_number={profile.get('parsed_scb_part_number', 'N/A')} "
-                f"parsed_bridge_fw={profile.get('parsed_bridge_fw', 'N/A')} "
-                f"total_ms={total_ms:.2f}ms",
-                file=sys.stderr,
+        try:
+            version_info["_profile_create_file_ms"] = float(
+                profile.get("create_file_ms", 0.0) or 0.0
             )
+        except (TypeError, ValueError):
+            version_info["_profile_create_file_ms"] = 0.0
+        try:
+            version_info["_profile_device_io_control_ms"] = float(
+                profile.get("device_io_control_ms", 0.0) or 0.0
+            )
+        except (TypeError, ValueError):
+            version_info["_profile_device_io_control_ms"] = 0.0
+        try:
+            version_info["_profile_parse_payload_ms"] = float(
+                profile.get("parse_payload_ms", 0.0) or 0.0
+            )
+        except (TypeError, ValueError):
+            version_info["_profile_parse_payload_ms"] = 0.0
         return version_info

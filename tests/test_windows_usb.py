@@ -1,5 +1,6 @@
 """Unit tests for windows_usb module."""
 
+import json
 import sys
 import pytest
 
@@ -14,6 +15,23 @@ from usb_tool.backend.windows import (
     WindowsBackend,
     _normalize_logical_disk_identifier,
 )
+
+
+def _extract_profile_json(stderr_text: str, prefix: str) -> dict:
+    marker = f"{prefix}: "
+    lines = stderr_text.splitlines()
+    for idx, line in enumerate(lines):
+        if line.startswith(marker):
+            json_lines = [line[len(marker) :]]
+            brace_balance = json_lines[0].count("{") - json_lines[0].count("}")
+            cursor = idx + 1
+            while brace_balance > 0 and cursor < len(lines):
+                next_line = lines[cursor]
+                json_lines.append(next_line)
+                brace_balance += next_line.count("{") - next_line.count("}")
+                cursor += 1
+            return json.loads("\n".join(json_lines))
+    raise AssertionError(f"missing profile json line for {prefix}")
 
 
 def test_get_drive_letter_via_ps_handles_invalid_index():
@@ -563,6 +581,10 @@ def test_instantiate_devices_emits_fallback_diagnostics(capsys):
         "windows-drive-letter-profile: pass=1 disk_index=3 stage=fallback_result letter=D:"
         in captured.err
     )
+    assert "windows-scan-profile-details:" in captured.err
+    profile_json = _extract_profile_json(captured.err, "windows-scan-profile-details")
+    assert profile_json["pass"] == 1
+    assert profile_json["device_count"] == 1
 
 
 def test_get_drive_letters_map_wmi_uses_bulk_associations_for_drive_letter(capsys):
@@ -680,6 +702,186 @@ def test_native_payload_to_devices_parses_contract_shape():
     assert serialized["driveSizeGB"] == 16
     assert serialized["physicalDriveNum"] == 3
     assert serialized["driveLetter"] == "F:"
+
+
+def test_scan_devices_native_invokes_python_version_probe_for_serial_devices():
+    backend = object.__new__(WindowsBackend)
+    backend._native_scan_binary = "windows_native_scan.exe"
+    backend._native_scan_path_for_run = None
+    backend._timed_populate_device_version = MagicMock(  # type: ignore[method-assign]
+        return_value={
+            "scbPartNumber": "SCB-1",
+            "hardwareVersion": "HW-1",
+            "modelID": "MODEL-1",
+            "mcuFW": "1.2.3",
+            "bridgeFW": "0502",
+            "_profile_ms": 8.5,
+        }
+    )
+    payload = {
+        "devices": [
+            {
+                "1": {
+                    "idVendor": "0984",
+                    "idProduct": "1407",
+                    "bcdDevice": "0502",
+                    "iSerial": "SER123",
+                    "physicalDriveNum": 7,
+                },
+                "2": {
+                    "idVendor": "0984",
+                    "idProduct": "1407",
+                    "bcdDevice": "0502",
+                    "iSerial": "",
+                    "physicalDriveNum": 8,
+                },
+            }
+        ]
+    }
+    native_result = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    with patch("usb_tool.backend.windows.subprocess.run", return_value=native_result):
+        devices = backend._scan_devices_native(profile_scan=False)
+
+    assert devices is not None
+    assert len(devices) == 2
+    backend._timed_populate_device_version.assert_called_once_with(
+        "0984",
+        "1407",
+        "SER123",
+        7,
+    )
+
+
+def test_scan_devices_native_attaches_version_fields_from_python_probe():
+    backend = object.__new__(WindowsBackend)
+    backend._native_scan_binary = "windows_native_scan.exe"
+    backend._native_scan_path_for_run = None
+    backend._timed_populate_device_version = MagicMock(  # type: ignore[method-assign]
+        return_value={
+            "scbPartNumber": "SCB-123",
+            "hardwareVersion": "HW-2",
+            "modelID": "MODEL-2",
+            "mcuFW": "2.3.4",
+            "bridgeFW": "0502",
+            "_profile_ms": 4.0,
+            "_profile_open_error": "ignored",
+            "_profile_payload_len": 64,
+        }
+    )
+    payload = {
+        "devices": [
+            {
+                "1": {
+                    "idVendor": "0984",
+                    "idProduct": "1407",
+                    "bcdDevice": "0502",
+                    "iSerial": "SER999",
+                    "physicalDriveNum": 3,
+                }
+            }
+        ]
+    }
+    native_result = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    with patch("usb_tool.backend.windows.subprocess.run", return_value=native_result):
+        devices = backend._scan_devices_native(profile_scan=False)
+
+    assert devices is not None
+    assert len(devices) == 1
+    native_device = devices[0]
+    assert native_device.scbPartNumber == "SCB-123"
+    assert native_device.hardwareVersion == "HW-2"
+    assert native_device.modelID == "MODEL-2"
+    assert native_device.mcuFW == "2.3.4"
+    assert native_device.bridgeFW == "0502"
+    assert not hasattr(native_device, "_profile_open_error")
+    assert not hasattr(native_device, "_profile_payload_len")
+
+
+def test_scan_devices_native_profile_logs_populate_device_version_total(capsys):
+    backend = object.__new__(WindowsBackend)
+    backend._native_scan_binary = "windows_native_scan.exe"
+    backend._native_scan_path_for_run = None
+    backend._timed_populate_device_version = MagicMock(  # type: ignore[method-assign]
+        return_value={
+            "scbPartNumber": "SCB-777",
+            "bridgeFW": "0502",
+            "_profile_ms": 12.34,
+            "_profile_create_file_ms": 10.0,
+            "_profile_device_io_control_ms": 1.5,
+            "_profile_parse_payload_ms": 0.25,
+        }
+    )
+    payload = {
+        "devices": [
+            {
+                "1": {
+                    "idVendor": "0984",
+                    "idProduct": "1407",
+                    "bcdDevice": "0502",
+                    "iSerial": "SER777",
+                    "physicalDriveNum": 2,
+                }
+            }
+        ],
+        "profile": {"totalMs": 1.1, "enumerationMs": 0.4, "driveLettersMs": 0.2},
+    }
+    native_result = SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    with patch("usb_tool.backend.windows.subprocess.run", return_value=native_result):
+        backend._scan_devices_native(profile_scan=True)
+
+    captured = capsys.readouterr()
+    assert "windows-native-scan-profile:" in captured.err
+    assert '\n  "device_count": 1' in captured.err
+    profile_json = _extract_profile_json(captured.err, "windows-native-scan-profile")
+    assert profile_json["device_count"] == 1
+    version_totals = profile_json["populate_device_version_total"]
+    assert version_totals["total_ms"] == 12.34
+    assert version_totals["created_file_ms"] == 10.0
+    assert version_totals["device_io_control_ms"] == 1.5
+    assert version_totals["parse_payload_ms"] == 0.25
+    assert "created_file_ms" not in profile_json
+    assert "device_io_control_ms" not in profile_json
+    assert "parse_payload_ms" not in profile_json
+    assert profile_json["total_ms"] >= 12.34
+    assert "helper" not in profile_json
+
+
+def test_timed_populate_device_version_tracks_profile_metrics_without_emitting_log(capsys):
+    backend = object.__new__(WindowsBackend)
+    backend._profile_scan_enabled = True
+    backend._scan_pass_index = 1
+
+    def _fake_populate(
+        vendor_id,
+        product_id,
+        serial_number,
+        bsd_name=None,
+        physical_drive_num=None,
+        device_path=None,
+        profile=None,
+    ):
+        if profile is not None:
+            profile.update(
+                {
+                    "create_file_ms": 10.0,
+                    "device_io_control_ms": 1.5,
+                    "parse_payload_ms": 0.2,
+                }
+            )
+        return {"scbPartNumber": "21-0010"}
+
+    with patch("usb_tool.backend.windows.populate_device_version", side_effect=_fake_populate):
+        result = backend._timed_populate_device_version("0984", "1407", "SERX", 2)
+
+    captured = capsys.readouterr()
+    assert "_profile_ms" in result
+    assert result["_profile_create_file_ms"] == 10.0
+    assert result["_profile_device_io_control_ms"] == 1.5
+    assert result["_profile_parse_payload_ms"] == 0.2
+    assert "windows-version-profile:" not in captured.err
 
 
 def test_scan_devices_prefers_native_when_enabled():
