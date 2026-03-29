@@ -24,6 +24,8 @@ _usb_module: Any | None = None
 _usb_import_attempted = False
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 _FALSY_VALUES = {"0", "false", "no", "off"}
+_DRIVE_REMOVABLE = 2
+_DRIVE_FIXED = 3
 
 
 def _get_usb_module() -> Any | None:
@@ -118,6 +120,43 @@ def _normalize_logical_disk_identifier(value: Any) -> str:
     if match:
         return match.group(1)
     return text
+
+
+def _normalize_disk_media_type(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if "removable" in text:
+        return "Removable Media"
+    return "Basic Disk"
+
+
+def _derive_media_type_from_drive_letters(drive_letters: Any, fallback: Any = "Basic Disk") -> str:
+    fallback_media_type = _normalize_disk_media_type(fallback)
+    letters_text = str(drive_letters or "").strip()
+    if not letters_text or letters_text.lower() == "not formatted":
+        return fallback_media_type
+
+    get_drive_type = getattr(kernel32, "GetDriveTypeW", None) if kernel32 is not None else None
+    if not callable(get_drive_type):
+        return fallback_media_type
+
+    saw_fixed = False
+    for token in (part.strip() for part in letters_text.split(",")):
+        if len(token) < 2 or token[1] != ":" or not token[0].isalpha():
+            continue
+        root = f"{token[0].upper()}:\\"
+        try:
+            drive_type = int(get_drive_type(root))
+        except Exception:
+            continue
+
+        if drive_type == _DRIVE_REMOVABLE:
+            return "Removable Media"
+        if drive_type == _DRIVE_FIXED:
+            saw_fixed = True
+
+    if saw_fixed:
+        return "Basic Disk"
+    return fallback_media_type
 
 
 def _normalize_serial_candidates(serial: str) -> list[str]:
@@ -436,6 +475,11 @@ class WindowsBackend(AbstractBackend):
             entry = first.get(key, {})
             if not isinstance(entry, dict):
                 continue
+            drive_letter = self._as_text(entry.get("driveLetter"), "Not Formatted")
+            media_type = _derive_media_type_from_drive_letters(
+                drive_letter,
+                self._as_text(entry.get("mediaType"), "Unknown"),
+            )
             try:
                 dev_info = UsbDeviceInfo(
                     bcdUSB=self._as_float(entry.get("bcdUSB"), 0.0),
@@ -446,7 +490,7 @@ class WindowsBackend(AbstractBackend):
                     iProduct=self._as_text(entry.get("iProduct"), "Apricorn USB Device"),
                     iSerial=self._as_text(entry.get("iSerial"), ""),
                     driveSizeGB=self._coerce_drive_size(entry.get("driveSizeGB")),
-                    mediaType=self._as_text(entry.get("mediaType"), "Unknown"),
+                    mediaType=media_type,
                     driverTransport=self._as_text(entry.get("driverTransport"), "Unknown"),
                     usbController=self._as_text(entry.get("usbController"), "N/A"),
                     usbDriverProvider=self._as_text(entry.get("usbDriverProvider"), "N/A"),
@@ -458,7 +502,7 @@ class WindowsBackend(AbstractBackend):
                     busNumber=self._as_int(entry.get("busNumber"), -1),
                     deviceAddress=self._as_int(entry.get("deviceAddress"), -1),
                     physicalDriveNum=self._as_int(entry.get("physicalDriveNum"), -1),
-                    driveLetter=self._as_text(entry.get("driveLetter"), "Not Formatted"),
+                    driveLetter=drive_letter,
                     readOnly=self._as_bool(entry.get("readOnly"), False),
                 )
             except Exception:
@@ -1019,6 +1063,26 @@ class WindowsBackend(AbstractBackend):
         except Exception:
             return {}
 
+    def _get_disk_media_type_map_wmi(self) -> dict[int, str]:
+        self._ensure_wmi_ready()
+        try:
+            drives = self.service.ExecQuery("SELECT Index, MediaType FROM Win32_DiskDrive")
+        except Exception:
+            return {}
+
+        media_type_map: dict[int, str] = {}
+        for drive in drives:
+            try:
+                drive_index = int(getattr(drive, "Index", -1))
+            except (TypeError, ValueError):
+                continue
+            if drive_index < 0:
+                continue
+            media_type_map[drive_index] = _normalize_disk_media_type(
+                getattr(drive, "MediaType", "")
+            )
+        return media_type_map
+
     def _match_disk_interface_record(
         self,
         usb_device: dict[str, Any],
@@ -1040,6 +1104,7 @@ class WindowsBackend(AbstractBackend):
         wmi_usb_devices: list[dict[str, Any]],
         disk_interfaces: list[dict[str, Any]],
         storage_metrics_map: dict[int, dict[str, Any]],
+        media_type_map: dict[int, str],
     ) -> list[dict[str, Any]]:
         drives: list[dict[str, Any]] = []
         for device in wmi_usb_devices:
@@ -1056,6 +1121,11 @@ class WindowsBackend(AbstractBackend):
 
             drive_num = matched.get("device_number")
             metrics = storage_metrics_map.get(drive_num, {}) if isinstance(drive_num, int) else {}
+            media_type = (
+                media_type_map.get(drive_num, "Basic Disk")
+                if isinstance(drive_num, int)
+                else "Basic Disk"
+            )
             product = matched.get("product_hint", "") or device.get("description", "")
             drives.append(
                 {
@@ -1064,7 +1134,7 @@ class WindowsBackend(AbstractBackend):
                     "iProduct": product,
                     "pnpdeviceid": matched.get("device_path", ""),
                     "serial": device.get("serial", ""),
-                    "mediaType": "Basic Disk",
+                    "mediaType": media_type,
                     "diskDriverInfo": {
                         "provider": "N/A",
                         "version": "N/A",
@@ -1099,6 +1169,7 @@ class WindowsBackend(AbstractBackend):
             list(wmi_diskdrives or []),
             getattr(self, "_storage_metrics_map_cache", None)
             or self._get_usb_storage_metrics_map_wmi(),
+            self._get_disk_media_type_map_wmi(),
         )
 
     def _get_apricorn_libusb_data(self):
@@ -1396,6 +1467,8 @@ class WindowsBackend(AbstractBackend):
                 if size_raw == 0.0
                 else find_closest(size_raw, closest_values[pid][1])
             )
+            drive_letter = "Not Formatted"
+            media_type = _normalize_disk_media_type(wmi_usb_drives[i].get("mediaType", "Unknown"))
 
             version_info = (
                 {}
@@ -1421,7 +1494,7 @@ class WindowsBackend(AbstractBackend):
                 iSerial=serial,
                 driverTransport=driver_transport,
                 driveSizeGB=size_gb,
-                mediaType=wmi_usb_drives[i].get("mediaType", "Unknown"),
+                mediaType=media_type,
                 usbDriverProvider=wmi_usb_devices[i].get("usbDriverProvider", "N/A"),
                 usbDriverVersion=wmi_usb_devices[i].get("usbDriverVersion", "N/A"),
                 usbDriverInf=wmi_usb_devices[i].get("usbDriverInf", "N/A"),
@@ -1470,6 +1543,10 @@ class WindowsBackend(AbstractBackend):
                             file=sys.stderr,
                         )
                 dev_info.driveLetter = drive_letter or "Not Formatted"
+                dev_info.mediaType = _derive_media_type_from_drive_letters(
+                    drive_letter,
+                    media_type,
+                )
             else:
                 try:
                     delattr(dev_info, "driveLetter")

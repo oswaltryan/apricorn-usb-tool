@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 
 from usb_tool.backend.windows import (
     WindowsBackend,
+    _derive_media_type_from_drive_letters,
+    _normalize_disk_media_type,
     _normalize_logical_disk_identifier,
 )
 
@@ -632,6 +634,54 @@ def test_normalize_logical_disk_identifier_extracts_drive_letter():
     )
 
 
+def test_normalize_disk_media_type_maps_removable_keyword():
+    assert _normalize_disk_media_type("Removable Media") == "Removable Media"
+    assert _normalize_disk_media_type("Fixed hard disk media") == "Basic Disk"
+    assert _normalize_disk_media_type("") == "Basic Disk"
+
+
+def test_derive_media_type_from_drive_letters_prefers_removable(monkeypatch):
+    class _Kernel32:
+        @staticmethod
+        def GetDriveTypeW(path):
+            if path == "E:\\":
+                return 2
+            return 3
+
+    monkeypatch.setattr("usb_tool.backend.windows.kernel32", _Kernel32())
+    assert _derive_media_type_from_drive_letters("C:, E:", "Basic Disk") == "Removable Media"
+
+
+def test_build_usb_drives_from_interfaces_uses_disk_media_type_map():
+    backend = object.__new__(WindowsBackend)
+    backend._profile_scan_enabled = False
+    backend._scan_pass_index = 1
+    wmi_usb_devices = [
+        {
+            "serial": "SER123",
+            "description": "Apricorn USB Device",
+        }
+    ]
+    disk_interfaces = [
+        {
+            "normalized_path": r"\\?\usb#disk&ven_apricorn&prod_key#ser123&0#{53f56307-b6bf}",
+            "device_path": r"\\?\usb#disk&ven_apricorn&prod_key#SER123&0#{53f56307-b6bf}",
+            "device_number": 3,
+            "product_hint": "Secure Key 3.0",
+        }
+    ]
+
+    drives = backend._build_usb_drives_from_interfaces(
+        wmi_usb_devices,
+        disk_interfaces,
+        storage_metrics_map={3: {"size_gb": 15.8}},
+        media_type_map={3: "Removable Media"},
+    )
+
+    assert len(drives) == 1
+    assert drives[0]["mediaType"] == "Removable Media"
+
+
 def test_get_drive_letters_map_wmi_skips_logging_when_no_candidate_indices(capsys):
     backend = object.__new__(WindowsBackend)
     backend._profile_scan_enabled = True
@@ -649,8 +699,12 @@ def test_get_drive_letters_map_wmi_skips_logging_when_no_candidate_indices(capsy
     assert "windows-drive-letter-profile: pass=2 skipped=no_candidate_drive_indices" in captured.err
 
 
-def test_native_payload_to_devices_parses_contract_shape():
+def test_native_payload_to_devices_parses_contract_shape(monkeypatch):
     backend = object.__new__(WindowsBackend)
+    monkeypatch.setattr(
+        "usb_tool.backend.windows._derive_media_type_from_drive_letters",
+        lambda drive_letters, fallback="Basic Disk": "Basic Disk",
+    )
     payload = {
         "devices": [
             {
@@ -691,6 +745,33 @@ def test_native_payload_to_devices_parses_contract_shape():
     assert serialized["driveSizeGB"] == 16
     assert serialized["physicalDriveNum"] == 3
     assert serialized["driveLetter"] == "F:"
+
+
+def test_native_payload_to_devices_derives_removable_media_from_drive_letter(monkeypatch):
+    backend = object.__new__(WindowsBackend)
+    monkeypatch.setattr(
+        "usb_tool.backend.windows._derive_media_type_from_drive_letters",
+        lambda drive_letters, fallback="Basic Disk": "Removable Media",
+    )
+    payload = {
+        "devices": [
+            {
+                "1": {
+                    "idVendor": "0984",
+                    "idProduct": "1410",
+                    "iSerial": "SER1410",
+                    "driveSizeGB": 16,
+                    "mediaType": "Basic Disk",
+                    "driveLetter": "E:",
+                }
+            }
+        ]
+    }
+
+    devices = backend._native_payload_to_devices(payload)
+
+    assert len(devices) == 1
+    assert devices[0].mediaType == "Removable Media"
 
 
 def test_scan_devices_native_invokes_python_version_probe_only_for_na_drive_size():
