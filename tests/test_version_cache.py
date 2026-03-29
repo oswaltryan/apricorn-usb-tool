@@ -82,6 +82,7 @@ def test_bump_if_needed_updates_pyproject_when_head_matches(monkeypatch, tmp_pat
     _write_pyproject(pyproject, "1.4.0")
 
     monkeypatch.setattr(project_mod, "PYPROJECT", pyproject)
+    monkeypatch.setattr(project_mod, "_has_working_tree_changes", lambda: True)
     monkeypatch.setattr(
         project_mod,
         "_read_head_file",
@@ -98,6 +99,7 @@ def test_bump_if_needed_preserves_manual_version_change(monkeypatch, tmp_path):
     _write_pyproject(pyproject, "1.5.0")
 
     monkeypatch.setattr(project_mod, "PYPROJECT", pyproject)
+    monkeypatch.setattr(project_mod, "_has_working_tree_changes", lambda: True)
     monkeypatch.setattr(
         project_mod,
         "_read_head_file",
@@ -106,3 +108,20 @@ def test_bump_if_needed_preserves_manual_version_change(monkeypatch, tmp_path):
 
     assert project_mod.bump_if_needed() == 0
     assert project_mod.read_version(pyproject) == "1.5.0"
+
+
+def test_bump_if_needed_does_not_bump_when_worktree_is_clean(monkeypatch, tmp_path):
+    project_mod = _load_project_version_module()
+    pyproject = tmp_path / "pyproject.toml"
+    _write_pyproject(pyproject, "1.6.0")
+
+    monkeypatch.setattr(project_mod, "PYPROJECT", pyproject)
+    monkeypatch.setattr(project_mod, "_has_working_tree_changes", lambda: False)
+    monkeypatch.setattr(
+        project_mod,
+        "_read_head_file",
+        lambda path: '[project]\nname = "apricorn-usb-tool"\nversion = "1.6.0"\n',
+    )
+
+    assert project_mod.bump_if_needed() == 0
+    assert project_mod.read_version(pyproject) == "1.6.0"

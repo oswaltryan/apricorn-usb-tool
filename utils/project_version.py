@@ -95,6 +95,20 @@ def bump_patch(version: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+def _has_working_tree_changes() -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+    return bool(result.stdout.strip())
+
+
 def _replace_version_in_text(text: str, version: str) -> str:
     project_match = PROJECT_SECTION_RE.search(text)
     if not project_match:
@@ -124,6 +138,8 @@ def write_version(version: str, path: Path | None = None) -> None:
 
 def resolve_bump_target() -> str:
     current_version = read_version()
+    if not _has_working_tree_changes():
+        return current_version
     head_text = _read_head_file("pyproject.toml")
     if not head_text:
         return current_version
