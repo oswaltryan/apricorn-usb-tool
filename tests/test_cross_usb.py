@@ -85,7 +85,75 @@ def test_handle_list_action_json_output(capfd):
     assert len(payload["devices"]) == 1
     device_entry = payload["devices"][0]["1"]
     assert device_entry["iSerial"] == "XYZ123"
+    assert device_entry["deviceMode"] == "Unlocked"
     assert "bridgeFW" not in device_entry
+
+
+def test_handle_list_action_json_oob_replaces_size_and_drive_letter_with_device_mode(
+    capfd, monkeypatch
+):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driveSizeGB": "N/A (OOB Mode)",
+                "driveLetter": "F:",
+                "readOnly": True,
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=True)
+    captured = capfd.readouterr()
+    payload = json.loads(captured.out)
+    device_entry = payload["devices"][0]["1"]
+    assert device_entry["deviceMode"] == "OOB Mode"
+    assert "driveSizeGB" not in device_entry
+    assert "driveLetter" not in device_entry
+    assert "readOnly" not in device_entry
+
+
+def test_handle_list_action_json_unlocked_keeps_size_and_drive_letter(capfd, monkeypatch):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driveSizeGB": 64,
+                "driveLetter": "F:",
+                "readOnly": False,
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=True)
+    captured = capfd.readouterr()
+    payload = json.loads(captured.out)
+    device_entry = payload["devices"][0]["1"]
+    assert device_entry["deviceMode"] == "Unlocked"
+    assert device_entry["driveSizeGB"] == 64
+    assert device_entry["driveLetter"] == "F:"
+    assert device_entry["readOnly"] is False
+
+
+def test_handle_list_action_human_output_oob_hides_size_and_drive_letter(capfd, monkeypatch):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driveSizeGB": "N/A (OOB Mode)",
+                "driveLetter": "F:",
+                "readOnly": True,
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=False)
+    captured = capfd.readouterr()
+    assert "deviceMode" in captured.out
+    assert "OOB Mode" in captured.out
+    assert "driveSizeGB" not in captured.out
+    assert "driveLetter" not in captured.out
+    assert "readOnly" not in captured.out
 
 
 def test_handle_list_action_hides_deprecated_and_windows_json_only_fields(capfd, monkeypatch):

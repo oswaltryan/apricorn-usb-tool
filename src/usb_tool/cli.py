@@ -242,9 +242,24 @@ def _load_device_manager_class():
         return _DeviceManager
 
 
+def _device_mode_from_drive_size(drive_size: Any) -> str:
+    size_text = str(drive_size if drive_size is not None else "").strip().upper()
+    return "OOB Mode" if size_text.startswith("N/A") else "Unlocked"
+
+
+def _apply_device_mode_output_fields(device_dict: dict[str, Any]) -> None:
+    device_mode = _device_mode_from_drive_size(device_dict.get("driveSizeGB"))
+    device_dict["deviceMode"] = device_mode
+    if device_mode == "OOB Mode":
+        device_dict.pop("driveSizeGB", None)
+        device_dict.pop("driveLetter", None)
+        device_dict.pop("readOnly", None)
+
+
 def _filter_json_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
     filtered = dict(device_dict)
     filtered.pop("bridgeFW", None)
+    _apply_device_mode_output_fields(filtered)
 
     if _SYSTEM.startswith("win"):
         return filtered
@@ -287,6 +302,7 @@ def _json_default(value: Any) -> Any:
 def _filter_printable_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
     printable = dict(device_dict)
     printable.pop("bridgeFW", None)
+    _apply_device_mode_output_fields(printable)
 
     if _SYSTEM.startswith("win"):
         for field_name in (
