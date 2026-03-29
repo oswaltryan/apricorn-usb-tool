@@ -140,13 +140,13 @@ void collect_drive_letter_map(DriveLetterVec* map) {
 
         ZeroMemory(extents_buf, sizeof(extents_buf));
         if (DeviceIoControl(h,
-                             IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
-                             NULL,
-                             0,
-                             extents_buf,
-                             (DWORD)sizeof(extents_buf),
-                             &out_bytes,
-                             NULL) &&
+                            IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS,
+                            NULL,
+                            0,
+                            extents_buf,
+                            (DWORD)sizeof(extents_buf),
+                            &out_bytes,
+                            NULL) &&
             out_bytes >= sizeof(VOLUME_DISK_EXTENTS) &&
             extents->NumberOfDiskExtents > 0) {
             for (e = 0; e < extents->NumberOfDiskExtents; ++e) {

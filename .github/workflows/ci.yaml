@@ -8,6 +8,7 @@ on:
 
 jobs:
   quality:
+    name: quality (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -28,7 +29,11 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev
 
-      - name: Pre-commit
+      # Keep quality checks centralized in pre-commit to avoid CI/config drift.
+      - name: Validate pre-commit config
+        run: uv run --extra dev pre-commit validate-config
+
+      - name: Run pre-commit (single source of truth)
         env:
           SKIP: bump-project-version
-        run: uv run --extra dev pre-commit run --all-files
+        run: uv run --extra dev pre-commit run --all-files --show-diff-on-failure --color=always

@@ -5,33 +5,33 @@ static void json_print_escaped(const char* s) {
     putchar('"');
     while (*p != '\0') {
         switch (*p) {
-            case '"':
-                fputs("\\\"", stdout);
-                break;
-            case '\\':
-                fputs("\\\\", stdout);
-                break;
-            case '\b':
-                fputs("\\b", stdout);
-                break;
-            case '\f':
-                fputs("\\f", stdout);
-                break;
-            case '\n':
-                fputs("\\n", stdout);
-                break;
-            case '\r':
-                fputs("\\r", stdout);
-                break;
-            case '\t':
-                fputs("\\t", stdout);
-                break;
-            default:
-                if (*p < 0x20) {
-                    fprintf(stdout, "\\u%04x", *p);
-                } else {
-                    putchar(*p);
-                }
+        case '"':
+            fputs("\\\"", stdout);
+            break;
+        case '\\':
+            fputs("\\\\", stdout);
+            break;
+        case '\b':
+            fputs("\\b", stdout);
+            break;
+        case '\f':
+            fputs("\\f", stdout);
+            break;
+        case '\n':
+            fputs("\\n", stdout);
+            break;
+        case '\r':
+            fputs("\\r", stdout);
+            break;
+        case '\t':
+            fputs("\\t", stdout);
+            break;
+        default:
+            if (*p < 0x20) {
+                fprintf(stdout, "\\u%04x", *p);
+            } else {
+                putchar(*p);
+            }
         }
         ++p;
     }

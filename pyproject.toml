@@ -13,7 +13,7 @@ build-backend = "setuptools.build_meta"
 [project]
 # Package metadata
 name = "apricorn-usb-tool"
-version = "1.5.8"
+version = "1.5.9"
 description = "Cross-platform USB tool for Apricorn devices"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -71,6 +71,15 @@ select = [
   "I",       # import sorting
   "UP",      # pyupgrade
 ]
+
+[tool.ruff.lint.pylint]
+max-statements = 30
+max-branches = 10
+max-locals = 12
+max-nested-blocks = 4
+max-args = 6
+max-positional-args = 4
+max-bool-expr = 4
 
 [tool.mypy]
 python_version = "3.10"

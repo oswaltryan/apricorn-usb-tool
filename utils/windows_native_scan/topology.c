@@ -3,9 +3,9 @@
 #include "devnode.h"
 
 static const GUID GUID_DEVINTERFACE_USB_HUB_LOCAL = {0xf18a0e88,
-                                                      0xc30c,
-                                                      0x11d0,
-                                                      {0x88, 0x15, 0x00, 0xa0, 0xc9, 0x06, 0xbe, 0xd8}};
+                                                     0xc30c,
+                                                     0x11d0,
+                                                     {0x88, 0x15, 0x00, 0xa0, 0xc9, 0x06, 0xbe, 0xd8}};
 
 static bool parse_port_from_location_info(const wchar_t* location_info, int* port_out) {
     const wchar_t* p;
