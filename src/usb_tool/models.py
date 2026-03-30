@@ -29,6 +29,7 @@ class UsbDeviceInfo:
     deviceAddress: int = -1
     physicalDriveNum: int = -1
     driveLetter: str = "Not Formatted"
+    fileSystem: str | None = None
     readOnly: bool = False
     # Version info fields (optional)
     scbPartNumber: str | None = None

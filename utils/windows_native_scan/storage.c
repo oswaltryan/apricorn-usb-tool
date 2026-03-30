@@ -63,6 +63,104 @@ static bool add_drive_letter_for_disk(DriveLetterVec* map,
     return true;
 }
 
+static bool is_not_formatted_letters(const wchar_t* letters) {
+    if (letters == NULL) {
+        return true;
+    }
+    return _wcsicmp(letters, L"Not Formatted") == 0;
+}
+
+static void trim_token_inplace(wchar_t* token) {
+    size_t len;
+    wchar_t* start = token;
+    if (token == NULL || token[0] == L'\0') {
+        return;
+    }
+    while (*start != L'\0' && iswspace(*start)) {
+        ++start;
+    }
+    if (start != token) {
+        memmove(token, start, (wcslen(start) + 1) * sizeof(*token));
+    }
+    len = wcslen(token);
+    while (len > 0 && iswspace(token[len - 1])) {
+        token[len - 1] = L'\0';
+        --len;
+    }
+}
+
+static bool csv_contains_token_ci(const wchar_t* csv, const wchar_t* token) {
+    const wchar_t* cursor = csv;
+    wchar_t parsed[64];
+    size_t idx = 0;
+
+    if (csv == NULL || token == NULL || token[0] == L'\0') {
+        return false;
+    }
+
+    while (*cursor != L'\0') {
+        idx = 0;
+        while (*cursor != L'\0' && *cursor != L',' && idx + 1 < ARRAYSIZE(parsed)) {
+            parsed[idx++] = *cursor++;
+        }
+        parsed[idx] = L'\0';
+        trim_token_inplace(parsed);
+        if (parsed[0] != L'\0' && _wcsicmp(parsed, token) == 0) {
+            return true;
+        }
+        if (*cursor == L',') {
+            ++cursor;
+        }
+    }
+    return false;
+}
+
+static void append_csv_token_unique(wchar_t* csv, size_t cap, const wchar_t* token) {
+    if (token == NULL || token[0] == L'\0') {
+        return;
+    }
+    if (csv[0] == L'\0') {
+        StringCchCopyW(csv, cap, token);
+        return;
+    }
+    if (csv_contains_token_ci(csv, token)) {
+        return;
+    }
+    StringCchCatW(csv, cap, L", ");
+    StringCchCatW(csv, cap, token);
+}
+
+static bool parse_drive_letter_token(const wchar_t* token, wchar_t root[4]) {
+    wchar_t trimmed[16];
+    StringCchCopyW(trimmed, ARRAYSIZE(trimmed), token);
+    trim_token_inplace(trimmed);
+    if (trimmed[0] == L'\0') {
+        return false;
+    }
+    if (!iswalpha(trimmed[0])) {
+        return false;
+    }
+    if (trimmed[1] != L':') {
+        return false;
+    }
+    root[0] = towupper(trimmed[0]);
+    root[1] = L':';
+    root[2] = L'\\';
+    root[3] = L'\0';
+    return true;
+}
+
+static bool classify_disk_without_drive_letters(int disk_number,
+                                                wchar_t* filesystem_out,
+                                                size_t filesystem_out_cap) {
+    if (filesystem_out == NULL || filesystem_out_cap == 0) {
+        return false;
+    }
+    (void)disk_number;
+    StringCchCopyW(filesystem_out, filesystem_out_cap, L"Unallocated");
+    return true;
+}
+
 bool get_disk_number_from_path(const wchar_t* path, int* disk_number_out) {
     HANDLE h = INVALID_HANDLE_VALUE;
     STORAGE_DEVICE_NUMBER number;
@@ -421,4 +519,76 @@ bool get_size_from_drive_letters(const char* letters_csv, double* size_gib_out) 
 
     *size_gib_out = (double)best_bytes / (1024.0 * 1024.0 * 1024.0);
     return true;
+}
+
+bool derive_filesystem_for_disk(int disk_number,
+                                const wchar_t* drive_letters,
+                                wchar_t* filesystem_out,
+                                size_t filesystem_out_cap) {
+    const wchar_t* cursor = drive_letters;
+    wchar_t token[16];
+    size_t idx = 0;
+    wchar_t root[4];
+    wchar_t fs_name[MAX_PATH];
+    BOOL fs_ok = FALSE;
+    bool saw_letter = false;
+
+    if (filesystem_out == NULL || filesystem_out_cap == 0) {
+        return false;
+    }
+    filesystem_out[0] = L'\0';
+
+    if (drive_letters == NULL || drive_letters[0] == L'\0' || is_not_formatted_letters(drive_letters)) {
+        return classify_disk_without_drive_letters(disk_number, filesystem_out, filesystem_out_cap);
+    }
+
+    while (*cursor != L'\0') {
+        idx = 0;
+        while (*cursor != L'\0' && *cursor != L',' && idx + 1 < ARRAYSIZE(token)) {
+            token[idx++] = *cursor++;
+        }
+        token[idx] = L'\0';
+        if (*cursor == L',') {
+            ++cursor;
+        }
+
+        if (!parse_drive_letter_token(token, root)) {
+            continue;
+        }
+        saw_letter = true;
+
+        fs_name[0] = L'\0';
+        fs_ok = GetVolumeInformationW(root,
+                                      NULL,
+                                      0,
+                                      NULL,
+                                      NULL,
+                                      NULL,
+                                      fs_name,
+                                      ARRAYSIZE(fs_name));
+        if (!fs_ok) {
+            fs_name[0] = L'\0';
+            fs_ok = GetVolumeInformationW(root,
+                                          NULL,
+                                          0,
+                                          NULL,
+                                          NULL,
+                                          NULL,
+                                          fs_name,
+                                          ARRAYSIZE(fs_name));
+        }
+        if (fs_ok && fs_name[0] != L'\0') {
+            append_csv_token_unique(filesystem_out, filesystem_out_cap, fs_name);
+        }
+    }
+
+    if (filesystem_out[0] != L'\0') {
+        return true;
+    }
+    if (saw_letter) {
+        StringCchCopyW(filesystem_out, filesystem_out_cap, L"RAW");
+        return true;
+    }
+
+    return classify_disk_without_drive_letters(disk_number, filesystem_out, filesystem_out_cap);
 }

@@ -100,6 +100,7 @@ def test_handle_list_action_json_oob_replaces_size_and_drive_letter_with_device_
                 "iSerial": "XYZ123",
                 "driveSizeGB": "N/A (OOB Mode)",
                 "driveLetter": "F:",
+                "fileSystem": "NTFS",
                 "readOnly": True,
             }
 
@@ -110,6 +111,7 @@ def test_handle_list_action_json_oob_replaces_size_and_drive_letter_with_device_
     assert device_entry["deviceMode"] == "OOB Mode"
     assert "driveSizeGB" not in device_entry
     assert "driveLetter" not in device_entry
+    assert "fileSystem" not in device_entry
     assert "readOnly" not in device_entry
 
 
@@ -122,6 +124,7 @@ def test_handle_list_action_json_unlocked_keeps_size_and_drive_letter(capfd, mon
                 "iSerial": "XYZ123",
                 "driveSizeGB": 64,
                 "driveLetter": "F:",
+                "fileSystem": "FAT32",
                 "readOnly": False,
             }
 
@@ -132,7 +135,33 @@ def test_handle_list_action_json_unlocked_keeps_size_and_drive_letter(capfd, mon
     assert device_entry["deviceMode"] == "Unlocked"
     assert device_entry["driveSizeGB"] == 64
     assert device_entry["driveLetter"] == "F:"
+    assert device_entry["fileSystem"] == "FAT32"
     assert device_entry["readOnly"] is False
+
+
+def test_handle_list_action_json_basic_disk_without_drive_letter_normalizes_filesystem(
+    capfd, monkeypatch
+):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driveSizeGB": 64,
+                "mediaType": "Basic Disk",
+                "driveLetter": "Not Formatted",
+                "fileSystem": "RAW",
+                "readOnly": False,
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=True)
+    captured = capfd.readouterr()
+    payload = json.loads(captured.out)
+    device_entry = payload["devices"][0]["1"]
+    assert device_entry["deviceMode"] == "Unlocked"
+    assert "driveLetter" not in device_entry
+    assert device_entry["fileSystem"] == "Unallocated"
 
 
 def test_handle_list_action_human_output_oob_hides_size_and_drive_letter(capfd, monkeypatch):
@@ -154,6 +183,29 @@ def test_handle_list_action_human_output_oob_hides_size_and_drive_letter(capfd, 
     assert "driveSizeGB" not in captured.out
     assert "driveLetter" not in captured.out
     assert "readOnly" not in captured.out
+
+
+def test_handle_list_action_human_output_basic_disk_without_drive_letter_hides_drive_letter(
+    capfd, monkeypatch
+):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "iSerial": "XYZ123",
+                "driveSizeGB": 64,
+                "mediaType": "Basic Disk",
+                "driveLetter": "Not Formatted",
+                "fileSystem": "Unallocated",
+                "readOnly": False,
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=False)
+    captured = capfd.readouterr()
+    assert "driveLetter" not in captured.out
+    assert "fileSystem" in captured.out
+    assert "Unallocated" in captured.out
 
 
 def test_handle_list_action_hides_deprecated_and_windows_json_only_fields(capfd, monkeypatch):
@@ -203,6 +255,70 @@ def test_handle_list_action_json_keeps_compatibility_fields(capfd, monkeypatch):
     assert device_entry["diskDriverProvider"] == "Microsoft"
     assert device_entry["busNumber"] == 1
     assert "bridgeFW" not in device_entry
+
+
+def test_handle_list_action_json_windows_field_order(capfd, monkeypatch):
+    monkeypatch.setattr(cross_usb, "_SYSTEM", "windows")
+
+    class MockDevice:
+        def to_dict(self):
+            return {
+                "deviceAddress": 3,
+                "usbDriverInf": "oem17.inf",
+                "idProduct": "1410",
+                "diskDriverVersion": "10.0.26100.7705",
+                "driveLetter": "E:",
+                "idVendor": "0984",
+                "usbController": "Intel",
+                "iSerial": "ABC123",
+                "bcdDevice": "0803",
+                "diskDriverProvider": "Microsoft",
+                "fileSystem": "FAT32",
+                "readOnly": False,
+                "usbDriverProvider": "Apricorn",
+                "mediaType": "Removable Media",
+                "physicalDriveNum": 2,
+                "iManufacturer": "Apricorn",
+                "usbDriverVersion": "21.46.5.13",
+                "iProduct": "SECURE KEY 3.0",
+                "driverTransport": "BOT",
+                "diskDriverInf": "disk.inf",
+                "driveSizeGB": 16,
+                "bcdUSB": 3.2,
+                "busNumber": 1,
+            }
+
+    cross_usb._handle_list_action([MockDevice()], json_mode=True)
+    captured = capfd.readouterr()
+    payload = json.loads(captured.out)
+    ordered_keys = list(payload["devices"][0]["1"].keys())
+
+    assert ordered_keys == [
+        "bcdUSB",
+        "idVendor",
+        "idProduct",
+        "bcdDevice",
+        "iManufacturer",
+        "iProduct",
+        "iSerial",
+        "usbController",
+        "driverTransport",
+        "usbDriverProvider",
+        "usbDriverVersion",
+        "usbDriverInf",
+        "diskDriverProvider",
+        "diskDriverVersion",
+        "diskDriverInf",
+        "physicalDriveNum",
+        "busNumber",
+        "deviceAddress",
+        "mediaType",
+        "driveSizeGB",
+        "readOnly",
+        "fileSystem",
+        "driveLetter",
+        "deviceMode",
+    ]
 
 
 def test_handle_list_action_linux_json_hides_windows_only_fields(capfd, monkeypatch):

@@ -45,6 +45,7 @@ typedef struct {
     char driver_transport[16];
     char media_type[32];
     char drive_letter[64];
+    char file_system[64];
     char usb_driver_provider[128];
     char usb_driver_version[64];
     char usb_driver_inf[128];

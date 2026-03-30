@@ -23,6 +23,32 @@ _WINDOWS_TERMINAL_PARENTS = {
     "bash.exe",
     "mintty.exe",
 }
+_WINDOWS_OUTPUT_FIELD_ORDER = (
+    "bcdUSB",
+    "idVendor",
+    "idProduct",
+    "bcdDevice",
+    "iManufacturer",
+    "iProduct",
+    "iSerial",
+    "usbController",
+    "driverTransport",
+    "usbDriverProvider",
+    "usbDriverVersion",
+    "usbDriverInf",
+    "diskDriverProvider",
+    "diskDriverVersion",
+    "diskDriverInf",
+    "physicalDriveNum",
+    "busNumber",
+    "deviceAddress",
+    "mediaType",
+    "driveSizeGB",
+    "readOnly",
+    "fileSystem",
+    "driveLetter",
+    "deviceMode",
+)
 
 
 def is_admin_windows() -> bool:
@@ -247,13 +273,54 @@ def _device_mode_from_drive_size(drive_size: Any) -> str:
     return "OOB Mode" if size_text.startswith("N/A") else "Unlocked"
 
 
+def _has_drive_letter_value(value: Any) -> bool:
+    text = str(value if value is not None else "").strip()
+    if not text or text.lower() == "not formatted":
+        return False
+
+    tokens = [token.strip() for token in text.split(",") if token.strip()]
+    for token in tokens:
+        if len(token) >= 2 and token[0].isalpha() and token[1] == ":":
+            return True
+    return False
+
+
 def _apply_device_mode_output_fields(device_dict: dict[str, Any]) -> None:
     device_mode = _device_mode_from_drive_size(device_dict.get("driveSizeGB"))
     device_dict["deviceMode"] = device_mode
     if device_mode == "OOB Mode":
         device_dict.pop("driveSizeGB", None)
         device_dict.pop("driveLetter", None)
+        device_dict.pop("fileSystem", None)
         device_dict.pop("readOnly", None)
+        return
+
+    media_type = str(device_dict.get("mediaType", "")).strip().lower()
+    if (
+        _SYSTEM.startswith("win")
+        and media_type == "basic disk"
+        and not _has_drive_letter_value(device_dict.get("driveLetter"))
+    ):
+        file_system = str(device_dict.get("fileSystem", "")).strip()
+        if not file_system or file_system.upper() == "RAW":
+            device_dict["fileSystem"] = "Unallocated"
+        device_dict.pop("driveLetter", None)
+
+
+def _order_windows_output_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
+    if not _SYSTEM.startswith("win"):
+        return dict(device_dict)
+
+    ordered: dict[str, Any] = {}
+    for field_name in _WINDOWS_OUTPUT_FIELD_ORDER:
+        if field_name in device_dict:
+            ordered[field_name] = device_dict[field_name]
+
+    for field_name, value in device_dict.items():
+        if field_name not in ordered:
+            ordered[field_name] = value
+
+    return ordered
 
 
 def _filter_json_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
@@ -262,7 +329,7 @@ def _filter_json_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
     _apply_device_mode_output_fields(filtered)
 
     if _SYSTEM.startswith("win"):
-        return filtered
+        return _order_windows_output_fields(filtered)
 
     for field_name in (
         "usbDriverProvider",
@@ -316,7 +383,7 @@ def _filter_printable_fields(device_dict: dict[str, Any]) -> dict[str, Any]:
             "deviceAddress",
         ):
             printable.pop(field_name, None)
-        return printable
+        return _order_windows_output_fields(printable)
 
     for field_name in (
         "usbDriverProvider",

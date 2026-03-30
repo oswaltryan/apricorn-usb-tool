@@ -97,6 +97,7 @@ bool enumerate_apricorn_devices(DeviceVec* devices, ProfileStats* stats) {
         StringCchCopyA(out.disk_driver_version, ARRAYSIZE(out.disk_driver_version), "N/A");
         StringCchCopyA(out.disk_driver_inf, ARRAYSIZE(out.disk_driver_inf), "N/A");
         StringCchCopyA(out.usb_controller, ARRAYSIZE(out.usb_controller), "N/A");
+        StringCchCopyA(out.file_system, ARRAYSIZE(out.file_system), "");
         out.bcd_usb = 0.0;
         out.bus_number = -1;
         out.device_address = -1;
@@ -153,6 +154,14 @@ bool enumerate_apricorn_devices(DeviceVec* devices, ProfileStats* stats) {
 
         letters_w = lookup_drive_letters(&drive_map, out.physical_drive_num);
         wide_to_utf8(letters_w, out.drive_letter, ARRAYSIZE(out.drive_letter));
+        if (!out.oob_mode && out.has_drive_size_gb) {
+            wchar_t fs_w[64];
+            fs_w[0] = L'\0';
+            if (derive_filesystem_for_disk(
+                    out.physical_drive_num, letters_w, fs_w, ARRAYSIZE(fs_w))) {
+                wide_to_utf8(fs_w, out.file_system, ARRAYSIZE(out.file_system));
+            }
+        }
         if (!out.has_drive_size_gb) {
             double letter_size_gib = 0.0;
             if (get_size_from_drive_letters(out.drive_letter, &letter_size_gib) && letter_size_gib > 0.0) {
@@ -160,6 +169,14 @@ bool enumerate_apricorn_devices(DeviceVec* devices, ProfileStats* stats) {
                 out.has_drive_size_gb = out.drive_size_gb > 0;
                 if (out.has_drive_size_gb) {
                     out.oob_mode = false;
+                    if (out.file_system[0] == '\0') {
+                        wchar_t fs_w[64];
+                        fs_w[0] = L'\0';
+                        if (derive_filesystem_for_disk(
+                                out.physical_drive_num, letters_w, fs_w, ARRAYSIZE(fs_w))) {
+                            wide_to_utf8(fs_w, out.file_system, ARRAYSIZE(out.file_system));
+                        }
+                    }
                 }
             }
         }

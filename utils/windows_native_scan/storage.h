@@ -17,5 +17,9 @@ bool get_device_path_metrics(const wchar_t* device_path,
                              bool* oob_mode_out,
                              int* read_only_out);
 bool get_size_from_drive_letters(const char* letters_csv, double* size_gib_out);
+bool derive_filesystem_for_disk(int disk_number,
+                                const wchar_t* drive_letters,
+                                wchar_t* filesystem_out,
+                                size_t filesystem_out_cap);
 
 #endif

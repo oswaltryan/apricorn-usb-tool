@@ -159,6 +159,17 @@ def _derive_media_type_from_drive_letters(drive_letters: Any, fallback: Any = "B
     return fallback_media_type
 
 
+def _has_drive_letter_token(drive_letters: Any) -> bool:
+    letters_text = str(drive_letters or "").strip()
+    if not letters_text or letters_text.lower() == "not formatted":
+        return False
+
+    for token in (part.strip() for part in letters_text.split(",")):
+        if len(token) >= 2 and token[0].isalpha() and token[1] == ":":
+            return True
+    return False
+
+
 def _normalize_serial_candidates(serial: str) -> list[str]:
     text = str(serial or "").strip()
     if not text:
@@ -507,6 +518,14 @@ class WindowsBackend(AbstractBackend):
                 )
             except Exception:
                 continue
+
+            file_system = self._as_text(entry.get("fileSystem"), "")
+            has_drive_letter = _has_drive_letter_token(drive_letter)
+            if media_type == "Basic Disk" and not has_drive_letter:
+                if not file_system or file_system.upper() == "RAW":
+                    file_system = "Unallocated"
+            if file_system:
+                dev_info.fileSystem = file_system
 
             if "scbPartNumber" in entry:
                 dev_info.scbPartNumber = self._as_text(entry.get("scbPartNumber"), "N/A")

@@ -730,6 +730,7 @@ def test_native_payload_to_devices_parses_contract_shape(monkeypatch):
                     "deviceAddress": 4,
                     "physicalDriveNum": 3,
                     "driveLetter": "F:",
+                    "fileSystem": "NTFS",
                     "readOnly": False,
                 }
             }
@@ -745,6 +746,7 @@ def test_native_payload_to_devices_parses_contract_shape(monkeypatch):
     assert serialized["driveSizeGB"] == 16
     assert serialized["physicalDriveNum"] == 3
     assert serialized["driveLetter"] == "F:"
+    assert serialized["fileSystem"] == "NTFS"
 
 
 def test_native_payload_to_devices_derives_removable_media_from_drive_letter(monkeypatch):
@@ -772,6 +774,97 @@ def test_native_payload_to_devices_derives_removable_media_from_drive_letter(mon
 
     assert len(devices) == 1
     assert devices[0].mediaType == "Removable Media"
+
+
+def test_native_payload_to_devices_accepts_raw_filesystem_from_native_payload(monkeypatch):
+    backend = object.__new__(WindowsBackend)
+    monkeypatch.setattr(
+        "usb_tool.backend.windows._derive_media_type_from_drive_letters",
+        lambda drive_letters, fallback="Basic Disk": "Basic Disk",
+    )
+    payload = {
+        "devices": [
+            {
+                "1": {
+                    "idVendor": "0984",
+                    "idProduct": "1410",
+                    "iSerial": "SER1410",
+                    "driveSizeGB": 16,
+                    "mediaType": "Basic Disk",
+                    "driveLetter": "E:",
+                    "fileSystem": "RAW",
+                }
+            }
+        ]
+    }
+
+    devices = backend._native_payload_to_devices(payload)
+
+    assert len(devices) == 1
+    serialized = devices[0].to_dict()
+    assert serialized["fileSystem"] == "RAW"
+
+
+def test_native_payload_to_devices_normalizes_raw_without_drive_letter_to_unallocated(
+    monkeypatch,
+):
+    backend = object.__new__(WindowsBackend)
+    monkeypatch.setattr(
+        "usb_tool.backend.windows._derive_media_type_from_drive_letters",
+        lambda drive_letters, fallback="Basic Disk": "Basic Disk",
+    )
+    payload = {
+        "devices": [
+            {
+                "1": {
+                    "idVendor": "0984",
+                    "idProduct": "1410",
+                    "iSerial": "SER1410",
+                    "driveSizeGB": 16,
+                    "mediaType": "Basic Disk",
+                    "driveLetter": "Not Formatted",
+                    "fileSystem": "RAW",
+                }
+            }
+        ]
+    }
+
+    devices = backend._native_payload_to_devices(payload)
+
+    assert len(devices) == 1
+    serialized = devices[0].to_dict()
+    assert serialized["fileSystem"] == "Unallocated"
+
+
+def test_native_payload_to_devices_accepts_unallocated_filesystem_from_native_payload(
+    monkeypatch,
+):
+    backend = object.__new__(WindowsBackend)
+    monkeypatch.setattr(
+        "usb_tool.backend.windows._derive_media_type_from_drive_letters",
+        lambda drive_letters, fallback="Basic Disk": "Basic Disk",
+    )
+    payload = {
+        "devices": [
+            {
+                "1": {
+                    "idVendor": "0984",
+                    "idProduct": "1407",
+                    "iSerial": "SER1407",
+                    "driveSizeGB": 16,
+                    "mediaType": "Basic Disk",
+                    "driveLetter": "Not Formatted",
+                    "fileSystem": "Unallocated",
+                }
+            }
+        ]
+    }
+
+    devices = backend._native_payload_to_devices(payload)
+
+    assert len(devices) == 1
+    serialized = devices[0].to_dict()
+    assert serialized["fileSystem"] == "Unallocated"
 
 
 def test_scan_devices_native_invokes_python_version_probe_only_for_na_drive_size():

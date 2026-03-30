@@ -85,6 +85,10 @@ static void emit_device_payload(const ApricornDevice* d) {
     fprintf(stdout, "%d", d->physical_drive_num);
     fputs(",\n        \"driveLetter\": ", stdout);
     json_print_escaped(d->drive_letter);
+    if (!d->oob_mode && d->file_system[0] != '\0') {
+        fputs(",\n        \"fileSystem\": ", stdout);
+        json_print_escaped(d->file_system);
+    }
     fputs(",\n        \"readOnly\": ", stdout);
     fputs(d->read_only ? "true" : "false", stdout);
     if (d->oob_mode) {
