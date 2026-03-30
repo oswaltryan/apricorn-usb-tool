@@ -98,6 +98,7 @@ def test_handle_list_action_json_oob_replaces_size_and_drive_letter_with_device_
         def to_dict(self):
             return {
                 "iSerial": "XYZ123",
+                "mediaType": "Basic Disk",
                 "driveSizeGB": "N/A (OOB Mode)",
                 "driveLetter": "F:",
                 "fileSystem": "NTFS",
@@ -113,6 +114,7 @@ def test_handle_list_action_json_oob_replaces_size_and_drive_letter_with_device_
     assert "driveLetter" not in device_entry
     assert "fileSystem" not in device_entry
     assert "readOnly" not in device_entry
+    assert "mediaType" not in device_entry
 
 
 def test_handle_list_action_json_unlocked_keeps_size_and_drive_letter(capfd, monkeypatch):
@@ -171,6 +173,7 @@ def test_handle_list_action_human_output_oob_hides_size_and_drive_letter(capfd, 
         def to_dict(self):
             return {
                 "iSerial": "XYZ123",
+                "mediaType": "Basic Disk",
                 "driveSizeGB": "N/A (OOB Mode)",
                 "driveLetter": "F:",
                 "readOnly": True,
@@ -180,6 +183,7 @@ def test_handle_list_action_human_output_oob_hides_size_and_drive_letter(capfd, 
     captured = capfd.readouterr()
     assert "deviceMode" in captured.out
     assert "OOB Mode" in captured.out
+    assert "mediaType" not in captured.out
     assert "driveSizeGB" not in captured.out
     assert "driveLetter" not in captured.out
     assert "readOnly" not in captured.out

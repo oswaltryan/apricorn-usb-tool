@@ -289,6 +289,7 @@ def _apply_device_mode_output_fields(device_dict: dict[str, Any]) -> None:
     device_mode = _device_mode_from_drive_size(device_dict.get("driveSizeGB"))
     device_dict["deviceMode"] = device_mode
     if device_mode == "OOB Mode":
+        device_dict.pop("mediaType", None)
         device_dict.pop("driveSizeGB", None)
         device_dict.pop("driveLetter", None)
         device_dict.pop("fileSystem", None)
