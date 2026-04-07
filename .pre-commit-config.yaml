@@ -35,26 +35,13 @@ repos:
         files: ^utils/windows_native_scan/.*\.(c|h)$
     -   id: windows-native-compile
         name: windows-native-compile
-        entry: >-
-          pwsh -NoProfile -Command "$ErrorActionPreference = 'Stop';
-          if (-not $IsWindows) { exit 0 };
-          $vswhere = 'C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe';
-          if (-not (Test-Path $vswhere)) { Write-Error 'vswhere.exe not found'; exit 1 };
-          $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath;
-          if (-not $installPath) { Write-Error 'Visual Studio C++ Build Tools not found'; exit 1 };
-          $vsDevCmd = Join-Path $installPath 'Common7\Tools\VsDevCmd.bat';
-          if (-not (Test-Path $vsDevCmd)) { Write-Error \"VsDevCmd.bat not found at $vsDevCmd\"; exit 1 };
-          $objDir = Join-Path $env:TEMP 'usb_native_obj';
-          New-Item -ItemType Directory -Force -Path $objDir | Out-Null;
-          $compile = 'if not exist \"' + $objDir + '\" mkdir \"' + $objDir + '\" && call \"' + $vsDevCmd + '\" -arch=x64 -host_arch=x64 >nul && cl /nologo /W4 /WX /analyze /sdl /utf-8 /c /Fo\"' + $objDir + '\\\" utils\\windows_native_scan\\main.c utils\\windows_native_scan\\common.c utils\\windows_native_scan\\storage.c utils\\windows_native_scan\\devnode.c utils\\windows_native_scan\\topology.c utils\\windows_native_scan\\json_emit.c utils\\windows_native_scan\\enumerate.c';
-          cmd /c $compile;
-          exit $LASTEXITCODE"
+        entry: uv run python utils/windows_native_compile_hook.py
         language: system
         pass_filenames: false
         files: ^utils/windows_native_scan/.*\.(c|h)$
     -   id: mypy
         name: mypy
-        entry: uv run --extra dev mypy --config-file=pyproject.toml src tests
+        entry: uv run --extra dev python -m mypy --config-file=pyproject.toml src tests
         language: system
         pass_filenames: false
     -   id: bump-project-version
