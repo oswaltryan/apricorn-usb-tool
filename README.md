@@ -1,9 +1,60 @@
-# usb-tool (Apricorn USB Utility)
+# Apricorn USB Toolkit
 
-Cross-platform CLI and Python library for enumerating Apricorn USB devices and performing a safe READ(10) diagnostic poke.
+Cross-platform CLI and Python library for discovering Apricorn USB devices and performing low-level USB/SCSI operations consistently across Windows, Linux, and macOS.
 
-- Windows, Linux: enumeration + optional poke (requires Admin/root)
-- macOS: enumeration only (poke planned)
+## Why this exists
+
+Low-level USB and SCSI workflows are fragmented across operating systems. Existing tools are often platform-specific, inconsistent, or poorly suited for repeatable validation and manufacturing workflows. This project was built to provide a unified interface for Apricorn device discovery, inspection, and low-level operations across major desktop platforms.
+
+Instead of stitching together one-off scripts per OS, `apricorn-usb-toolkit` provides a reusable contract with platform backends that normalize hardware identity, transport details, media state, and version metadata into deterministic output for automation and qualification pipelines.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  User["Operator / Validation Automation"] --> CLI["usb CLI (src/usb_tool/cli.py)"]
+  CLI --> Service["DeviceManager + shared services"]
+  Service --> Win["WindowsBackend"]
+  Service --> Lin["LinuxBackend"]
+  Service --> Mac["MacOSBackend"]
+
+  Win --> WMI["WMI (Win32_* queries)"]
+  Win --> Libusb["libusb descriptor probe"]
+  Win --> SPTD["IOCTL_SCSI_PASS_THROUGH_DIRECT"]
+
+  Lin --> Lsblk["lsblk + sysfs + udevadm"]
+  Lin --> Lsusb["lsusb / lsusb -v"]
+  Lin --> DevNode["/dev/sdX access for poke/version"]
+
+  Mac --> Prof["system_profiler SPUSBDataType"]
+  Mac --> IOReg["ioreg mass-storage traversal"]
+  Mac --> Diskutil["diskutil media-type fallback"]
+
+  Service --> Version["Shared version probe + visibility rules"]
+  Version --> Output["Deterministic text/JSON output"]
+```
+
+## Deep Dive
+
+### 1. Cross-platform architecture with a shared contract
+
+The CLI (`usb`) routes all operations through `DeviceManager`, which selects a backend implementation by platform. Each backend implements the same `scan_devices`, `poke_device`, and `sort_devices` contract, while shared service code handles version probing and output-field visibility rules. This keeps cross-platform behavior consistent without forcing lowest-common-denominator implementations.
+
+### 2. Windows: native pass-through for device operations
+
+Windows combines multiple data sources (WMI + libusb + driver metadata) to correlate USB identity, disk mapping, controller context, and read-only state. Poke operations use native `IOCTL_SCSI_PASS_THROUGH_DIRECT` against PhysicalDrive handles, which provides a stable pass-through path for validation scenarios that require direct command-level behavior.
+
+### 3. Linux: multi-source correlation under privilege boundaries
+
+Linux scanning fuses `lsblk`, sysfs, `udevadm`, and `lsusb` data, then normalizes it into a single device model. The probe path is parallelized for speed, and output includes transport and controller context when available. Poke operations require root/sudo access to block devices by design, so the runtime behavior remains explicit about privilege requirements.
+
+### 4. macOS: enumeration-first strategy with explicit constraints
+
+macOS uses `system_profiler` and `ioreg` to build device and mass-storage context, with `diskutil` fallback where media-type inference is ambiguous. Poke is intentionally disabled on macOS in the current implementation to avoid presenting partially reliable pass-through behavior as production-ready functionality.
+
+### 5. Packaged for operational use
+
+The project is distributed as MSI/PKG/DEB installers plus portable binaries so validation teams can run the CLI on test hosts without a local Python toolchain. The same codebase also ships as a Python package for integration with larger automation frameworks.
 
 ## Download (standalone builds)
 

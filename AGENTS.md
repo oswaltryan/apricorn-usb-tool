@@ -2,7 +2,7 @@
 
 > A concise, agent-oriented guide to hacking on this project.
 
-You are working on **apricorn-usb-tool**, a cross-platform USB utility for Apricorn devices. The project exposes a single CLI, `usb`, that enumerates Apricorn USB hardware and can issue a safe diagnostic "poke" on supported platforms.
+You are working on **apricorn-usb-toolkit**, a cross-platform USB utility for Apricorn devices. The project exposes a single CLI, `usb`, that enumerates Apricorn USB hardware and can issue a safe diagnostic "poke" on supported platforms.
 
 Use this file as the quick project map. Treat the current repo contents as the source of truth.
 
@@ -20,7 +20,7 @@ Use this file as the quick project map. Treat the current repo contents as the s
 
 ## Project Snapshot
 
-- Package name: **apricorn-usb-tool**
+- Package name: **apricorn-usb-toolkit**
 - Python: **3.10+**
 - Source root: `src/usb_tool/`
 - CLI entrypoint:

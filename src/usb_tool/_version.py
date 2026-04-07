@@ -11,7 +11,7 @@ from pathlib import Path
 
 __all__ = ["get_version"]
 
-PACKAGE_NAME = "apricorn-usb-tool"
+PACKAGE_NAME = "apricorn-usb-toolkit"
 PACKAGE_DIR = Path(__file__).resolve().parent
 PROJECT_FILE_NAME = "pyproject.toml"
 PROJECT_SECTION_RE = re.compile(r"(?ms)^\[project\]\s*$\n(?P<body>.*?)(?=^\[|\Z)")

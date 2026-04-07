@@ -1,6 +1,6 @@
 # --- pyproject.toml ---
 
-# Configuration for building and packaging ``apricorn-usb-tool``.
+# Configuration for building and packaging ``apricorn-usb-toolkit``.
 #
 # All packaging metadata lives in this single file so the project no longer
 # relies on ``setup.py`` or ``requirements.txt``.
@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 # Package metadata
-name = "apricorn-usb-tool"
+name = "apricorn-usb-toolkit"
 version = "1.5.14"
 description = "Cross-platform USB tool for Apricorn devices"
 readme = "README.md"
@@ -31,7 +31,7 @@ dependencies = [
 #    { name="Ryan Oswalt", email="roswalt@apricorn.com" },
 # ]
 # license = { text="MIT" }
-# urls = { Homepage = "https://github.com/oswaltryan/apricorn-usb-tool" }
+# urls = { Homepage = "https://github.com/oswaltryan/apricorn-usb-toolkit" }
 
 # --- This section defines the command-line script ---
 [project.scripts]

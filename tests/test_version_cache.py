@@ -4,7 +4,7 @@ from pathlib import Path
 
 from usb_tool import _version as version_mod
 
-PROJECT_NAME = "apricorn-usb-tool"
+PROJECT_NAME = "apricorn-usb-toolkit"
 
 
 def _load_project_version_module():
@@ -39,7 +39,7 @@ def test_get_version_prefers_repo_pyproject_over_installed_metadata(monkeypatch,
 
 def test_get_version_falls_back_to_metadata_when_repo_name_mismatches(monkeypatch, tmp_path):
     pyproject = tmp_path / "pyproject.toml"
-    _write_pyproject(pyproject, "1.4.7", name="not-apricorn-usb-tool")
+    _write_pyproject(pyproject, "1.4.7", name="not-apricorn-usb-toolkit")
     monkeypatch.delenv("USB_TOOL_VERSION", raising=False)
     monkeypatch.setattr(version_mod, "_module_root_candidates", lambda: iter([tmp_path]))
     monkeypatch.setattr(version_mod.importlib.metadata, "version", lambda _name: "9.8.7")
@@ -86,7 +86,7 @@ def test_bump_if_needed_updates_pyproject_when_head_matches(monkeypatch, tmp_pat
     monkeypatch.setattr(
         project_mod,
         "_read_head_file",
-        lambda path: '[project]\nname = "apricorn-usb-tool"\nversion = "1.4.0"\n',
+        lambda path: '[project]\nname = "apricorn-usb-toolkit"\nversion = "1.4.0"\n',
     )
 
     assert project_mod.bump_if_needed() == 0
@@ -103,7 +103,7 @@ def test_bump_if_needed_preserves_manual_version_change(monkeypatch, tmp_path):
     monkeypatch.setattr(
         project_mod,
         "_read_head_file",
-        lambda path: '[project]\nname = "apricorn-usb-tool"\nversion = "1.4.0"\n',
+        lambda path: '[project]\nname = "apricorn-usb-toolkit"\nversion = "1.4.0"\n',
     )
 
     assert project_mod.bump_if_needed() == 0
