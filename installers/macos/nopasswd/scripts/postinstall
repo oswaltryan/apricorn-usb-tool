@@ -7,12 +7,12 @@ VISUDO="${VISUDO:-/usr/sbin/visudo}"
 LINK="/usr/local/bin/usb"
 
 if [ ! -d "$DEST_DIR" ]; then
-    echo "usb-tool: $DEST_DIR not found; skipping sudoers installation." >&2
+    echo "apricorn-usb-toolkit: $DEST_DIR not found; skipping sudoers installation." >&2
     exit 0
 fi
 
 if [ ! -x "$VISUDO" ]; then
-    echo "usb-tool: visudo not found at $VISUDO; skipping sudoers installation." >&2
+    echo "apricorn-usb-toolkit: visudo not found at $VISUDO; skipping sudoers installation." >&2
     exit 0
 fi
 
@@ -27,7 +27,7 @@ chmod 0440 "$tmp_file"
 chown root:wheel "$tmp_file"
 
 if ! "$VISUDO" -cf "$tmp_file" >/dev/null 2>&1; then
-    echo "usb-tool: generated sudoers rule failed validation; skipping NOPASSWD setup." >&2
+    echo "apricorn-usb-toolkit: generated sudoers rule failed validation; skipping NOPASSWD setup." >&2
     exit 0
 fi
 

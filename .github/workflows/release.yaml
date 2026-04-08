@@ -111,7 +111,14 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path release | Out-Null
           Compress-Archive -Force -Path dist\usb-windows.exe -DestinationPath release\usb-windows.zip
-          Copy-Item dist\usb-tool-*-x64.msi release\
+          $msiFiles = @(
+            Get-ChildItem -Path 'dist\apricorn-usb-toolkit-*-x64.msi' -ErrorAction SilentlyContinue
+            Get-ChildItem -Path 'dist\usb-tool-*-x64.msi' -ErrorAction SilentlyContinue
+          ) | Sort-Object -Property FullName -Unique
+          if (-not $msiFiles) {
+            throw "No MSI artifact found under dist/"
+          }
+          Copy-Item -Path $msiFiles.FullName -Destination release\
 
       - name: Package artifact (macOS)
         if: runner.os == 'macOS'
@@ -120,7 +127,13 @@ jobs:
           set -euo pipefail
           mkdir -p release
           tar -czf release/usb-macos.tar.gz -C dist usb-macos
-          cp dist/usb-tool-*-macos.pkg release/
+          shopt -s nullglob
+          pkg_files=(dist/apricorn-usb-toolkit-*-macos.pkg dist/usb-tool-*-macos.pkg)
+          if [[ ${#pkg_files[@]} -eq 0 ]]; then
+            echo "No macOS pkg artifact found under dist/" >&2
+            exit 1
+          fi
+          cp "${pkg_files[@]}" release/
 
       - name: Package artifact (Linux)
         if: runner.os == 'Linux'
@@ -129,7 +142,13 @@ jobs:
           set -euo pipefail
           mkdir -p release
           tar -czf release/usb-linux.tar.gz -C dist usb-linux
-          cp dist/usb-tool-*-amd64.deb release/
+          shopt -s nullglob
+          deb_files=(dist/apricorn-usb-toolkit-*-amd64.deb dist/usb-tool-*-amd64.deb)
+          if [[ ${#deb_files[@]} -eq 0 ]]; then
+            echo "No Debian artifact found under dist/" >&2
+            exit 1
+          fi
+          cp "${deb_files[@]}" release/
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

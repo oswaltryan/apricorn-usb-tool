@@ -1,30 +1,32 @@
 # Installer Guide
 
 ## Windows (.msi)
-- Build with `pwsh build/build_windows_msi.ps1` (requires WiX Toolset). The helper runs PyInstaller, then `candle`/`light`, and drops `dist/usb-tool-<version>-x64.msi`.
-- Install by double-clicking the MSI or running `msiexec /i usb-tool-<version>-x64.msi`. The package copies `usb.exe` to `%ProgramFiles%\Apricorn\usb-tool` and appends that path to the system `PATH`.
-- Uninstall via **Settings → Apps → usb-tool** or `msiexec /x {ProductCode}`. The uninstall removes the binary and PATH entry.
+- Build with `pwsh build/build_windows_msi.ps1` (requires WiX Toolset). The helper runs PyInstaller, then `candle`/`light`, and drops `dist/apricorn-usb-toolkit-<version>-x64.msi`.
+- Install by double-clicking the MSI or running `msiexec /i apricorn-usb-toolkit-<version>-x64.msi`. The package copies `usb.exe` to `%ProgramFiles%\Apricorn\Apricorn USB Toolkit` and appends that path to the system `PATH`.
+- Uninstall via **Settings → Apps → Apricorn USB Toolkit** or `msiexec /x {ProductCode}`. The uninstall removes the binary and PATH entry.
 
 ## Linux (.deb + scripts)
-- Build with `./build/build_linux_installer.sh` (needs `dpkg-deb`). The script stages the payload, copies docs, applies `installers/linux/debian/DEBIAN/*`, and emits `dist/usb-tool-<version>-amd64.deb`.
+- Build with `./build/build_linux_installer.sh` (needs `dpkg-deb`). The script stages the payload, copies docs, applies `installers/linux/debian/DEBIAN/*`, and emits `dist/apricorn-usb-toolkit-<version>-amd64.deb`.
 - Linux release artifacts target a `glibc` 2.31 floor. Build them on Ubuntu 20.04 or an equivalent baseline; newer build hosts can produce a PyInstaller payload that fails on older systems with `GLIBC_2.xx not found`.
-- Install via `sudo apt install ./dist/usb-tool-<version>-amd64.deb`. The package installs to `/usr/local/lib/usb-tool` and symlinks `/usr/local/bin/usb`.
+- Install via `sudo apt install ./dist/apricorn-usb-toolkit-<version>-amd64.deb`. The package installs to `/usr/local/lib/apricorn-usb-toolkit` and symlinks `/usr/local/bin/usb`.
+- Upgrade/migration: package and manual install flows migrate managed files from legacy `/usr/local/lib/usb-tool` to `/usr/local/lib/apricorn-usb-toolkit` and remove the legacy directory when it is empty.
 - During interactive Debian installs, the package can optionally create `/etc/sudoers.d/usb-tool-nopasswd` so `sudo usb` does not prompt for a password. The default is `No`; noninteractive installs also default to `No`.
 - Uninstall via `sudo apt remove usb-tool`.
-- Manual path (non-Debian): run `sudo bash installers/linux/install.sh --binary dist/usb-linux` to copy the standalone binary into place. Remove manual installs with `sudo bash installers/linux/uninstall.sh` (deletes `/usr/local/lib/usb-tool` and the `/usr/local/bin/usb` symlink if it points to that directory).
+- Manual path (non-Debian): run `sudo bash installers/linux/install.sh --binary dist/usb-linux` to copy the standalone binary into place. Remove manual installs with `sudo bash installers/linux/uninstall.sh` (deletes `/usr/local/lib/apricorn-usb-toolkit` and the `/usr/local/bin/usb` symlink if it points to that directory).
 
 ## macOS (.pkg)
-- Build with `./build/build_macos_pkg.sh --arm64 <path> --x86_64 <path>` after producing PyInstaller binaries for both architectures. The script combines them with `lipo` (universal), builds component packages, and wraps them with `productbuild`, creating `dist/usb-tool-<version>-macos.pkg`.
-- Install by double-clicking the PKG or running `sudo installer -pkg dist/usb-tool-<version>-macos.pkg -target /`. The package places the CLI at `/usr/local/lib/usb-tool/usb` and symlinks `/usr/local/bin/usb`. It runs natively on Intel and Apple Silicon Macs (including the Mac mini M4).
+- Build with `./build/build_macos_pkg.sh --arm64 <path> --x86_64 <path>` after producing PyInstaller binaries for both architectures. The script combines them with `lipo` (universal), builds component packages, and wraps them with `productbuild`, creating `dist/apricorn-usb-toolkit-<version>-macos.pkg`.
+- Install by double-clicking the PKG or running `sudo installer -pkg dist/apricorn-usb-toolkit-<version>-macos.pkg -target /`. The package places the CLI at `/usr/local/lib/apricorn-usb-toolkit/usb` and symlinks `/usr/local/bin/usb`. It runs natively on Intel and Apple Silicon Macs (including the Mac mini M4).
+- Upgrade/migration: installer and manual install flows migrate managed files from legacy `/usr/local/lib/usb-tool` to `/usr/local/lib/apricorn-usb-toolkit` and remove the legacy directory when it is empty.
 - The macOS installer now includes an opt-in choice, `Allow passwordless sudo for usb`, that creates `/etc/sudoers.d/usb-tool-nopasswd` for `/usr/local/bin/usb`. This is intended for scripted `sudo -n usb ...` usage.
 - Manual path: run `sudo sh installers/macos/install.sh --binary dist/usb-macos` to copy the standalone binary into place. Add `--install-nopasswd-sudo` to install the same sudoers rule during the manual install.
-- Uninstall manually: remove `/usr/local/lib/usb-tool` and `/usr/local/bin/usb` (if it points to that directory).
+- Uninstall manually: remove `/usr/local/lib/apricorn-usb-toolkit` and `/usr/local/bin/usb` (if it points to that directory).
 
 ## Verification Checklist
 - After installing on any OS, open a **new** terminal to ensure PATH updates are applied and run `usb -h`, then `usb --json`, to confirm the CLI is on `PATH` and enumeration runs without stack traces.
 - Run `usb -p` with a dry target where supported (Windows/Linux) to ensure permissions errors are readable when not elevated.
 - Uninstall and verify:
-  - Windows: `%ProgramFiles%\Apricorn\usb-tool` folder removed and PATH no longer includes it.
-  - Linux: `/usr/local/lib/usb-tool` removed and `/usr/local/bin/usb` absent (or symlink restored to user-managed binary).
+  - Windows: `%ProgramFiles%\Apricorn\Apricorn USB Toolkit` folder removed and PATH no longer includes it.
+  - Linux: `/usr/local/lib/apricorn-usb-toolkit` removed and `/usr/local/bin/usb` absent (or symlink restored to user-managed binary).
   - macOS: same as Linux plus Gatekeeper/quarantine cleared (use `spctl --assess` if signed).
 - Re-run the installer to confirm upgrades succeed without manual cleanup.

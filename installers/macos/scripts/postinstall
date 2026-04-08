@@ -1,11 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
-INSTALL_DIR="/usr/local/lib/usb-tool"
+INSTALL_DIR="/usr/local/lib/apricorn-usb-toolkit"
+LEGACY_INSTALL_DIR="/usr/local/lib/usb-tool"
 LINK="/usr/local/bin/usb"
 
 /bin/mkdir -p "$INSTALL_DIR"
 /bin/mkdir -p "$(dirname "$LINK")"
+/bin/chmod 755 "$INSTALL_DIR" 2>/dev/null || true
+
+if [ -f "$LEGACY_INSTALL_DIR/usb" ] && [ ! -f "$INSTALL_DIR/usb" ]; then
+    /bin/mv "$LEGACY_INSTALL_DIR/usb" "$INSTALL_DIR/usb" 2>/dev/null || true
+fi
+if [ -f "$LEGACY_INSTALL_DIR/update_sudoersd_macos.sh" ] && [ ! -f "$INSTALL_DIR/update_sudoersd_macos.sh" ]; then
+    /bin/mv "$LEGACY_INSTALL_DIR/update_sudoersd_macos.sh" "$INSTALL_DIR/update_sudoersd_macos.sh" 2>/dev/null || true
+fi
+
 /bin/chmod 755 "$INSTALL_DIR" 2>/dev/null || true
 if [ -f "$INSTALL_DIR/usb" ]; then
     /bin/chmod 755 "$INSTALL_DIR/usb"
@@ -15,5 +25,10 @@ if [ -f "$INSTALL_DIR/update_sudoersd_macos.sh" ]; then
 fi
 
 /bin/ln -sf "$INSTALL_DIR/usb" "$LINK"
+
+if [ -d "$LEGACY_INSTALL_DIR" ]; then
+    /bin/rm -f "$LEGACY_INSTALL_DIR/usb" "$LEGACY_INSTALL_DIR/update_sudoersd_macos.sh"
+    /bin/rmdir "$LEGACY_INSTALL_DIR" 2>/dev/null || true
+fi
 
 exit 0

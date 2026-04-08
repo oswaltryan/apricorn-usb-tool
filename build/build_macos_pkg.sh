@@ -107,10 +107,10 @@ pkg_version="$major.$minor.$patch"
 
 rm -rf "$STAGING_ROOT"
 rm -rf "$PKG_BUILD_DIR"
-mkdir -p "$STAGING_ROOT/usr/local/lib/usb-tool"
+mkdir -p "$STAGING_ROOT/usr/local/lib/apricorn-usb-toolkit"
 mkdir -p "$PKG_BUILD_DIR"
-install -m 755 "$selected_binary" "$STAGING_ROOT/usr/local/lib/usb-tool/usb"
-install -m 755 "$SUDOERS_HELPER" "$STAGING_ROOT/usr/local/lib/usb-tool/update_sudoersd_macos.sh"
+install -m 755 "$selected_binary" "$STAGING_ROOT/usr/local/lib/apricorn-usb-toolkit/usb"
+install -m 755 "$SUDOERS_HELPER" "$STAGING_ROOT/usr/local/lib/apricorn-usb-toolkit/update_sudoersd_macos.sh"
 
 base_pkg="$PKG_BUILD_DIR/usb-tool-base.pkg"
 nopasswd_pkg="$PKG_BUILD_DIR/usb-tool-nopasswd.pkg"
@@ -132,7 +132,7 @@ nopasswd_pkg="$PKG_BUILD_DIR/usb-tool-nopasswd.pkg"
 distribution_path="$PKG_BUILD_DIR/distribution.xml"
 cp "$DIST_TEMPLATE" "$distribution_path"
 
-pkg_path="$DIST_DIR/usb-tool-$version-macos.pkg"
+pkg_path="$DIST_DIR/apricorn-usb-toolkit-$version-macos.pkg"
 /usr/bin/productbuild \
     --distribution "$distribution_path" \
     --package-path "$PKG_BUILD_DIR" \

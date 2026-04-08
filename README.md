@@ -61,10 +61,10 @@ The project is distributed as MSI/PKG/DEB installers plus portable binaries so v
 Prebuilt installers and single-file binaries are published on GitHub Releases; Python is not required.
 
 1. Download the latest asset for your OS:
-   - **Windows**: `usb-tool-<version>-x64.msi` installs to `%ProgramFiles%\Apricorn\Apricorn USB Tool\` and places `usb` on PATH (Admin required).
-   - **Linux**: `usb-tool-<version>-amd64.deb` installs to `/usr/local/lib/usb-tool` and symlinks `/usr/local/bin/usb` (sudo required).<br>
+   - **Windows**: `apricorn-usb-toolkit-<version>-x64.msi` installs to `%ProgramFiles%\Apricorn\Apricorn USB Toolkit\` and places `usb` on PATH (Admin required).
+   - **Linux**: `apricorn-usb-toolkit-<version>-amd64.deb` installs to `/usr/local/lib/apricorn-usb-toolkit` and symlinks `/usr/local/bin/usb` (sudo required).<br>
                 A portable `usb-linux.tar.gz` plus `installers/linux/install.sh` is available for non-Debian hosts.
-   - **macOS**: `usb-tool-<version>-macos.pkg` installs to `/usr/local/lib/usb-tool` and exposes `/usr/local/bin/usb`; the payload is universal and the installer includes an opt-in choice for passwordless `sudo -n usb`. A raw `usb-macos.tar.gz` binary plus `installers/macos/install.sh` is also available for portable/manual use.
+   - **macOS**: `apricorn-usb-toolkit-<version>-macos.pkg` installs to `/usr/local/lib/apricorn-usb-toolkit` and exposes `/usr/local/bin/usb`; the payload is universal and the installer includes an opt-in choice for passwordless `sudo -n usb`. A raw `usb-macos.tar.gz` binary plus `installers/macos/install.sh` is also available for portable/manual use.
 2. Run `usb` from a terminal with the commands below. Poke requires Administrator on Windows and sudo/root on Linux.
 3. To update standalone builds, rerun the latest installer or download the newest portable binary. Standalone binaries do not use `usb-update`.
 
@@ -199,7 +199,7 @@ Additional visibility rules:
 **macOS**
 - Enumeration uses `system_profiler` + `ioreg`. Poke is not yet enabled.
 - For tests/tools: `brew install lsusb`.
-- The macOS installer includes an opt-in choice for passwordless `sudo -n usb`. Manual installs can use `sudo /usr/local/lib/usb-tool/update_sudoersd_macos.sh` after install.
+- The macOS installer includes an opt-in choice for passwordless `sudo -n usb`. Manual installs can use `sudo /usr/local/lib/apricorn-usb-toolkit/update_sudoersd_macos.sh` after install.
 
 ## Python API
 

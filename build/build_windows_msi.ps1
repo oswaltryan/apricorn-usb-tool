@@ -30,11 +30,11 @@ function Get-MsiVersion([string]$version) {
 function Get-UsbVersion {
     $version = & python (Join-Path $repoRoot 'utils/project_version.py') read
     if ($LASTEXITCODE -ne 0) {
-        throw 'Unable to determine usb-tool version from pyproject.toml'
+        throw 'Unable to determine project version from pyproject.toml'
     }
     $raw = ($version | Out-String).Trim()
     if (-not $raw) {
-        throw 'Unable to determine usb-tool version from pyproject.toml'
+        throw 'Unable to determine project version from pyproject.toml'
     }
     return $raw.Trim()
 }
@@ -87,7 +87,7 @@ $iconDefine = "-dProductIcon=$iconPath"
     -out $wixObj `
     $wxsPath
 
-$msiPath = Join-Path $distDir "usb-tool-$version-x64.msi"
+$msiPath = Join-Path $distDir "apricorn-usb-toolkit-$version-x64.msi"
 & $light.Path -ext WixUtilExtension `
     $iconDefine `
     -out $msiPath `

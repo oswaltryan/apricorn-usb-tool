@@ -1,6 +1,6 @@
 # macOS Installer
 
-Builds a signed-or-unsigned `.pkg` that installs `usb` into `/usr/local/lib/usb-tool` and exposes it via `/usr/local/bin/usb` (symlink) for both Intel and Apple Silicon hosts.
+Builds a signed-or-unsigned `.pkg` for Apricorn USB Toolkit that installs `usb` into `/usr/local/lib/apricorn-usb-toolkit` and exposes it via `/usr/local/bin/usb` (symlink) for both Intel and Apple Silicon hosts.
 
 ## Prerequisites
 
@@ -20,7 +20,7 @@ Builds a signed-or-unsigned `.pkg` that installs `usb` into `/usr/local/lib/usb-
    ./build/build_macos_pkg.sh --arm64 dist/usb-macos-arm64 --x86_64 dist/usb-macos-x86_64
    ```
    The script combines them with `lipo` to create a universal binary, stages the payload, builds component packages, and runs `productbuild`.
-3. The final `usb-tool-<version>-macos.pkg` artifact is placed in `dist/` ready for notarization or distribution.
+3. The final `apricorn-usb-toolkit-<version>-macos.pkg` artifact is placed in `dist/` ready for notarization or distribution.
 
 If only one architecture binary is supplied, the script still builds a pkg using that binary and warns that it is not universal.
 
@@ -28,7 +28,7 @@ If only one architecture binary is supplied, the script still builds a pkg using
 
 Install the pkg:
 ```bash
-sudo installer -pkg dist/usb-tool-<version>-macos.pkg -target /
+sudo installer -pkg dist/apricorn-usb-toolkit-<version>-macos.pkg -target /
 ```
 
 In Installer.app, the Customize step now includes an opt-in choice:
@@ -53,5 +53,5 @@ sudo sh installers/macos/uninstall.sh
 
 Remove the sudoers opt-in:
 ```bash
-sudo /usr/local/lib/usb-tool/update_sudoersd_macos.sh --remove
+sudo /usr/local/lib/apricorn-usb-toolkit/update_sudoersd_macos.sh --remove
 ```

@@ -111,7 +111,7 @@ pre-commit install
   ```bash
   sudo ./update_sudoersd_macos.sh
   ```
-- The installed helper path used by the macOS installer is `/usr/local/lib/usb-tool/update_sudoersd_macos.sh`.
+- The installed helper path used by the macOS installer is `/usr/local/lib/apricorn-usb-toolkit/update_sudoersd_macos.sh`.
 
 ---
 

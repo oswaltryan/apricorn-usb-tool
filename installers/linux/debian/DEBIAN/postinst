@@ -3,16 +3,30 @@ set -e
 
 . /usr/share/debconf/confmodule
 
-BIN_DIR="/usr/local/lib/usb-tool"
+BIN_DIR="/usr/local/lib/apricorn-usb-toolkit"
+LEGACY_BIN_DIR="/usr/local/lib/usb-tool"
 LINK_TARGET="/usr/local/bin/usb"
 SUDOERS_FILE="/etc/sudoers.d/usb-tool-nopasswd"
 QUESTION="usb-tool/install_nopasswd_sudo"
+
+if [ ! -d "$BIN_DIR" ]; then
+    mkdir -p "$BIN_DIR"
+fi
+
+if [ ! -x "$BIN_DIR/usb" ] && [ -x "$LEGACY_BIN_DIR/usb" ]; then
+    mv "$LEGACY_BIN_DIR/usb" "$BIN_DIR/usb" 2>/dev/null || true
+fi
 
 if [ ! -x "$BIN_DIR/usb" ]; then
     chmod 755 "$BIN_DIR/usb" 2>/dev/null || true
 fi
 
 ln -sf "$BIN_DIR/usb" "$LINK_TARGET"
+
+if [ -d "$LEGACY_BIN_DIR" ]; then
+    rm -f "$LEGACY_BIN_DIR/usb"
+    rmdir "$LEGACY_BIN_DIR" 2>/dev/null || true
+fi
 
 if db_get "$QUESTION" && [ "$RET" = "true" ]; then
     if [ -x /usr/sbin/visudo ] && [ -d /etc/sudoers.d ]; then
@@ -26,7 +40,7 @@ EOF
             mv "$tmp_file" "$SUDOERS_FILE"
         else
             rm -f "$tmp_file"
-            echo "usb-tool: generated sudoers file failed validation; skipping NOPASSWD setup." >&2
+            echo "apricorn-usb-toolkit: generated sudoers file failed validation; skipping NOPASSWD setup." >&2
         fi
     fi
 else
